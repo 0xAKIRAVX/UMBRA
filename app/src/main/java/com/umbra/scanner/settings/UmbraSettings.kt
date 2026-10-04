@@ -55,6 +55,9 @@ class UmbraSettings(context: Context) {
             .putBoolean("p_sweep", p.portSweep)
             .putString("p_sweepports", p.sweepPorts.joinToString(","))
             .putInt("p_speedconc", p.speedConcurrency)
+            .putInt("p_warptries", p.warpAttempts)
+            .putBoolean("p_noise", p.udpNoise)
+            .putInt("p_noisecnt", p.noiseCount)
             .apply()
     }
 
@@ -84,6 +87,9 @@ class UmbraSettings(context: Context) {
             sweepPorts = (prefs.getString("p_sweepports", "") ?: "")
                 .split(',').mapNotNull { it.trim().toIntOrNull() }
                 .filter { it in 1..65535 },
+            warpAttempts = prefs.getInt("p_warptries", 3).coerceIn(1, 7),
+            udpNoise = prefs.getBoolean("p_noise", true),
+            noiseCount = prefs.getInt("p_noisecnt", 5).coerceIn(1, 50),
         )
     }
 

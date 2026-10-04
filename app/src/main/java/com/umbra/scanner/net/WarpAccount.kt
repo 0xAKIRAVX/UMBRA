@@ -1,0 +1,128 @@
+package com.umbra.scanner.net
+
+import android.util.Base64
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
+import kotlin.random.Random
+
+/**
+ * Registers a fresh, free WARP account with the Cloudflare API — the same
+ * flow BPB-Warp-Scanner uses (warp.go). The resulting WireGuard identity is
+ * what makes endpoint validation REAL: endpoints are proven live by a full
+ * Noise_IKpsk2 handshake plus data-plane traffic for this identity, not by
+ * a meaningless TCP connect.
+ */
+class WarpAccount(
+    /** Clamped X25519 static private key (32 raw bytes). */
+    val privateKey: ByteArray,
+    /** Static public key (32 raw bytes). */
+    val publicKey: ByteArray,
+    /** Reserved / client_id bytes (3) — required by WARP's data plane. */
+    val reserved: ByteArray,
+    /** Assigned tunnel IPv6 (no prefix length). */
+    val v6: String,
+    /** Assigned tunnel IPv4 (typically 172.16.0.2). */
+    val v4: String,
+    /** The WARP peer (responder) static public key — server-side identity. */
+    val responderPublicKey: ByteArray,
+)
+
+object WarpRegistration {
+
+    private const val API_BASE = "https://api.cloudflareclient.com/v0a4005/reg"
+    private const val USER_AGENT = "insomnia/8.6.1"
+
+    /** Deterministic identity generation, isolated for unit tests. */
+    fun newIdentity(random: Random = Random(System.nanoTime())): Pair<ByteArray, ByteArray> {
+        val priv = WgCrypto.clampScalar(ByteArray(32).also { random.nextBytes(it) })
+        return priv to WgCrypto.x25519Base(priv)
+    }
+
+    /** Builds the exact JSON body the Android registration endpoint expects. */
+    fun buildPayload(publicKeyB64: String, tosIso: String): String {
+        val o = JSONObject()
+        o.put("install_id", "")
+        o.put("fcm_token", "")
+        o.put("tos", tosIso)
+        o.put("type", "Android")
+        o.put("model", "PC")
+        o.put("locale", "en_US")
+        o.put("warp_enabled", true)
+        o.put("key", publicKeyB64)
+        return o.toString()
+    }
+
+    fun tosTimestamp(now: Long = System.currentTimeMillis()): String {
+        val fmt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'.000Z'", Locale.US)
+        fmt.timeZone = TimeZone.getTimeZone("UTC")
+        return fmt.format(Date(now))
+    }
+
+    /** Parses the registration response; null when the payload is unusable. */
+    fun parseResponse(body: String, privateKey: ByteArray, publicKey: ByteArray): WarpAccount? =
+        runCatching {
+            val root = JSONObject(body)
+            val cfg = root.getJSONObject("config")
+            val clientIdB64 = cfg.optString("client_id")
+            val v6 = cfg.getJSONObject("interface").getJSONObject("addresses").optString("v6")
+            val v4 = cfg.getJSONObject("interface").getJSONObject("addresses").optString("v4")
+            val peers = cfg.getJSONArray("peers")
+            require(peers.length() > 0 && v6.isNotBlank() && clientIdB64.isNotBlank())
+            val reserved = Base64.decode(clientIdB64, Base64.NO_WRAP)
+            val peerPub = Base64.decode(peers.getJSONObject(0).optString("public_key"), Base64.NO_WRAP)
+            require(reserved.size in 1..8 && peerPub.size == 32)
+            WarpAccount(
+                privateKey = privateKey,
+                publicKey = publicKey,
+                reserved = reserved,
+                v6 = v6,
+                v4 = v4.ifBlank { "172.16.0.2" },
+                responderPublicKey = peerPub,
+            )
+        }.getOrNull()
+
+    /**
+     * Registers a new account. Retries a couple of times with a fresh identity
+     * (the API occasionally returns 4xx under load). Throws on final failure.
+     */
+    suspend fun register(attempts: Int = 3): WarpAccount = withContext(Dispatchers.IO) {
+        var lastError: Exception? = null
+        repeat(attempts) {
+            try {
+                val (priv, pub) = newIdentity()
+                val pubB64 = Base64.encodeToString(pub, Base64.NO_WRAP)
+                val payload = buildPayload(pubB64, tosTimestamp())
+                val conn = URL(API_BASE).openConnection() as HttpURLConnection
+                try {
+                    conn.requestMethod = "POST"
+                    conn.doOutput = true
+                    conn.setRequestProperty("User-Agent", USER_AGENT)
+                    conn.setRequestProperty("Content-Type", "application/json")
+                    conn.connectTimeout = 10_000
+                    conn.readTimeout = 15_000
+                    conn.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
+                    val code = conn.responseCode
+                    if (code !in 200..299) throw java.io.IOException("registration HTTP $code")
+                    val body = conn.inputStream.bufferedReader().use { it.readText() }
+                    parseResponse(body, priv, pub)?.let { return@withContext it }
+                        ?: throw java.io.IOException("unparsable registration payload")
+                } finally {
+                    conn.disconnect()
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                lastError = e
+            }
+        }
+        throw IllegalStateException(
+            "WARP registration failed: ${lastError?.message ?: "unknown"}", lastError)
+    }
+}

@@ -29,12 +29,23 @@ object Presets {
         "2c0f:f248::/32",
     )
 
+    /** WARP v4 pool — BPB-Warp-Scanner range set (includes the newer 8.x blocks
+     *  that many ISPs have not rate-limited yet). */
     val WARP_V4: List<String> = listOf(
         "162.159.192.0/24",
         "162.159.193.0/24",
         "162.159.195.0/24",
-        "188.114.96.0/23",
-        "188.114.98.0/23",
+        "188.114.96.0/24",
+        "188.114.97.0/24",
+        "188.114.98.0/24",
+        "188.114.99.0/24",
+        "8.34.146.0/24",
+        "8.39.214.0/24",
+        "8.39.204.0/24",
+        "8.6.112.0/24",
+        "8.35.211.0/24",
+        "8.39.125.0/24",
+        "8.47.69.0/24",
     )
 
     val WARP_V6: List<String> = listOf(
@@ -48,17 +59,16 @@ object Presets {
     val WARP_PORTS: List<Int> = listOf(2408, 894, 443, 928, 1843, 500, 1701, 4500)
 
     /**
-     * Full canonical WARP endpoint port list (community-verified). TCP on these
-     * ports terminates on WARP endpoints; ISPs that block 2408 usually still
-     * allow several of these, so the sweep mode probes them all.
+     * Full canonical WARP endpoint port list — BPB-Warp-Scanner's verified set
+     * plus :443. Endpoints on these ports are validated with a real WireGuard
+     * handshake, so a port being open for TCP is no longer a requirement.
      */
     val WARP_PORTS_FULL: List<Int> = listOf(
         500, 854, 859, 864, 878, 880, 890, 891, 894, 903, 908, 928, 934, 939,
-        943, 945, 946, 955, 968, 987, 988, 1002, 1010, 1014, 1018, 1070, 1074,
-        1180, 1387, 1701, 1843, 2371, 2408, 2506, 3138, 3476, 3581, 3854, 4177,
-        4198, 4233, 443, 4500, 5222, 5228, 5229, 5233, 5277, 5278, 5279, 5280,
-        5281, 5282, 5283, 5744, 6178, 6179, 6180, 6181, 6182, 6881, 8086, 8914,
-        8938, 9275, 9397, 9424, 9425,
+        942, 943, 945, 946, 955, 968, 987, 988, 1002, 1010, 1014, 1018, 1070,
+        1074, 1180, 1387, 1701, 1843, 2371, 2408, 2506, 3138, 3476, 3581, 3854,
+        4177, 4198, 4233, 4500, 5279, 5956, 7103, 7152, 7156, 7281, 7559, 8319,
+        8742, 8854, 8886, 443,
     ).sorted()
 
     /** Seed WARP endpoint IPs used for calibration (DNS-verified live pool). */

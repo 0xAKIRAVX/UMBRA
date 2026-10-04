@@ -175,10 +175,14 @@ class WarpScanTest {
             ScanMode.WARP,
         )
         assertEquals(443, r.port)
-        assertEquals(false, r.portSweep)
+        // nothing answered a real handshake → sweep the full port list anyway
+        assertEquals(true, r.portSweep)
+        assertTrue(r.sweepPorts.isNotEmpty())
         assertTrue(r.concurrency in 48..160)
         assertEquals(10, r.downloadMb) // unknown link → 10mb
         assertTrue(r.tcpTimeoutMs >= 1500) // 4×380 → 1520 → 1600
+        // poor rtt → maximum wireguard retries
+        assertEquals(7, r.warpAttempts)
     }
 
     @Test
@@ -208,6 +212,20 @@ class WarpScanTest {
             ScanMode.WARP,
         )
         assertTrue(r.notes.isNotEmpty())
-        assertTrue(r.notes.any { it.contains("443 fallback") })
+        assertTrue(r.notes.any { it.contains(":443 sweep fallback") })
+        assertTrue(r.notes.any { it.contains("wireguard retries") })
+        assertTrue(r.notes.any { it.contains("handshake") })
+    }
+
+    @Test
+    fun `warp retries scale with network quality`() {
+        fun tries(rtt: Double?) = AutoTune.decide(
+            AutoTune.Calibration(rttMs = rtt, v6Ok = false, cores = 8, lowRam = false),
+            ScanMode.WARP,
+        ).warpAttempts
+        assertEquals(3, tries(45.0))   // good network
+        assertEquals(5, tries(120.0))  // moderate
+        assertEquals(7, tries(250.0))  // poor
+        assertEquals(5, tries(null))   // unknown → middle
     }
 }

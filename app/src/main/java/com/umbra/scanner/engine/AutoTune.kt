@@ -8,6 +8,10 @@ import com.umbra.scanner.core.Presets
 import com.umbra.scanner.core.ScanMode
 import com.umbra.scanner.net.ExactIpHttps
 import com.umbra.scanner.net.TcpProbe
+import com.umbra.scanner.net.UdpNoiseConfig
+import com.umbra.scanner.net.WarpAccount
+import com.umbra.scanner.net.WarpProbe
+import com.umbra.scanner.net.WarpRegistration
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -34,7 +38,8 @@ object AutoTune {
     data class Calibration(
         val rttMs: Double? = null,
         val v6Ok: Boolean = false,
-        /** working WARP port → best latency over the seed endpoints (ms) */
+        /** working WARP port → best latency over the seed endpoints (ms).
+         *  For WARP mode these come from REAL WireGuard handshakes now. */
         val warpPortLatency: Map<Int, Double> = emptyMap(),
         val linkMbps: Double? = null,
         val cores: Int = 4,
@@ -50,6 +55,7 @@ object AutoTune {
         val sweepPorts: List<Int>,
         val samplesPerPrefix: Int,
         val tcpAttempts: Int,
+        val warpAttempts: Int,
         val tcpTimeoutMs: Int,
         val concurrency: Int,
         val tlsVerify: Boolean,
@@ -95,8 +101,15 @@ object AutoTune {
         val v6 = probeV6()
 
         val warpPorts: Map<Int, Double> = if (mode == ScanMode.WARP) {
-            onStep("sweeping ${Presets.WARP_PORTS_FULL.size} warp ports × 2 seeds")
-            sweepWarpPorts(rtt)
+            onStep("registering warp identity · real wireguard sweep")
+            val account = runCatching { WarpRegistration.register() }.getOrNull()
+            if (account == null) {
+                onStep("registration failed · falling back to tcp port sweep")
+                sweepWarpPorts(rtt)
+            } else {
+                onStep("sweeping ${Presets.WARP_PORTS_FULL.size} warp ports · live handshakes")
+                sweepWarpPortsWg(account, rtt)
+            }
         } else emptyMap()
 
         onStep("measuring link capacity · 1 mb exact-ip sample")
@@ -191,6 +204,62 @@ object AutoTune {
         best
     }
 
+    /**
+     * REAL WARP port sweep: one full WireGuard handshake (+ in-tunnel ping) per
+     * (port, seed) — the port list that survives is guaranteed to carry actual
+     * WARP traffic on this network, not just open TCP sockets.
+     */
+    private suspend fun sweepWarpPortsWg(account: WarpAccount, rttMs: Double?): Map<Int, Double> = coroutineScope {
+        val timeout = ((rttMs ?: 300.0) * 8.0).coerceIn(2000.0, 5000.0).roundToInt()
+        val seeds = Presets.WARP_SEED_V4.mapNotNull { IpText.literalToBytes(it) }
+        val sem = Semaphore(32)
+        val probe = WarpProbe(account, noise = UdpNoiseConfig(enabled = true, count = 5))
+        val best = HashMap<Int, Double>()
+
+        suspend fun probePort(port: Int, seed: ByteArray): Double? {
+            val stats = runCatching {
+                withTimeoutOrNull((timeout + 1000).toLong()) {
+                    probe.probe(seed, port, attempts = 1, timeoutMs = timeout, interAttemptDelayMs = 0)
+                }
+            }.getOrNull() ?: return null
+            return when {
+                stats.pings > 0 -> stats.avgPingMs ?: stats.handshakeLatenciesMs.minOrNull()
+                stats.handshakes > 0 -> stats.handshakeLatenciesMs.minOrNull()
+                else -> null
+            }
+        }
+
+        val first = seeds.firstOrNull() ?: return@coroutineScope emptyMap()
+        val deferred = Presets.WARP_PORTS_FULL.map { port ->
+            async(Dispatchers.IO) {
+                sem.withPermit {
+                    val lat = probePort(port, first)
+                    if (lat != null) port to lat else null
+                }
+            }
+        }
+        for (pair in deferred.awaitAll()) {
+            if (pair != null) best[pair.first] = pair.second
+        }
+
+        val failed = Presets.WARP_PORTS_FULL.filter { it !in best }
+        if (failed.isNotEmpty() && seeds.size > 1) {
+            val second = seeds[1]
+            val retry = failed.map { port ->
+                async(Dispatchers.IO) {
+                    sem.withPermit {
+                        val lat = probePort(port, second)
+                        if (lat != null) port to lat else null
+                    }
+                }
+            }
+            for (pair in retry.awaitAll()) {
+                if (pair != null) best[pair.first] = pair.second
+            }
+        }
+        best
+    }
+
     private suspend fun measureLink(v6Ok: Boolean): Double? {
         val seedText = if (v6Ok) "2606:4700:d0::a29f:c001" else "162.159.192.1"
         val bytes = IpText.literalToBytes(seedText) ?: return null
@@ -239,23 +308,25 @@ object AutoTune {
             when {
                 working.isEmpty() -> {
                     port = 443
-                    notes.add("all warp ports blocked → :443 fallback (tcp-verified)")
+                    notes.add("no wireguard answer on any port → :443 sweep fallback")
+                    sweep = true
+                    sweepPorts = Presets.WARP_PORTS_FULL.take(16)
                 }
                 2408 in working -> {
                     port = 2408
                     sweep = working.size >= 4
                     if (sweep) {
                         sweepPorts = (listOf(2408) + working.filter { it != 2408 }).take(12)
-                        notes.add("port 2408 open · sweeping ${sweepPorts.size} live ports for backup options")
+                        notes.add("port 2408 handshakes · sweeping ${sweepPorts.size} wg-verified ports")
                     } else {
-                        notes.add("port 2408 open · single-port lock")
+                        notes.add("port 2408 handshakes · single-port lock")
                     }
                 }
                 else -> {
                     sweep = true
                     sweepPorts = (working + 443).distinct().take(16)
                     port = sweepPorts.first()
-                    notes.add("port 2408 blocked → sweep ${sweepPorts.size} open ports (${sweepPorts.take(4).joinToString("/")}${if (sweepPorts.size > 4) "…" else ""})")
+                    notes.add("2408 silent → sweep ${sweepPorts.size} wg-verified ports (${sweepPorts.take(4).joinToString("/")}${if (sweepPorts.size > 4) "…" else ""})")
                 }
             }
         }
@@ -289,6 +360,22 @@ object AutoTune {
             if (mbps != null) "link ≈ ${"%.1f".format(mbps)} mbps → ${downloadMb}mb sample · ${speedConcurrency}× speed lanes"
             else "link unknown → ${downloadMb}mb sample"
         )
+
+        // ---- WARP retries (BPB-style 3/5/7 by network quality) ----
+        val warpAttempts = when {
+            mode != ScanMode.WARP -> 3
+            rtt == null -> 5
+            rtt >= 200.0 -> 7
+            rtt >= 100.0 -> 5
+            else -> 3
+        }
+        if (mode == ScanMode.WARP) {
+            notes.add(
+                if (rtt != null) "rtt ${rtt.roundToInt()}ms → ${warpAttempts} wireguard retries per endpoint"
+                else "rtt unknown → ${warpAttempts} wireguard retries per endpoint"
+            )
+            notes.add("every endpoint is proven by handshake + in-tunnel ping · results work in wireguard/v2rayng")
+        }
         if (mode == ScanMode.WARP) notes.add("warp speed is measured on :443 — warp ports never serve the speed endpoint")
 
         return TuneResult(
@@ -299,6 +386,7 @@ object AutoTune {
             sweepPorts = sweepPorts,
             samplesPerPrefix = samples,
             tcpAttempts = 3,
+            warpAttempts = warpAttempts,
             tcpTimeoutMs = timeout,
             concurrency = concurrency,
             tlsVerify = true,

@@ -92,6 +92,7 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
     var sweep by rememberSaveable { mutableStateOf(saved.portSweep) }
     var sweepPortsStr by rememberSaveable { mutableStateOf(saved.sweepPorts.joinToString(",")) }
     var warpPlus by rememberSaveable { mutableStateOf(saved.warpFlavor == WarpFlavor.WARP_PLUS) }
+    var udpNoise by rememberSaveable { mutableStateOf(saved.udpNoise) }
     var customCidrs by rememberSaveable {
         mutableStateOf(saved.cidrs.filter { it.contains('/') }.joinToString("\n"))
     }
@@ -267,7 +268,7 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
                         sweep = result.portSweep
                         sweepPortsStr = result.sweepPorts.joinToString(",")
                         samples = result.samplesPerPrefix
-                        attempts = result.tcpAttempts
+                        attempts = if (mode == ScanMode.WARP) result.warpAttempts else result.tcpAttempts
                         timeoutMs = result.tcpTimeoutMs
                         concurrency = result.concurrency
                         tlsOn = result.tlsVerify
@@ -361,13 +362,20 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
             }
         }
         if (mode == ScanMode.WARP) {
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(10.dp))
+            ToggleRow(
+                title = "UDP NOISE",
+                subtitle = "anti-DPI burst of 5 random packets before every handshake — the BPB trick for ISPs that throttle WARP",
+                checked = udpNoise,
+                onChange = { udpNoise = it },
+            )
+            Spacer(Modifier.height(8.dp))
             Text(
                 if (sweepEnabled) {
                     val n = if (sweepPorts.isEmpty()) Presets.warpPortsCount() else sweepPorts.size
-                    "sweep mode probes $n canonical warp ports per IP — finds endpoints even when your ISP blocks 2408"
+                    "sweep validates $n canonical warp ports per IP with a real wireguard handshake + in-tunnel ping"
                 } else {
-                    "ISPs often block 2408 — if a single port finds nothing, tap SWEEP or AUTO-TUNE"
+                    "every endpoint is proven by a real wireguard handshake — results work in wireguard / v2rayng / hiddify"
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = Fog,
@@ -435,7 +443,11 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
             Column {
                 Spacer(Modifier.height(8.dp))
                 LabeledSlider("SAMPLES / PREFIX", samples, { samples = it }, 50..3000, valueText = samples.toString())
-                LabeledSlider("TCP ATTEMPTS", attempts, { attempts = it }, 1..10, valueText = "×$attempts")
+                LabeledSlider(
+                    if (mode == ScanMode.WARP) "WG RETRIES" else "TCP ATTEMPTS",
+                    attempts, { attempts = it }, 1..10,
+                    valueText = "×$attempts",
+                )
                 LabeledSlider("TIMEOUT", timeoutMs, { timeoutMs = it }, 300..6000 step 100, valueText = "${timeoutMs}ms")
                 LabeledSlider("CONCURRENCY", concurrency, { concurrency = it }, 10..400, valueText = concurrency.toString())
                 LabeledSlider("TLS VERIFY TOP N", verifyTopN, { verifyTopN = it }, 10..300, valueText = verifyTopN.toString())
@@ -495,6 +507,9 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
                     warpFlavor = if (warpPlus) WarpFlavor.WARP_PLUS else WarpFlavor.WARP,
                     portSweep = sweepEnabled,
                     sweepPorts = if (sweepEnabled) sweepPorts else emptyList(),
+                    warpAttempts = attempts,
+                    udpNoise = udpNoise,
+                    noiseCount = 5,
                 )
                 onStart(params)
             },

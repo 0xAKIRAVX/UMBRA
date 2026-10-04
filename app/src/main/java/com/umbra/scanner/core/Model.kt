@@ -16,14 +16,16 @@ enum class WarpFlavor(val label: String) {
 
 enum class ScanMode(val label: String, val tagline: String) {
     CF_EDGE("EDGE", "Cloudflare edge · speed.cloudflare.com"),
-    WARP("WARP", "WARP / WARP+ endpoints · cloudflareclient"),
+    WARP("WARP", "WARP / WARP+ · real WireGuard handshake + in-tunnel ping"),
     CUSTOM("CUSTOM", "Your own CIDR list");
 }
 
 enum class ScanPhase(val label: String, val order: Int) {
     IDLE("IDLE", 0),
     GENERATING("GENERATE", 1),
+    REGISTER("WARP REG", 2),
     TCP("TCP STORM", 2),
+    WG("WG PROBE", 3),
     PROBE("TLS PROBE", 3),
     RANKING("RANKING", 4),
     SPEED("SPEED TEST", 5),
@@ -55,6 +57,12 @@ data class ScanParams(
     val portSweep: Boolean = false,
     /** Ports to probe in sweep mode (defaults to the full WARP list). */
     val sweepPorts: List<Int> = emptyList(),
+    /** WARP only: full probe rounds per endpoint (BPB-style retries: 3/5/7). */
+    val warpAttempts: Int = 3,
+    /** WARP only: anti-DPI UDP noise burst before each handshake (xray `noises`). */
+    val udpNoise: Boolean = true,
+    /** WARP only: noise packets per burst. */
+    val noiseCount: Int = 5,
 ) {
     val edgeSni: String get() = "speed.cloudflare.com"
     val warpSni: String get() = "engage.cloudflareclient.com"
@@ -63,7 +71,12 @@ data class ScanParams(
     /** WARP endpoints never serve speed.cloudflare.com on their scan port — the
      *  throughput check always rides 443, where every WARP IP is a normal edge. */
     val speedPort: Int get() = if (mode == ScanMode.WARP) 443 else port
-    val needsTlsPhase: Boolean get() = tlsVerify && (mode == ScanMode.WARP || !speedTest)
+
+    /** WARP mode now validates endpoints with a full WireGuard handshake plus an
+     *  in-tunnel ICMP ping — strictly stronger than any TLS probe, so the TLS
+     *  phase only runs for non-WARP scans (or WARP when the speed test is off
+     *  and no WG data exists — never in practice). */
+    val needsTlsPhase: Boolean get() = tlsVerify && mode != ScanMode.WARP && !speedTest
     val downloadMbLabel: Int get() = (downloadBytes / (1024 * 1024)).toInt()
 
     /** Every (ip, port) pair the TCP storm will probe. */
@@ -90,6 +103,9 @@ data class ScanResult(
     val tlsSuccess: Boolean = false,
     val tlsHandshakeMs: Double? = null,
     val httpStatus: Int? = null,
+    /** WARP mode: completed WireGuard handshakes (data-plane pings counted in
+     *  successfulAttempts). */
+    val wgHandshakes: Int = 0,
     val error: String? = null,
     val mode: ScanMode = ScanMode.CF_EDGE,
 ) {
@@ -111,6 +127,7 @@ data class ScanResult(
         tlsSuccess = tlsSuccess || newer.tlsSuccess,
         tlsHandshakeMs = newer.tlsHandshakeMs ?: tlsHandshakeMs,
         httpStatus = newer.httpStatus ?: httpStatus,
+        wgHandshakes = maxOf(wgHandshakes, newer.wgHandshakes),
         error = newer.error ?: error,
         mode = mode,
     )

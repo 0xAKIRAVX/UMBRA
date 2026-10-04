@@ -9,6 +9,10 @@ import com.umbra.scanner.core.ScanPhase
 import com.umbra.scanner.core.ScanResult
 import com.umbra.scanner.net.ExactIpHttps
 import com.umbra.scanner.net.TcpProbe
+import com.umbra.scanner.net.UdpNoiseConfig
+import com.umbra.scanner.net.WarpAccount
+import com.umbra.scanner.net.WarpProbe
+import com.umbra.scanner.net.WarpRegistration
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
@@ -32,8 +36,9 @@ interface ScanSink {
 /**
  * UMBRA scan engine.
  * Phase 1  generate   — random candidates per CIDR (never full enumeration of big blocks)
- * Phase 2  tcp storm  — parallel handshake probes, latency + jitter + loss
- * Phase 3  tls probe  — optional exact-IP TLS verification (WARP endpoints)
+ * Phase 2  register   — WARP mode only: fresh account from api.cloudflareclient.com
+ * Phase 3  probe storm — WARP: full WireGuard handshake + in-tunnel ICMP ping (UDP);
+ *                        EDGE/CUSTOM: TCP handshake latency + jitter + loss
  * Phase 4  speed      — exact-IP HTTPS download (SNI/Host = speed.cloudflare.com)
  *
  * Fully cooperative-cancellable: runInterruptible sockets abort on stop().
@@ -63,8 +68,34 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
             return@coroutineScope
         }
 
-        // ---- TCP storm: every (candidate, port) pair ----
-        sink.onPhase(ScanPhase.TCP)
+        // ---- WARP identity: one registration per scan (BPB warp.go flow) ----
+        var account: WarpAccount? = null
+        if (params.mode == ScanMode.WARP) {
+            sink.onPhase(ScanPhase.REGISTER)
+            sink.onLog("registering WARP identity · api.cloudflareclient.com")
+            account = try {
+                val acc = WarpRegistration.register()
+                sink.onLog(
+                    "warp identity ready · reserved ${acc.reserved.joinToString(".")} · v6 ${acc.v6}"
+                )
+                acc
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                sink.onLog("registration failed — ${e.message ?: "cloudflare unreachable"}")
+                null
+            }
+            if (account == null) {
+                sink.onLog("real validation needs a registered identity — scan aborted " +
+                    "(results from a TCP-only scan would not work in WireGuard anyway)")
+                sink.onPhase(ScanPhase.DONE)
+                return@coroutineScope
+            }
+        }
+
+        // ---- probe storm: every (candidate, port) pair ----
+        val isWarp = params.mode == ScanMode.WARP && account != null
+        sink.onPhase(if (isWarp) ScanPhase.WG else ScanPhase.TCP)
         val active = AtomicInteger(0)
         val stormSem = Semaphore(params.concurrency.coerceIn(4, 500))
         val stormCh = Channel<ScanResult>(Channel.UNLIMITED)
@@ -78,10 +109,15 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
                     stormSem.withPermit {
                         active.incrementAndGet(); sink.onActive(1)
                         try {
-                            // sweeping hits many ports per IP — 1 extra retry keeps
-                            // the storm fast without blurring loss statistics
-                            val attempts = if (ports.size > 1 && params.tcpAttempts > 3) 3 else params.tcpAttempts
-                            stormCh.send(probeTcp(cand, p, attempts, params))
+                            if (isWarp) {
+                                // sweeping hits many ports per IP — keep the loss
+                                // statistics honest without tripling wall time
+                                val attempts = if (ports.size > 1) params.warpAttempts.coerceAtMost(2) else params.warpAttempts
+                                stormCh.send(probeWarp(account!!, cand, p, attempts, params))
+                            } else {
+                                val attempts = if (ports.size > 1 && params.tcpAttempts > 3) 3 else params.tcpAttempts
+                                stormCh.send(probeTcp(cand, p, attempts, params))
+                            }
                         } finally {
                             active.decrementAndGet(); sink.onActive(-1)
                         }
@@ -93,7 +129,10 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
         stormCh.close()
         stormCollector.join()
         val alive = sink.snapshot().count { it.alive }
-        sink.onLog("tcp storm done · alive $alive / $pairCount")
+        sink.onLog(
+            if (isWarp) "wg probe storm done · verified $alive / $pairCount endpoints"
+            else "tcp storm done · alive $alive / $pairCount"
+        )
 
         // ---- TLS verify (WARP endpoints, or edge without speed test) ----
         if (params.needsTlsPhase) {
@@ -215,6 +254,50 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
             tcpAttempts = total,
             successfulAttempts = lat.size,
             error = if (lat.isEmpty()) (t.lastError ?: "unreachable") else null,
+            mode = params.mode,
+        )
+    }
+
+    /**
+     * REAL WARP validation: noise → WireGuard handshake → ICMP echo inside the
+     * tunnel. An endpoint is alive only when data actually flows — the same
+     * guarantee BPB-Warp-Scanner gives (its HTTP test rides a real xray tunnel).
+     */
+    private suspend fun probeWarp(
+        account: WarpAccount,
+        cand: Candidate,
+        port: Int,
+        attempts: Int,
+        params: ScanParams,
+    ): ScanResult {
+        val probe = WarpProbe(
+            account,
+            noise = UdpNoiseConfig(enabled = params.udpNoise, count = params.noiseCount),
+        )
+        val t = probe.probe(
+            cand.bytes,
+            port,
+            attempts = attempts.coerceIn(1, 7),
+            timeoutMs = params.tcpTimeoutMs.coerceAtLeast(2000),
+            interAttemptDelayMs = 200,
+        )
+        return ScanResult(
+            ip = cand.text,
+            protocol = cand.protocol,
+            port = port,
+            latencyMs = t.avgPingMs,
+            jitterMs = t.jitterMs,
+            packetLoss = t.loss,
+            tcpAttempts = t.attempts,
+            successfulAttempts = t.pings,
+            wgHandshakes = t.handshakes,
+            error = if (t.pings == 0) {
+                when {
+                    t.handshakes > 0 -> t.lastError ?: "handshake ok · no data plane"
+                    t.cookieReplies > 0 -> "cookie reply · endpoint alive under load"
+                    else -> t.lastError ?: "no handshake"
+                }
+            } else null,
             mode = params.mode,
         )
     }

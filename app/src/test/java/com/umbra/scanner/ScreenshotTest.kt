@@ -88,6 +88,7 @@ class ScreenshotTest {
             speedMbps = 24.2, downloadedBytes = 20L * 1024 * 1024,
             tcpAttempts = 3, successfulAttempts = 3,
             tlsSuccess = true, tlsHandshakeMs = 31.2, httpStatus = 200,
+            wgHandshakes = 3,
             mode = ScanMode.WARP,
         ),
         ScanResult(
@@ -96,6 +97,7 @@ class ScreenshotTest {
             speedMbps = 19.8, downloadedBytes = 20L * 1024 * 1024,
             tcpAttempts = 3, successfulAttempts = 3,
             tlsSuccess = true, tlsHandshakeMs = 35.9, httpStatus = 200,
+            wgHandshakes = 3,
             mode = ScanMode.WARP,
         ),
         ScanResult(
@@ -111,6 +113,7 @@ class ScreenshotTest {
             speedMbps = null, downloadedBytes = 0,
             tcpAttempts = 3, successfulAttempts = 3,
             tlsSuccess = true, tlsHandshakeMs = 48.4, httpStatus = null,
+            wgHandshakes = 3,
             mode = ScanMode.WARP,
         ),
     )

@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import com.umbra.scanner.core.Ranking
+import com.umbra.scanner.core.ScanMode
 import com.umbra.scanner.core.ScanParams
 import com.umbra.scanner.core.ScanPhase
 import com.umbra.scanner.core.ScanResult
@@ -88,7 +89,15 @@ class ScanController {
         startedElapsed = SystemClock.elapsedRealtime()
         val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         scope = engineScope
-        appendLog("scan session started · mode ${p.mode.name} · ${p.tcpAttempts} attempts × ${p.tcpTimeoutMs} ms")
+        appendLog(
+            "scan session started · mode ${p.mode.name}" +
+                if (p.mode == ScanMode.WARP) {
+                    " · wireguard validation · ${p.warpAttempts} tries × ${p.tcpTimeoutMs} ms" +
+                        if (p.udpNoise) " · udp noise ×${p.noiseCount}" else ""
+                } else {
+                    " · ${p.tcpAttempts} attempts × ${p.tcpTimeoutMs} ms"
+                }
+        )
 
         tickerJob = engineScope.launch {
             while (isActive) {
@@ -224,7 +233,7 @@ class ScanController {
             ratePerSec = rate,
             etaSec = eta,
         )
-        if (currentPhase == ScanPhase.TCP) {
+        if (currentPhase == ScanPhase.TCP || currentPhase == ScanPhase.WG) {
             val snap = synchronized(lock) { resultMap.values.filter { it.alive } }
             if (snap.isNotEmpty()) {
                 _top.value = snap.sortedBy { it.latencyMs ?: Double.MAX_VALUE }.take(5)

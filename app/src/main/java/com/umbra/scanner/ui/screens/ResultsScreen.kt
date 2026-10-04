@@ -426,7 +426,15 @@ private fun metaLine(r: ScanResult, warpColor: Color): AnnotatedString = buildAn
         append("  ·  :")
         append(r.port.toString())
     }
-    if (r.tlsSuccess) {
+    if (r.mode == ScanMode.WARP) {
+        // WARP rows carry the REAL proof: WG handshake + in-tunnel ping
+        append("  ·  ")
+        withStyle(SpanStyle(color = if (r.wgHandshakes > 0) OkMint else Fog)) { append("WG") }
+        if (r.wgHandshakes > 0 && r.successfulAttempts > 0) {
+            append("  ·  ")
+            withStyle(SpanStyle(color = OkMint)) { append("PING") }
+        }
+    } else if (r.tlsSuccess) {
         append("  ·  ")
         withStyle(SpanStyle(color = OkMint)) { append("TLS") }
     }
@@ -488,8 +496,13 @@ private fun DetailSheet(
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             StatCell("SPEED", r.speedMbps?.let { "%.2f Mbps".format(it) } ?: "—", Modifier.weight(1f))
-            StatCell("TLS", if (r.tlsSuccess) "OK" else "—", Modifier.weight(1f))
-            StatCell("SCORE", "%.0f".format(Ranking.scoreOf(r)), Modifier.weight(1f))
+            if (r.mode == ScanMode.WARP) {
+                StatCell("WG HS", "${r.wgHandshakes}×", Modifier.weight(1f))
+                StatCell("IN-TUNNEL PING", "${r.successfulAttempts}/${r.tcpAttempts}", Modifier.weight(1f))
+            } else {
+                StatCell("TLS", if (r.tlsSuccess) "OK" else "—", Modifier.weight(1f))
+                StatCell("SCORE", "%.0f".format(Ranking.scoreOf(r)), Modifier.weight(1f))
+            }
         }
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -497,21 +510,28 @@ private fun DetailSheet(
             StatCell("HTTP", r.httpStatus?.toString() ?: "—", Modifier.weight(1f))
             StatCell("DATA", "%,.1f MB".format(r.downloadedBytes / 1048576.0), Modifier.weight(1f))
         }
-        r.tlsHandshakeMs?.let {
+        if (r.mode == ScanMode.WARP) {
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                StatCell("TLS TIME", "%.0f ms".format(it), Modifier.weight(1f))
+                StatCell("SCORE", "%.0f".format(Ranking.scoreOf(r)), Modifier.weight(1f))
                 StatCell("PORT", r.port.toString(), Modifier.weight(1f))
                 StatCell("FAMILY", r.protocol.label, Modifier.weight(1f))
             }
-        }
-        if (r.mode == ScanMode.WARP) {
             Spacer(Modifier.height(4.dp))
             Text(
-                "warp speed is measured on :443 — the scan port never serves the speed endpoint",
+                "validated by a real wireguard handshake · ping = icmp echo to 1.1.1.1 inside the tunnel · speed on :443",
                 style = MaterialTheme.typography.bodySmall,
                 color = Fade,
             )
+        } else {
+            r.tlsHandshakeMs?.let {
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    StatCell("TLS TIME", "%.0f ms".format(it), Modifier.weight(1f))
+                    StatCell("PORT", r.port.toString(), Modifier.weight(1f))
+                    StatCell("FAMILY", r.protocol.label, Modifier.weight(1f))
+                }
+            }
         }
         r.error?.let { err ->
             Spacer(Modifier.height(10.dp))

@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.umbra.scanner.UmbraApp
 import com.umbra.scanner.core.ScanParams
+import com.umbra.scanner.core.ScanMode
 import com.umbra.scanner.core.ScanPhase
 import com.umbra.scanner.core.ScanStats
 import com.umbra.scanner.core.ScanSummary
@@ -99,7 +100,7 @@ fun ScanScreen(app: UmbraApp, onGoResults: () -> Unit) {
         ) { st ->
             when (st) {
                 is ScanUi.Running -> {
-                    LivePanel(stats = stats, top = top, log = log) { controller.stopScan() }
+                    LivePanel(stats = stats, top = top, log = log, mode = st.params.mode) { controller.stopScan() }
                     Spacer(Modifier.height(24.dp))
                 }
 
@@ -194,11 +195,12 @@ private fun LivePanel(
     stats: ScanStats,
     top: List<ScanResult>,
     log: List<String>,
+    mode: ScanMode,
     onStop: () -> Unit,
 ) {
     val accent = LocalAccent.current
     NeonCard {
-        PhaseBar(current = stats.phase)
+        PhaseBar(current = stats.phase, mode = mode)
         Spacer(Modifier.height(14.dp))
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -274,19 +276,32 @@ private fun LivePanel(
 /**
  * Compact phase progress: a six-segment step bar plus the current phase
  * name. Replaces the old six squeezed text labels that clipped on
- * narrow screens.
+ * narrow screens. WARP scans swap the TCP/TLS segments for the real
+ * WireGuard flow (register → wg probe) that validates endpoints
+ * end-to-end.
  */
 @Composable
-private fun PhaseBar(current: ScanPhase) {
+private fun PhaseBar(current: ScanPhase, mode: ScanMode) {
     val accent = LocalAccent.current
-    val phases = listOf(
-        ScanPhase.GENERATING,
-        ScanPhase.TCP,
-        ScanPhase.PROBE,
-        ScanPhase.RANKING,
-        ScanPhase.SPEED,
-        ScanPhase.DONE,
-    )
+    val phases = if (mode == ScanMode.WARP) {
+        listOf(
+            ScanPhase.GENERATING,
+            ScanPhase.REGISTER,
+            ScanPhase.WG,
+            ScanPhase.RANKING,
+            ScanPhase.SPEED,
+            ScanPhase.DONE,
+        )
+    } else {
+        listOf(
+            ScanPhase.GENERATING,
+            ScanPhase.TCP,
+            ScanPhase.PROBE,
+            ScanPhase.RANKING,
+            ScanPhase.SPEED,
+            ScanPhase.DONE,
+        )
+    }
     Row(
         Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
