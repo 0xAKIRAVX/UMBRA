@@ -18,11 +18,23 @@ class UmbraSettings(context: Context) {
     val highRefresh = MutableStateFlow(prefs.getBoolean("high_refresh", true))
     val lightFx = MutableStateFlow(prefs.getBoolean("light_fx", false))
 
+    // ── update channel ──
+    val autoUpdate = MutableStateFlow(prefs.getBoolean("auto_update", true))
+    val dismissedUpdateTag = MutableStateFlow(prefs.getString("dismissed_update_tag", null))
+    val lastUpdateCheck = MutableStateFlow(prefs.getLong("last_update_check", 0L))
+
     fun setAccent(v: Int) { accent.value = v; prefs.edit().putInt("accent", v).apply() }
     fun setAmoled(v: Boolean) { amoled.value = v; prefs.edit().putBoolean("amoled", v).apply() }
     fun setHaptics(v: Boolean) { haptics.value = v; prefs.edit().putBoolean("haptics", v).apply() }
     fun setHighRefresh(v: Boolean) { highRefresh.value = v; prefs.edit().putBoolean("high_refresh", v).apply() }
     fun setLightFx(v: Boolean) { lightFx.value = v; prefs.edit().putBoolean("light_fx", v).apply() }
+
+    fun setAutoUpdate(v: Boolean) { autoUpdate.value = v; prefs.edit().putBoolean("auto_update", v).apply() }
+    fun setDismissedUpdateTag(tag: String?) {
+        dismissedUpdateTag.value = tag
+        prefs.edit().apply { if (tag != null) putString("dismissed_update_tag", tag) else remove("dismissed_update_tag") }.apply()
+    }
+    fun setLastUpdateCheck(ms: Long) { lastUpdateCheck.value = ms; prefs.edit().putLong("last_update_check", ms).apply() }
 
     fun saveParams(p: ScanParams) {
         prefs.edit()

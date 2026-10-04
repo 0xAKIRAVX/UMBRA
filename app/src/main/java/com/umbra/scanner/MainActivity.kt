@@ -2,6 +2,8 @@ package com.umbra.scanner
 
 import android.app.Activity
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -12,6 +14,7 @@ import com.umbra.scanner.ui.theme.UmbraTheme
 class MainActivity : ComponentActivity() {
 
     private val app by lazy { application as UmbraApp }
+    private val updateDelay = Handler(Looper.getMainLooper())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -28,6 +31,7 @@ class MainActivity : ComponentActivity() {
                 UmbraRoot(app = app)
             }
         }
+        scheduleUpdateCheck()
     }
 
     override fun onResume() {
@@ -35,6 +39,11 @@ class MainActivity : ComponentActivity() {
         if (app.settings.highRefresh.value) {
             unlockMaxRefreshRate()
         }
+    }
+
+    /** Silent GitHub check a moment after the UI settles — never blocks startup. */
+    private fun scheduleUpdateCheck() {
+        updateDelay.postDelayed({ app.updateCenter.maybeAutoCheck() }, 1500L)
     }
 }
 

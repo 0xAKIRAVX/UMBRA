@@ -23,9 +23,15 @@ android {
         applicationId = "com.umbra.scanner"
         minSdk = 26
         targetSdk = 34
-        versionCode = 4
-        versionName = "2.2.0"
+        versionCode = 5
+        versionName = "2.3.0"
         vectorDrawables { useSupportLibrary = true }
+    }
+
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
     }
 
     signingConfigs {
@@ -74,6 +80,12 @@ android {
     }
 }
 
+// Unit tests run on the debug variant only — the release variant would need its
+// own copy of the debug-only ui-test-manifest activity and duplicates the run.
+tasks.matching { it.name == "testReleaseUnitTest" }.configureEach {
+    enabled = false
+}
+
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.09.03")
     implementation(composeBom)
@@ -92,5 +104,12 @@ dependencies {
     implementation("com.google.zxing:core:3.5.3")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
+    debugImplementation(platform("androidx.compose:compose-bom:2024.09.03"))
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
     testImplementation("junit:junit:4.13.2")
+    testImplementation(platform("androidx.compose:compose-bom:2024.09.03"))
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    testImplementation("androidx.test.ext:junit:1.2.1")
+    testImplementation("org.robolectric:robolectric:4.13")
+    testImplementation("androidx.test:core:1.6.1")
 }

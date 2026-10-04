@@ -54,7 +54,9 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.umbra.scanner.UmbraApp
+import com.umbra.scanner.engine.UpdateCenter
 import com.umbra.scanner.ui.components.AuroraBackground
+import com.umbra.scanner.ui.components.UpdateDialog
 import com.umbra.scanner.ui.components.bouncyClickable
 import com.umbra.scanner.ui.screens.ResultsScreen
 import com.umbra.scanner.ui.screens.ScanScreen
@@ -83,6 +85,8 @@ fun UmbraRoot(app: UmbraApp) {
     var destIdx by rememberSaveable { mutableIntStateOf(0) }
     val controller = app.controller
     val results by controller.results.collectAsState()
+    val updateState by app.updateCenter.state.collectAsState()
+    val dismissedTag by app.settings.dismissedUpdateTag.collectAsState()
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -110,6 +114,16 @@ fun UmbraRoot(app: UmbraApp) {
                     2 -> VlessScreen(app = app)
                     else -> SettingsScreen(app = app)
                 }
+            }
+
+            // new-version announcement, layered above every screen
+            val announce = updateState is UpdateCenter.State.Available &&
+                (updateState as UpdateCenter.State.Available).release.tag != dismissedTag
+            if (announce) {
+                UpdateDialog(
+                    state = updateState as UpdateCenter.State.Available,
+                    onDismiss = { app.updateCenter.dismiss() },
+                )
             }
         }
     }

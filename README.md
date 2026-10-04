@@ -9,12 +9,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v2.2.0-00f5d4?style=flat-square&labelColor=0d1420" alt="release"></a>
+  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v2.3.0-00f5d4?style=flat-square&labelColor=0d1420" alt="release"></a>
   <img src="https://img.shields.io/badge/platform-Android%208.0%2B-34d399?style=flat-square&labelColor=0d1420" alt="platform">
   <img src="https://img.shields.io/badge/Kotlin-2.0-7f52ff?style=flat-square&labelColor=0d1420" alt="kotlin">
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285f4?style=flat-square&labelColor=0d1420" alt="compose">
   <img src="https://img.shields.io/badge/APK-%E2%89%881.8%20MB-f15bb5?style=flat-square&labelColor=0d1420" alt="size">
-  <img src="https://img.shields.io/badge/tests-32%2F32%20green-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
+  <img src="https://img.shields.io/badge/tests-51%2F51%20green-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-9b5de5?style=flat-square&labelColor=0d1420" alt="license">
 </p>
 
@@ -27,6 +27,24 @@ Your connection to Cloudflare's edge is only as good as the *specific IP* your n
 **UMBRA flips the table.** It samples the live Cloudflare and WARP address space directly from *your* device, measures what your network *actually* delivers to each candidate — latency, packet loss, TLS handshake, real download speed — ranks everything for you, and generates a VLESS config bound to the winner.
 
 No root. No Termux. No server. ~1.8 MB.
+
+---
+
+## Screenshots
+
+Real renders of the app's actual Compose UI — dark substrate, rare typefaces (Bruno Ace SC · Chakra Petch · Major Mono Display), spring physics and neon glow:
+
+| Scan configuration | Live scan · radar console |
+| :---: | :---: |
+| ![Scan configuration](docs/screenshots/scan-config.png) | ![Live scan](docs/screenshots/scan-live.png) |
+
+| Results board | VLESS generator · QR |
+| :---: | :---: |
+| ![Results](docs/screenshots/results.png) | ![VLESS](docs/screenshots/vless.png) |
+
+| System settings | Update announcement |
+| :---: | :---: |
+| ![Settings](docs/screenshots/settings.png) | ![Update dialog](docs/screenshots/update-dialog.png) |
 
 ---
 
@@ -44,6 +62,7 @@ No root. No Termux. No server. ~1.8 MB.
 | **VLESS generator** | One-tap `vless://` URLs, QR codes, IPv6 correctly bracketed (`vless://uuid@[2606:4700:...]:443`) |
 | **AUTO-TUNE** | Single-tap network calibration that configures every advanced setting for you |
 | **Export** | Results as CSV, JSON, or TXT |
+| **Self-update** | Silent GitHub release check on launch (24 h throttle) + animated in-app announcement with one-tap download |
 | **Background scans** | Foreground service with live notification + STOP action |
 | **Privacy** | Zero analytics, zero trackers, zero data collection — everything stays on device |
 
@@ -55,7 +74,7 @@ Grab the latest signed APK from the **[Releases](https://github.com/0xAKIRAVX/UM
 
 | | |
 | --- | --- |
-| Latest version | **v2.2.0** (build 4) |
+| Latest version | **v2.3.0** (build 5) |
 | Requirement | Android 8.0+ (API 26) |
 | Architecture | Universal (all ABIs) |
 | Permissions | `INTERNET`, `FOREGROUND_SERVICE`, `POST_NOTIFICATIONS` — nothing else |
@@ -83,6 +102,18 @@ UMBRA never resolves `speed.cloudflare.com` with DNS. It opens TLS **directly to
 - the bytes you measure are served by the IP you scanned, not an "optimized" anycast re-route;
 - a green result proves that exact IP is usable as a host override / endpoint;
 - failures are honest — reported as `TLS handshake timeout`, `HTTP status: 403`, etc. Nothing is silently dropped.
+
+---
+
+## How Updating Works
+
+From v2.3.0 on, UMBRA keeps itself honest about updates — no store, no middleman:
+
+1. On every launch (silent, ~1.5 s after the UI settles) the app queries the GitHub **releases API** for the latest tag — throttled to one attempt per 24 hours, toggleable in settings.
+2. If the tag is strictly newer than the installed build, an animated **announcement dialog** appears over the current screen: current version → new version, the release notes, and a **DOWNLOAD FROM GITHUB** button that jumps straight to the release.
+3. Dismissed announcements never nag again for the same tag. A **CHECK NOW** row in settings forces a check any time, with live status (checking / up-to-date / unreachable).
+
+New versions are distributed as signed APK assets on the [releases page](https://github.com/0xAKIRAVX/UMBRA/releases) — nothing else is contacted, and no update is ever installed without you tapping the button.
 
 ---
 
@@ -125,7 +156,7 @@ Every result row shows rank medal, protocol, port, TLS state, latency, loss and 
 | `preferredDisplayModeId` frame-rate unlock | High-refresh displays run at their native rate |
 | R8 full mode + resource shrinking | Whole app, fonts included, in ~1.8 MB |
 
-32 unit tests cover CIDR math, IPv6 generation, WARP embedding, ranking, VLESS formatting and AUTO-TUNE decisions.
+32 unit tests cover CIDR math, IPv6 generation, WARP embedding, ranking, VLESS formatting and AUTO-TUNE decisions; 19 more cover the update checker (version comparison, release parsing) and render the real UI for the screenshots above — **51 total, all green**.
 
 ---
 
@@ -212,6 +243,20 @@ app/src/main/java/com/umbra/scanner/
 <summary><b>Where are my results stored?</b></summary>
 &nbsp;In memory and in the files you explicitly export. UMBRA has no analytics, no crash reporter, no accounts and no servers of its own.
 </details>
+
+---
+
+## Author
+
+**UMBRA** is designed, built and maintained by [**0xAKIRAVX**](https://github.com/0xAKIRAVX).
+
+The in-app PROJECT card (SYSTEM tab) exposes the same credits — creator, repository link, license — with one-tap open and copy actions.
+
+| | |
+| --- | --- |
+| GitHub | [github.com/0xAKIRAVX](https://github.com/0xAKIRAVX) |
+| Repository | [github.com/0xAKIRAVX/UMBRA](https://github.com/0xAKIRAVX/UMBRA) |
+| Issues & feature requests | [issue tracker](https://github.com/0xAKIRAVX/UMBRA/issues) |
 
 ---
 

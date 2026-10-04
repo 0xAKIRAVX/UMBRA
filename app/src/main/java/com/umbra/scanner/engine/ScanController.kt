@@ -119,6 +119,24 @@ class ScanController {
         if (!isRunning) _ui.value = ScanUi.Idle
     }
 
+    /**
+     * Test/screenshot hook — injects UI-facing state without running the
+     * engine or the foreground service. Never called from production code.
+     */
+    fun debugInjectState(
+        uiState: ScanUi = _ui.value,
+        statsValue: ScanStats = _stats.value,
+        topValue: List<ScanResult> = _top.value,
+        resultsValue: List<ScanResult> = _results.value,
+        logValue: List<String> = _log.value,
+    ) {
+        _ui.value = uiState
+        _stats.value = statsValue
+        _top.value = topValue
+        _results.value = resultsValue
+        _log.value = logValue
+    }
+
     /** Wipe the current result board. */
     fun clearResults() {
         if (isRunning) return
