@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">UMBRA</string>
+    <string name="channel_name">Scan Engine</string>
+    <string name="channel_desc">Live progress of UMBRA deep scans</string>
+    <string name="notif_title">UMBRA · Deep Scan</string>
+    <string name="notif_action_stop">STOP</string>
+</resources>

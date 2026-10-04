@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="umbra_void">#05070A</color>
+    <color name="obsidian">#0B0F14</color>
+
+    <style name="Theme.Umbra" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/umbra_void</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+    </style>
+</resources>
