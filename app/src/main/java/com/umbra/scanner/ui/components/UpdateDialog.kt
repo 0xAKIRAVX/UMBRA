@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -39,6 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.umbra.scanner.core.Project
 import com.umbra.scanner.engine.UpdateCenter
+import com.umbra.scanner.i18n.LocalStrings
 import com.umbra.scanner.ui.theme.Fade
 import com.umbra.scanner.ui.theme.Fog
 import com.umbra.scanner.ui.theme.LocalAccent
@@ -56,6 +58,7 @@ fun UpdateDialog(
     onDismiss: () -> Unit,
 ) {
     val accent = LocalAccent.current
+    val s = LocalStrings.current
     val context = LocalContext.current
 
     Box(
@@ -104,8 +107,8 @@ fun UpdateDialog(
                     PulsingDot(color = accent.primary, sizeDp = 8.dp)
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        "INCOMING TRANSMISSION",
-                        style = MonoStyleSmall,
+                        s.incomingTransmission,
+                        style = MaterialTheme.typography.labelMedium,
                         color = accent.primary,
                         maxLines = 1,
                         softWrap = false,
@@ -114,7 +117,7 @@ fun UpdateDialog(
 
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    "NEW VERSION AVAILABLE",
+                    s.newVersionAvailable,
                     style = MaterialTheme.typography.displayMedium,
                     color = com.umbra.scanner.ui.theme.Mist,
                     maxLines = 1,
@@ -161,14 +164,14 @@ fun UpdateDialog(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(140.dp)
+                            .heightIn(max = 140.dp)
                             .verticalScroll(rememberScrollState()),
                     )
                 }
 
                 Spacer(Modifier.height(16.dp))
                 GradientButton(
-                    text = "DOWNLOAD FROM GITHUB",
+                    text = s.downloadFromGithub,
                     onClick = {
                         runCatching {
                             val url = state.release.apkUrl ?: state.release.pageUrl
@@ -183,7 +186,7 @@ fun UpdateDialog(
                 )
                 Spacer(Modifier.height(10.dp))
                 OutlineButton(
-                    text = "LATER",
+                    text = s.later,
                     onClick = onDismiss,
                     modifier = Modifier.fillMaxWidth(),
                     height = 40.dp,

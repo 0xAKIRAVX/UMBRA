@@ -9,12 +9,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v2.5.0-00f5d4?style=flat-square&labelColor=0d1420" alt="release"></a>
+  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.0.0-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
   <img src="https://img.shields.io/badge/platform-Android%208.0%2B-34d399?style=flat-square&labelColor=0d1420" alt="platform">
   <img src="https://img.shields.io/badge/Kotlin-2.0-7f52ff?style=flat-square&labelColor=0d1420" alt="kotlin">
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285f4?style=flat-square&labelColor=0d1420" alt="compose">
-  <img src="https://img.shields.io/badge/APK-%E2%89%881.8%20MB-f15bb5?style=flat-square&labelColor=0d1420" alt="size">
-  <img src="https://img.shields.io/badge/tests-76%2F76%20green-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
+  <img src="https://img.shields.io/badge/APK-%E2%89%882.5%20MB-f15bb5?style=flat-square&labelColor=0d1420" alt="size">
+  <img src="https://img.shields.io/badge/tests-80%2F80%20green-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-9b5de5?style=flat-square&labelColor=0d1420" alt="license">
 </p>
 
@@ -26,13 +26,29 @@ Your connection to Cloudflare's edge is only as good as the *specific IP* your n
 
 **UMBRA flips the table.** It samples the live Cloudflare and WARP address space directly from *your* device, measures what your network *actually* delivers to each candidate — latency, packet loss, TLS handshake, real download speed — ranks everything for you, and generates a VLESS config bound to the winner.
 
-No root. No Termux. No server. ~1.8 MB.
+No root. No Termux. No server. ~2 MB.
+
+---
+
+## What's new in v3.0.0 — the Crimson Orbit release
+
+<p align="center">
+  <img src="docs/icon.png" alt="UMBRA v3 icon" width="96"/>
+</p>
+
+- **New app icon** — the crimson cyber-globe (adaptive on Android 8+, themed/monochrome on 13+, legacy squircle below).
+- **فارسی** — the whole interface now speaks Persian: every screen, RTL layout, and the **Vazirmatn** typeface. Persian phones start in Persian automatically; a language switch lives in SYSTEM.
+- **New CRIMSON ORBIT palette** (default) matching the icon, plus the original four.
+- **Boot splash** — the orbit globe breathes over the void with a gradient wordmark before dissolving into the app.
+- **OrbitGlobe live visual** — a wireframe globe with counter-rotating orbital rings and traveling nodes, drawn in a single canvas (it also fills the empty results state).
+- **Podium medals** — gold / silver / bronze tint the top-3 result rows.
+- **Bug fixes** — VLESS prefill from the results sheet now works every time (not just once per app launch), the scan log no longer drops lines under concurrency, notifications tint with the chosen palette, and family-filter switches reset the reveal window.
 
 ---
 
 ## Screenshots
 
-Real renders of the app's actual Compose UI — dark substrate, rare typefaces (Bruno Ace SC · Chakra Petch · Major Mono Display), spring physics and neon glow:
+Real renders of the app's actual Compose UI — dark substrate, rare typefaces (Bruno Ace SC · Chakra Petch · Major Mono Display · Vazirmatn), spring physics and neon glow:
 
 | Scan configuration | Live scan · radar console |
 | :---: | :---: |
@@ -66,6 +82,7 @@ Real renders of the app's actual Compose UI — dark substrate, rare typefaces (
 | **AUTO-TUNE** | Single-tap network calibration — the WARP port sweep now validates each port with a **live WireGuard handshake**, so the tuned port list is guaranteed to carry WARP traffic on your network |
 | **Export** | Results as CSV, JSON, or TXT |
 | **Self-update** | Silent GitHub release check on launch (24 h throttle) + animated in-app announcement with one-tap download |
+| **English + فارسی** | Full bilingual interface with RTL mirroring, Vazirmatn typography, and a system-integrated per-app language config |
 | **Background scans** | Foreground service with live notification + STOP action |
 | **Privacy** | Zero analytics, zero trackers, zero data collection — everything stays on device |
 
@@ -77,14 +94,14 @@ Grab the latest signed APK from the **[Releases](https://github.com/0xAKIRAVX/UM
 
 | | |
 | --- | --- |
-| Latest version | **v2.5.0** (build 7) |
+| Latest version | **v3.0.0** (build 8) |
 | Requirement | Android 8.0+ (API 26) |
 | Architecture | Universal (all ABIs) |
 | Permissions | `INTERNET`, `FOREGROUND_SERVICE`, `POST_NOTIFICATIONS` — nothing else |
 
 > Install like any sideloaded app: download, open, allow "unknown sources" if asked, done.
 >
-> ⚠ **Upgrading from v2.4.0 or older?** The v2.5.0 APK is signed with a **new release key** (the original key was rotated), so Android will refuse an in-place update. **Uninstall the old UMBRA first, then install v2.5.0** — nothing of value is lost (scans are per-session, settings take 5 seconds to re-pick).
+> ⚠ **Upgrading from v2.5.0 or older?** The v3.0.0 APK is signed with a **new release key** (the signing workstation was rebuilt and the old private key could not be recovered), so Android will refuse an in-place update. **Uninstall the old UMBRA first, then install v3.0.0** — nothing of value is lost (scans are per-session, settings take 5 seconds to re-pick).
 
 ---
 
@@ -188,10 +205,13 @@ The result is a concrete, explained configuration — network family, port set, 
 
 A dark, instrument-panel aesthetic built for legibility at a glance:
 
+- **Boot splash & OrbitGlobe** — the v3 signature: a live wireframe globe with counter-rotating orbital rings and traveling nodes (single canvas, draw-phase only), echoing the launcher icon at startup, in the idle hero, and in the empty results state.
+- **CRIMSON ORBIT palette** — the new default accent matches the crimson globe icon; four more rare palettes ship alongside.
+- **English + فارسی** — full RTL mirroring with Vazirmatn typography; the language flips instantly from SYSTEM, and Persian devices start in Persian.
 - **Aurora background** — two slow-orbiting accent orbs, computed in the draw phase (no recomposition cost).
 - **Radar console** — expanding echo rings and a pulsing dot while a scan is live.
 - **Springy everything** — sliding selection pills, staggered card entrances, shimmer sweeps on buttons and progress, count-up numbers, QR reveal animation, animated list re-ordering while results sort.
-- **Rare typefaces** — *Bruno Ace SC* display, *Chakra Petch* body, *Major Mono Display* telemetry numerals (all SIL OFL).
+- **Rare typefaces** — *Bruno Ace SC* display, *Chakra Petch* body, *Major Mono Display* telemetry numerals, *Vazirmatn* for Persian (all SIL OFL).
 - **60 FPS discipline** — every animation reads state in the draw phase, zero allocations per frame, all effects freeze under LIGHTWEIGHT FX on low-end hardware.
 
 Every result row shows rank medal, protocol, port, TLS state, latency, loss and speed — in fixed columns that never overflow, on any screen width.
@@ -207,9 +227,9 @@ Every result row shows rank medal, protocol, port, TLS state, latency, loss and 
 | `@Stable` / `@Immutable` models + `derivedStateOf` | Recomposition skips untouched subtrees |
 | Keyed `LazyColumn` + `animateItem` | Sorting 10k+ rows re-animates placement smoothly |
 | `preferredDisplayModeId` frame-rate unlock | High-refresh displays run at their native rate |
-| R8 full mode + resource shrinking | Whole app, fonts included, in ~1.8 MB |
+| R8 full mode + resource shrinking | Whole app, fonts and launcher icons included, in ~2.5 MB |
 
-32 unit tests cover CIDR math, IPv6 generation, WARP embedding, ranking (incl. the v2.5.0 anti-fake-DPI aliveness rules), VLESS formatting and AUTO-TUNE decisions; 15 more verify the WireGuard crypto stack (incl. the WARP client_id/reserved-bytes vectors) byte-for-byte against the wireguard-go-derived reference vectors (X25519 incl. RFC 7748, BLAKE2s, HMAC, ChaCha20-Poly1305, full handshake + transport + ICMP), 6 cover the WARP registration flow, 19 cover the update checker and the rendered screenshots — **76 total, all green**.
+32 unit tests cover CIDR math, IPv6 generation, WARP embedding, ranking (incl. the v2.5.0 anti-fake-DPI aliveness rules), VLESS formatting and AUTO-TUNE decisions; 15 more verify the WireGuard crypto stack (incl. the WARP client_id/reserved-bytes vectors) byte-for-byte against the wireguard-go-derived reference vectors (X25519 incl. RFC 7748, BLAKE2s, HMAC, ChaCha20-Poly1305, full handshake + transport + ICMP), 6 cover the WARP registration flow, and 19 cover the update checker, the rendered screenshots, and the bilingual string system — **80 total, all green**.
 
 ---
 
@@ -246,18 +266,19 @@ Run the test suite:
 app/src/main/java/com/umbra/scanner/
 ├── core/            Cidr · IpText · Model · Presets · Ranking
 ├── engine/          ScanEngine · ScanController · AutoTune · ScanForegroundService
-├── net/             TcpProbe · HttpsOverIp (direct-IP TLS + speed)
+├── i18n/            Strings (English + فارسی)
+├── net/             TcpProbe · HttpsOverIp · WarpProbe · WgProtocol · WgCrypto · WarpAccount
 ├── export/          Exporters (CSV / JSON / TXT)
 ├── vless/           VlessGenerator · QrGen
 ├── settings/        UmbraSettings (persistence)
 └── ui/
     ├── theme/       Color · Type · Theme
-    ├── components/  Atoms · Motion · Radar
+    ├── components/  Atoms · Motion · Radar · OrbitGlobe · UpdateDialog
     ├── screens/     Scan · Config · Results · VLESS · Settings
     └── UmbraRoot.kt navigation + screen transitions
 ```
 
-32 Kotlin files, ~6,100 lines, zero third-party UI dependencies — the entire visual system is hand-built on Compose primitives.
+32 Kotlin files, ~6,600 lines, zero third-party UI dependencies — the entire visual system is hand-built on Compose primitives.
 
 ---
 
@@ -323,7 +344,7 @@ The in-app PROJECT card (SYSTEM tab) exposes the same credits — creator, repos
 - **[BPB-Warp-Scanner](https://github.com/bia-pain-bache/BPB-Warp-Scanner)** (bia-pain-bache) — the endpoint validation model (fresh WARP registration + real-traffic proof + UDP noise) and the verified IP/port pool that UMBRA's WireGuard probe is built on.
 - **[wireguard-go](https://github.com/WireGuard/wireguard-go)** / **[Xray-core](https://github.com/XTLS/Xray-core)** — protocol references: the noise KDF chain is ported line-by-line from wireguard-go, and the WARP client_id-in-reserved-bytes extension is verified against Xray's `proxy/wireguard/bind.go`.
 - **Cloudflare** — for publishing its IP ranges and running a fast, open edge.
-- **[Bruno Ace SC](https://fonts.google.com/specimen/Bruno+Ace+SC)**, **[Chakra Petch](https://fonts.google.com/specimen/Chakra+Petch)**, **[Major Mono Display](https://fonts.google.com/specimen/Major+Mono+Display)** by their respective designers, under the SIL Open Font License.
+- **[Bruno Ace SC](https://fonts.google.com/specimen/Bruno+Ace+SC)**, **[Chakra Petch](https://fonts.google.com/specimen/Chakra+Petch)**, **[Major Mono Display](https://fonts.google.com/specimen/Major+Mono+Display)**, **[Vazirmatn](https://github.com/rastikerdar/vazirmatn)** by their respective designers, under the SIL Open Font License.
 - **[ZXing](https://github.com/zxing/zxing)** for QR generation.
 - The community-maintained WARP endpoint port list.
 

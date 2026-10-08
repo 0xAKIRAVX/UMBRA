@@ -9,9 +9,13 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
+import com.umbra.scanner.i18n.AppLanguage
+import com.umbra.scanner.i18n.LocalStrings
 import com.umbra.scanner.settings.UmbraSettings
 
-val LocalAccent = compositionLocalOf { PhantomMint }
+val LocalAccent = compositionLocalOf { CrimsonOrbit }
 val LocalAmoled = staticCompositionLocalOf { false }
 val LocalLightFx = staticCompositionLocalOf { false }
 
@@ -20,7 +24,9 @@ fun UmbraTheme(settings: UmbraSettings, content: @Composable () -> Unit) {
     val accentIdx by settings.accent.collectAsState()
     val amoled by settings.amoled.collectAsState()
     val lightFx by settings.lightFx.collectAsState()
+    val language by settings.language.collectAsState()
     val accent = ACCENTS[accentIdx.coerceIn(0, ACCENTS.size - 1)]
+    val persian = language == AppLanguage.PERSIAN
 
     val bg = if (amoled) Color(0xFF000000) else VoidBlack
     val surface = if (amoled) Color(0xFF040507) else Obsidian
@@ -54,10 +60,12 @@ fun UmbraTheme(settings: UmbraSettings, content: @Composable () -> Unit) {
         LocalAccent provides accent,
         LocalAmoled provides amoled,
         LocalLightFx provides lightFx,
+        LocalStrings provides AppLanguage.stringsFor(language),
+        LocalLayoutDirection provides if (persian) LayoutDirection.Rtl else LayoutDirection.Ltr,
     ) {
         MaterialTheme(
             colorScheme = scheme,
-            typography = UmbraTypography,
+            typography = if (persian) UmbraTypographyFa else UmbraTypography,
             content = content,
         )
     }

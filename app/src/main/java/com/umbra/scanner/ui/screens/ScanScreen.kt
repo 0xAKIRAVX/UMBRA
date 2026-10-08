@@ -33,7 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -46,9 +46,11 @@ import com.umbra.scanner.core.ScanStats
 import com.umbra.scanner.core.ScanSummary
 import com.umbra.scanner.core.ScanUi
 import com.umbra.scanner.core.ScanResult
+import com.umbra.scanner.i18n.LocalStrings
 import com.umbra.scanner.ui.components.AnimatedCountText
 import com.umbra.scanner.ui.components.GradientButton
 import com.umbra.scanner.ui.components.NeonCard
+import com.umbra.scanner.ui.components.OrbitGlobe
 import com.umbra.scanner.ui.components.OutlineButton
 import com.umbra.scanner.ui.components.PulsingDot
 import com.umbra.scanner.ui.components.RadarPulse
@@ -56,7 +58,6 @@ import com.umbra.scanner.ui.components.StatCell
 import com.umbra.scanner.ui.components.UmbraProgress
 import com.umbra.scanner.ui.components.staggerIn
 import com.umbra.scanner.ui.theme.Fade
-import com.umbra.scanner.ui.theme.Fog
 import com.umbra.scanner.ui.theme.LocalAccent
 import com.umbra.scanner.ui.theme.Mist
 import com.umbra.scanner.ui.theme.MonoStyle
@@ -64,6 +65,7 @@ import com.umbra.scanner.ui.theme.MonoStyleLarge
 import com.umbra.scanner.ui.theme.MonoStyleSmall
 import com.umbra.scanner.ui.theme.OkMint
 import com.umbra.scanner.ui.theme.WarnAmber
+import com.umbra.scanner.ui.theme.Fog
 
 @Composable
 fun ScanScreen(app: UmbraApp, onGoResults: () -> Unit) {
@@ -85,6 +87,7 @@ fun ScanScreen(app: UmbraApp, onGoResults: () -> Unit) {
         Hero(
             running = ui is ScanUi.Running,
             done = ui is ScanUi.Done,
+            idle = ui is ScanUi.Idle,
             modifier = Modifier.staggerIn(0),
         )
 
@@ -137,27 +140,40 @@ private fun startScan(
     app.controller.start(context, params)
 }
 
+/**
+ * v3 hero — gradient wordmark plus, in idle, the live crimson orbit globe
+ * that echoes the launcher icon. Status pill stays on the right.
+ */
 @Composable
-private fun Hero(running: Boolean, done: Boolean, modifier: Modifier = Modifier) {
+private fun Hero(running: Boolean, done: Boolean, idle: Boolean, modifier: Modifier = Modifier) {
     val accent = LocalAccent.current
+    val s = LocalStrings.current
     Row(
         modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (idle) {
+            OrbitGlobe(sizeDp = 58.dp)
+            Spacer(Modifier.width(14.dp))
+        }
         Column(Modifier.weight(1f)) {
             Text(
                 text = "UMBRA",
-                style = MaterialTheme.typography.displayLarge,
-                color = Mist,
+                style = MaterialTheme.typography.displayLarge.copy(
+                    brush = Brush.verticalGradient(
+                        listOf(accent.glow, accent.primary)
+                    )
+                ),
+                color = androidx.compose.ui.graphics.Color.Unspecified,
                 maxLines = 1,
                 softWrap = false,
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                "CLOUDFLARE DEEP SCANNER",
+                s.brandTagline,
                 style = MaterialTheme.typography.labelSmall,
                 color = Fade,
-                letterSpacing = 3.4.sp,
+                letterSpacing = if (s.brandTagline.all { it.code < 0x590 }) 3.4.sp else 0.sp,
                 maxLines = 1,
                 softWrap = false,
                 overflow = TextOverflow.Ellipsis,
@@ -165,9 +181,9 @@ private fun Hero(running: Boolean, done: Boolean, modifier: Modifier = Modifier)
         }
         Spacer(Modifier.width(8.dp))
         val (dotColor, label) = when {
-            running -> accent.primary to "LIVE"
-            done -> OkMint to "DONE"
-            else -> Fog to "IDLE"
+            running -> accent.primary to s.live
+            done -> OkMint to s.done
+            else -> Fog to s.idle
         }
         // status pill
         Row(
@@ -199,6 +215,7 @@ private fun LivePanel(
     onStop: () -> Unit,
 ) {
     val accent = LocalAccent.current
+    val s = LocalStrings.current
     NeonCard {
         PhaseBar(current = stats.phase, mode = mode)
         Spacer(Modifier.height(14.dp))
@@ -209,19 +226,19 @@ private fun LivePanel(
             RadarPulse(sizeDp = 96.dp)
             Column(Modifier.weight(1f)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    StatCell("TESTED", "${stats.tested}/${stats.candidates}", Modifier.weight(1f))
-                    StatCell("ALIVE", stats.alive.toString(), tint = OkMint, modifier = Modifier.weight(1f))
+                    StatCell(s.tested, "${stats.tested}/${stats.candidates}", Modifier.weight(1f))
+                    StatCell(s.alive, stats.alive.toString(), tint = OkMint, modifier = Modifier.weight(1f))
                 }
                 Spacer(Modifier.height(9.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    StatCell("RATE", "${"%.1f".format(stats.ratePerSec)}/s", Modifier.weight(1f))
-                    StatCell("ACTIVE", stats.active.toString(), Modifier.weight(1f))
+                    StatCell(s.rate, "${"%.1f".format(stats.ratePerSec)}${s.perSec}", Modifier.weight(1f))
+                    StatCell(s.active, stats.active.toString(), Modifier.weight(1f))
                 }
                 Spacer(Modifier.height(9.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    StatCell("ELAPSED", formatElapsed(stats.elapsedMs), Modifier.weight(1f))
+                    StatCell(s.elapsed, formatElapsed(stats.elapsedMs), Modifier.weight(1f))
                     StatCell(
-                        "ETA",
+                        s.eta,
                         stats.etaSec?.let { formatElapsed((it * 1000).toLong()) } ?: "—",
                         Modifier.weight(1f),
                     )
@@ -232,7 +249,7 @@ private fun LivePanel(
         UmbraProgress(progress = stats.progress)
         Spacer(Modifier.height(12.dp))
         if (top.isNotEmpty()) {
-            Text("LIVE TOP ENDPOINTS", style = MaterialTheme.typography.labelSmall, color = Fade)
+            Text(s.liveTopEndpoints, style = MaterialTheme.typography.labelSmall, color = Fade)
             Spacer(Modifier.height(6.dp))
             top.take(5).forEach { r ->
                 Row(
@@ -262,23 +279,20 @@ private fun LivePanel(
             Spacer(Modifier.height(8.dp))
         }
         Text(
-            text = log.firstOrNull() ?: "warming up…",
+            text = log.firstOrNull() ?: s.warmingUp,
             style = MaterialTheme.typography.bodySmall,
             color = Fog,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
         Spacer(Modifier.height(14.dp))
-        GradientButton(text = "STOP SCAN", onClick = onStop, danger = true)
+        GradientButton(text = s.stopScan, onClick = onStop, danger = true)
     }
 }
 
 /**
  * Compact phase progress: a six-segment step bar plus the current phase
- * name. Replaces the old six squeezed text labels that clipped on
- * narrow screens. WARP scans swap the TCP/TLS segments for the real
- * WireGuard flow (register → wg probe) that validates endpoints
- * end-to-end.
+ * name. WARP scans swap the TCP/TLS segments for the real WireGuard flow.
  */
 @Composable
 private fun PhaseBar(current: ScanPhase, mode: ScanMode) {
@@ -350,9 +364,10 @@ private fun DonePanel(
     onNewScan: () -> Unit,
 ) {
     val accent = LocalAccent.current
+    val s = LocalStrings.current
     NeonCard {
         Text(
-            if (summary.cancelled) "SCAN STOPPED" else "SCAN COMPLETE",
+            if (summary.cancelled) s.scanStopped else s.scanComplete,
             style = MaterialTheme.typography.displayMedium,
             color = if (summary.cancelled) WarnAmber else accent.primary,
             maxLines = 1,
@@ -368,8 +383,10 @@ private fun DonePanel(
                     color = Mist,
                 )
                 Text(
-                    "ALIVE",
-                    style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.2.sp),
+                    s.alive,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        letterSpacing = if (s.alive.all { it.code < 0x590 }) 1.2.sp else 0.sp
+                    ),
                     color = Fade,
                     maxLines = 1,
                     softWrap = false,
@@ -377,16 +394,16 @@ private fun DonePanel(
                 )
             }
             StatCell(
-                "TESTED",
+                s.tested,
                 "${summary.tested}/${summary.candidates}",
                 Modifier.weight(1f),
             )
-            StatCell("TIME", formatElapsed(summary.elapsedMs), Modifier.weight(1f))
+            StatCell(s.time, formatElapsed(summary.elapsedMs), Modifier.weight(1f))
         }
         Spacer(Modifier.height(14.dp))
         summary.best?.let { best ->
             Column {
-                Text("BEST ENDPOINT", style = MaterialTheme.typography.labelSmall, color = Fade)
+                Text(s.bestEndpoint, style = MaterialTheme.typography.labelSmall, color = Fade)
                 Spacer(Modifier.height(4.dp))
                 Text(
                     best.ip,
@@ -398,17 +415,17 @@ private fun DonePanel(
                 )
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatCell("LAT", best.latencyMs?.let { "%.0fms".format(it) } ?: "—", Modifier.weight(1f))
-                    StatCell("JIT", best.jitterMs?.let { "%.0fms".format(it) } ?: "—", Modifier.weight(1f))
-                    StatCell("LOSS", "${best.lossPct}%", Modifier.weight(1f))
-                    StatCell("SPEED", best.speedMbps?.let { "%.1fM".format(it) } ?: "—", Modifier.weight(1f))
+                    StatCell(s.lat, best.latencyMs?.let { "%.0fms".format(it) } ?: "—", Modifier.weight(1f))
+                    StatCell(s.jit, best.jitterMs?.let { "%.0fms".format(it) } ?: "—", Modifier.weight(1f))
+                    StatCell(s.loss, "${best.lossPct}%", Modifier.weight(1f))
+                    StatCell(s.speed, best.speedMbps?.let { "%.1fM".format(it) } ?: "—", Modifier.weight(1f))
                 }
                 Spacer(Modifier.height(16.dp))
             }
         }
-        GradientButton(text = "VIEW RESULTS", onClick = onGoResults)
+        GradientButton(text = s.viewResults, onClick = onGoResults)
         Spacer(Modifier.height(9.dp))
-        OutlineButton(text = "CONFIGURE NEW SCAN", onClick = onNewScan, modifier = Modifier.fillMaxWidth())
+        OutlineButton(text = s.configureNewScan, onClick = onNewScan, modifier = Modifier.fillMaxWidth())
     }
 }
 

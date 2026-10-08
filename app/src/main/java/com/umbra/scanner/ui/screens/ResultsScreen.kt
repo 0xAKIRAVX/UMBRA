@@ -11,6 +11,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -61,6 +62,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
@@ -75,8 +77,10 @@ import com.umbra.scanner.core.ScanResult
 import com.umbra.scanner.core.ScanUi
 import com.umbra.scanner.core.SortKey
 import com.umbra.scanner.export.Exporters
+import com.umbra.scanner.i18n.LocalStrings
 import com.umbra.scanner.ui.components.ActionRow
 import com.umbra.scanner.ui.components.NeonCard
+import com.umbra.scanner.ui.components.OrbitGlobe
 import com.umbra.scanner.ui.components.OutlineButton
 import com.umbra.scanner.ui.components.PulsingDot
 import com.umbra.scanner.ui.components.SectionLabel
@@ -84,8 +88,10 @@ import com.umbra.scanner.ui.components.SelectChip
 import com.umbra.scanner.ui.components.StatCell
 import com.umbra.scanner.ui.components.bouncyClickable
 import com.umbra.scanner.ui.components.staggerIn
+import com.umbra.scanner.ui.theme.BronzeMedal
 import com.umbra.scanner.ui.theme.Fade
 import com.umbra.scanner.ui.theme.Fog
+import com.umbra.scanner.ui.theme.GoldMedal
 import com.umbra.scanner.ui.theme.Graphite
 import com.umbra.scanner.ui.theme.LocalAccent
 import com.umbra.scanner.ui.theme.Mist
@@ -93,6 +99,7 @@ import com.umbra.scanner.ui.theme.MonoStyle
 import com.umbra.scanner.ui.theme.MonoStyleLarge
 import com.umbra.scanner.ui.theme.MonoStyleSmall
 import com.umbra.scanner.ui.theme.OkMint
+import com.umbra.scanner.ui.theme.SilverMedal
 import com.umbra.scanner.ui.theme.SlateLine
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -113,6 +120,7 @@ fun ResultsScreen(
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     val accent = LocalAccent.current
+    val s = LocalStrings.current
 
     var sortIdx by rememberSaveable { mutableIntStateOf(0) }
     var filterIdx by rememberSaveable { mutableIntStateOf(0) }
@@ -170,10 +178,12 @@ fun ResultsScreen(
         Spacer(Modifier.height(10.dp))
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.staggerIn(0)) {
             Text(
-                "SCAN RESULTS",
+                s.scanResults,
                 style = MaterialTheme.typography.displayMedium,
                 color = Mist,
                 modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
             if (results.isNotEmpty()) {
                 PulsingDot(color = accent.primary, sizeDp = 7.dp)
@@ -203,15 +213,15 @@ fun ResultsScreen(
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            StatCell("ALIVE", results.size.toString(), Modifier.weight(1f))
+            StatCell(s.alive, results.size.toString(), Modifier.weight(1f))
             StatCell(
-                "BEST LAT",
+                s.bestLat,
                 best?.latencyMs?.let { "%.0fms".format(it) } ?: "—",
                 Modifier.weight(1f),
             )
-            StatCell("MEDIAN", medLat?.let { "%.0fms".format(it) } ?: "—", Modifier.weight(1f))
+            StatCell(s.median, medLat?.let { "%.0fms".format(it) } ?: "—", Modifier.weight(1f))
             StatCell(
-                "TOP SPEED",
+                s.topSpeed,
                 filtered.maxOfOrNull { it.speedMbps ?: 0.0 }?.let { if (it > 0) "%.1fM".format(it) else "—" } ?: "—",
                 Modifier.weight(1f),
             )
@@ -233,8 +243,9 @@ fun ResultsScreen(
             horizontalArrangement = Arrangement.spacedBy(7.dp),
             verticalArrangement = Arrangement.spacedBy(7.dp),
         ) {
-            listOf("ALL", "IPv4", "IPv6", "TLS OK").forEachIndexed { i, f ->
-                SelectChip(text = f, selected = filterIdx == i, onClick = { filterIdx = i })
+            listOf(s.all, "IPv4", "IPv6", s.tlsOk).forEachIndexed { i, f ->
+                // v3.0.1: switching family/tls filters also resets the reveal window
+                SelectChip(text = f, selected = filterIdx == i, onClick = { filterIdx = i; visible = 150 })
             }
         }
 
@@ -245,7 +256,7 @@ fun ResultsScreen(
             onValueChange = { query = it; visible = 150 },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
-            placeholder = { Text("search ip…", style = MonoStyleSmall, color = Fade) },
+            placeholder = { Text(s.searchIp, style = MonoStyleSmall, color = Fade) },
             textStyle = MonoStyleSmall.copy(color = Mist),
             leadingIcon = { Icon(Icons.Rounded.Search, null, tint = Fog, modifier = Modifier.size(16.dp)) },
             colors = OutlinedTextFieldDefaults.colors(
@@ -262,7 +273,7 @@ fun ResultsScreen(
             OutlineButton("CSV", { csvLauncher.launch(stampName("csv")) }, Modifier.weight(1f), height = 38.dp)
             OutlineButton("TXT", { txtLauncher.launch(stampName("txt")) }, Modifier.weight(1f), height = 38.dp)
             OutlineButton("JSON", { jsonLauncher.launch(stampName("json")) }, Modifier.weight(1f), height = 38.dp)
-            OutlineButton("SHARE", {
+            OutlineButton(s.share, {
                 Exporters.shareText(context, Exporters.txt(filtered.take(60), params))
             }, Modifier.weight(1f), height = 38.dp)
         }
@@ -291,7 +302,7 @@ fun ResultsScreen(
             if (filtered.size > visible) {
                 item(key = "loadmore") {
                     OutlineButton(
-                        text = "REVEAL 150 MORE · ${filtered.size - visible} HIDDEN",
+                        text = s.revealMore(filtered.size - visible),
                         onClick = { visible += 150 },
                         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                         height = 40.dp,
@@ -333,6 +344,13 @@ fun ResultsScreen(
 private fun ResultRow(rank: Int, r: ScanResult, onClick: () -> Unit) {
     val accent = LocalAccent.current
     val top3 = rank <= 3
+    // v3 medal tints — gold / silver / bronze for the podium
+    val medal: androidx.compose.ui.graphics.Color = when (rank) {
+        1 -> GoldMedal
+        2 -> SilverMedal
+        3 -> BronzeMedal
+        else -> accent.primary
+    }
     Row(
         Modifier
             .fillMaxWidth()
@@ -342,20 +360,19 @@ private fun ResultRow(rank: Int, r: ScanResult, onClick: () -> Unit) {
             .padding(horizontal = 10.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // rank medal — uniform 30dp square
+        // rank medal — uniform 30dp square with podium tint
         Box(
             Modifier
                 .size(30.dp)
                 .clip(RoundedCornerShape(9.dp))
-                .background(
-                    if (top3) accent.primary.copy(alpha = 0.16f) else Graphite
-                ),
+                .background(if (top3) medal.copy(alpha = 0.15f) else Graphite)
+                .then(if (top3) Modifier.border(1.dp, medal.copy(alpha = 0.65f), RoundedCornerShape(9.dp)) else Modifier),
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                if (top3) "$rank" else "$rank",
+                "$rank",
                 style = MonoStyleSmall.copy(fontSize = 10.sp),
-                color = if (top3) accent.tint else Fade,
+                color = if (top3) medal else Fade,
                 maxLines = 1,
                 softWrap = false,
             )
@@ -371,13 +388,12 @@ private fun ResultRow(rank: Int, r: ScanResult, onClick: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(3.dp))
-            // meta line: protocol · port · tls · warp — one ellipsized line,
-            // can never overflow like the old tag row
+            // meta line: protocol · port · tls · warp — one ellipsized line
             Text(
                 metaLine(r, accent.secondary),
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontSize = 8.5.sp,
-                    letterSpacing = 1.sp,
+                    letterSpacing = if (r.protocol.label.all { it.code < 0x590 }) 1.sp else 0.sp,
                 ),
                 color = Fog,
                 maxLines = 1,
@@ -472,6 +488,7 @@ private fun DetailSheet(
     onShare: () -> Unit,
 ) {
     val accent = LocalAccent.current
+    val s = LocalStrings.current
     Column(
         Modifier
             .fillMaxWidth()
@@ -486,40 +503,40 @@ private fun DetailSheet(
             overflow = TextOverflow.Ellipsis,
         )
         Spacer(Modifier.height(4.dp))
-        SectionLabel(if (r.mode == ScanMode.WARP) "WARP ENDPOINT PROFILE" else "EDGE ENDPOINT PROFILE")
+        SectionLabel(if (r.mode == ScanMode.WARP) s.warpProfile else s.edgeProfile)
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StatCell("LATENCY", r.latencyMs?.let { "%.1f ms".format(it) } ?: "—", Modifier.weight(1f))
-            StatCell("JITTER", r.jitterMs?.let { "%.1f ms".format(it) } ?: "—", Modifier.weight(1f))
-            StatCell("LOSS", "${r.lossPct}%", Modifier.weight(1f))
+            StatCell(s.latency, r.latencyMs?.let { "%.1f ms".format(it) } ?: "—", Modifier.weight(1f))
+            StatCell(s.jitter, r.jitterMs?.let { "%.1f ms".format(it) } ?: "—", Modifier.weight(1f))
+            StatCell(s.loss, "${r.lossPct}%", Modifier.weight(1f))
         }
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StatCell("SPEED", r.speedMbps?.let { "%.2f Mbps".format(it) } ?: "—", Modifier.weight(1f))
+            StatCell(s.speed, r.speedMbps?.let { "%.2f Mbps".format(it) } ?: "—", Modifier.weight(1f))
             if (r.mode == ScanMode.WARP) {
-                StatCell("WG HS", "${r.wgHandshakes}×", Modifier.weight(1f))
-                StatCell("IN-TUNNEL PING", "${r.successfulAttempts}/${r.tcpAttempts}", Modifier.weight(1f))
+                StatCell(s.wgHs, "${r.wgHandshakes}×", Modifier.weight(1f))
+                StatCell(s.inTunnelPing, "${r.successfulAttempts}/${r.tcpAttempts}", Modifier.weight(1f))
             } else {
                 StatCell("TLS", if (r.tlsSuccess) "OK" else "—", Modifier.weight(1f))
-                StatCell("SCORE", "%.0f".format(Ranking.scoreOf(r)), Modifier.weight(1f))
+                StatCell(s.score, "%.0f".format(Ranking.scoreOf(r)), Modifier.weight(1f))
             }
         }
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StatCell("ATTEMPTS", "${r.successfulAttempts}/${r.tcpAttempts}", Modifier.weight(1f))
-            StatCell("HTTP", r.httpStatus?.toString() ?: "—", Modifier.weight(1f))
-            StatCell("DATA", "%,.1f MB".format(r.downloadedBytes / 1048576.0), Modifier.weight(1f))
+            StatCell(s.attempts, "${r.successfulAttempts}/${r.tcpAttempts}", Modifier.weight(1f))
+            StatCell(s.http, r.httpStatus?.toString() ?: "—", Modifier.weight(1f))
+            StatCell(s.data, "%,.1f MB".format(r.downloadedBytes / 1048576.0), Modifier.weight(1f))
         }
         if (r.mode == ScanMode.WARP) {
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                StatCell("SCORE", "%.0f".format(Ranking.scoreOf(r)), Modifier.weight(1f))
-                StatCell("PORT", r.port.toString(), Modifier.weight(1f))
-                StatCell("FAMILY", r.protocol.label, Modifier.weight(1f))
+                StatCell(s.score, "%.0f".format(Ranking.scoreOf(r)), Modifier.weight(1f))
+                StatCell(s.port, r.port.toString(), Modifier.weight(1f))
+                StatCell(s.family, r.protocol.label, Modifier.weight(1f))
             }
             Spacer(Modifier.height(4.dp))
             Text(
-                "validated by a real wireguard handshake · ping = icmp echo to 1.1.1.1 inside the tunnel · speed on :443",
+                s.warpValidatedNote,
                 style = MaterialTheme.typography.bodySmall,
                 color = Fade,
             )
@@ -527,37 +544,36 @@ private fun DetailSheet(
             r.tlsHandshakeMs?.let {
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatCell("TLS TIME", "%.0f ms".format(it), Modifier.weight(1f))
-                    StatCell("PORT", r.port.toString(), Modifier.weight(1f))
-                    StatCell("FAMILY", r.protocol.label, Modifier.weight(1f))
+                    StatCell(s.tlsTime, "%.0f ms".format(it), Modifier.weight(1f))
+                    StatCell(s.port, r.port.toString(), Modifier.weight(1f))
+                    StatCell(s.family, r.protocol.label, Modifier.weight(1f))
                 }
             }
         }
         r.error?.let { err ->
             Spacer(Modifier.height(10.dp))
             Text(
-                "last error · $err",
+                s.lastError(err),
                 style = MaterialTheme.typography.bodySmall,
                 color = Fog,
             )
         }
         Spacer(Modifier.height(16.dp))
-        ActionRow(Icons.Rounded.ContentCopy, "COPY IP") { onCopy(r.ip, "IP") }
+        ActionRow(Icons.Rounded.ContentCopy, s.copyIp) { onCopy(r.ip, "IP") }
         Spacer(Modifier.height(7.dp))
-        ActionRow(Icons.Rounded.ContentCopy, "COPY IP : PORT") { onCopy("${r.ip}:${r.port}", "Endpoint") }
+        ActionRow(Icons.Rounded.ContentCopy, s.copyIpPort) { onCopy("${r.ip}:${r.port}", "Endpoint") }
         Spacer(Modifier.height(7.dp))
         if (r.mode == ScanMode.WARP) {
-            ActionRow(Icons.Rounded.ContentCopy, "COPY WIREGUARD ENDPOINT LINE") {
+            ActionRow(Icons.Rounded.ContentCopy, s.copyWgEndpoint) {
                 onCopy("Endpoint = ${IpText.forUrl(r.ip)}:${r.port}", "Endpoint line")
             }
             Spacer(Modifier.height(7.dp))
         } else {
-            // VLESS only makes sense for TLS-able edge ports (:443 etc) — a
-            // WARP endpoint on :2408 never serves a websocket.
-            ActionRow(Icons.Rounded.Key, "CREATE VLESS FROM THIS IP", tint = accent.tint) { onVless() }
+            // VLESS only makes sense for TLS-able edge ports (:443 etc)
+            ActionRow(Icons.Rounded.Key, s.createVless, tint = accent.tint) { onVless() }
             Spacer(Modifier.height(7.dp))
         }
-        ActionRow(Icons.Rounded.Share, "SHARE ENDPOINT LINE") { onShare() }
+        ActionRow(Icons.Rounded.Share, s.shareEndpoint) { onShare() }
         Spacer(Modifier.height(26.dp))
     }
 }
@@ -565,25 +581,28 @@ private fun DetailSheet(
 @Composable
 private fun EmptyResults(onGoScan: () -> Unit) {
     val accent = LocalAccent.current
+    val s = LocalStrings.current
     NeonCard {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            PulsingDot(color = accent.primary, sizeDp = 12.dp)
+            OrbitGlobe(sizeDp = 96.dp)
         }
         Spacer(Modifier.height(14.dp))
         Text(
-            "NO SCAN DATA YET",
+            s.noScanDataYet,
             style = MaterialTheme.typography.displayMedium,
             color = Fog,
             modifier = Modifier.align(Alignment.CenterHorizontally),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            "run a deep scan to fill this board with ranked endpoints",
+            s.emptyResultsHint,
             style = MaterialTheme.typography.bodySmall,
             color = Fade,
             modifier = Modifier.align(Alignment.CenterHorizontally),
         )
         Spacer(Modifier.height(18.dp))
-        OutlineButton("RUN A SCAN", onGoScan, Modifier.fillMaxWidth())
+        OutlineButton(s.runAScan, onGoScan, Modifier.fillMaxWidth())
     }
 }

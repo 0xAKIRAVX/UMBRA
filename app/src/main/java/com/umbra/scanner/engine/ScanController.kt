@@ -53,6 +53,7 @@ class ScanController {
     var pendingVlessIp: String? = null
 
     private val lock = Any()
+    private val logLock = Any()
     private val resultMap = LinkedHashMap<String, ScanResult>()
 
     private val tested = AtomicInteger(0)
@@ -209,8 +210,11 @@ class ScanController {
     }
 
     private fun appendLog(line: String) {
-        val stamped = line
-        _log.value = listOf(stamped) + _log.value.take(29)
+        // v3 fix: sink callbacks land on worker threads while start()/stop()
+        // come from main — the old read-modify-write raced and dropped lines.
+        synchronized(logLock) {
+            _log.value = listOf(line) + _log.value.take(29)
+        }
     }
 
     private fun publishStats() {

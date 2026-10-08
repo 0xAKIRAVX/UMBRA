@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.umbra.scanner.UmbraApp
 import com.umbra.scanner.core.IpText
+import com.umbra.scanner.i18n.LocalStrings
 import com.umbra.scanner.ui.components.ActionRow
 import com.umbra.scanner.ui.components.NeonCard
 import com.umbra.scanner.ui.components.SectionLabel
@@ -78,20 +79,28 @@ fun VlessScreen(app: UmbraApp) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val accent = LocalAccent.current
+    val s = LocalStrings.current
     val controller = app.controller
-
-    val prefilled = remember { controller.pendingVlessIp }
-    LaunchedEffect(Unit) { controller.pendingVlessIp = null }
 
     var uuid by rememberSaveable {
         mutableStateOf(VlessGenerator.randomUuid())
     }
-    var host by rememberSaveable { mutableStateOf(prefilled ?: "") }
+    var host by rememberSaveable { mutableStateOf("") }
     var port by rememberSaveable { mutableStateOf("443") }
     var sni by rememberSaveable { mutableStateOf("") }
     var wsPath by rememberSaveable { mutableStateOf("/") }
     var remark by rememberSaveable { mutableStateOf("UMBRA-node") }
     var showQr by rememberSaveable { mutableStateOf(false) }
+
+    // v3 fix: the pending IP from a results-row tap is consumed on EVERY fresh
+    // composition of this screen — the old remember{} capture only worked once
+    // per process because rememberSaveable restored the previous host text.
+    LaunchedEffect(Unit) {
+        controller.pendingVlessIp?.let { prefill ->
+            host = prefill
+            controller.pendingVlessIp = null
+        }
+    }
 
     val portInt = port.toIntOrNull() ?: 443
     val config = VlessGenerator.Config(
@@ -116,16 +125,17 @@ fun VlessScreen(app: UmbraApp) {
     ) {
         Spacer(Modifier.height(10.dp))
         Text(
-            "VLESS FORGE",
+            s.vlessForge,
             style = MaterialTheme.typography.displayMedium,
             color = Mist,
             modifier = Modifier.staggerIn(0),
             maxLines = 1,
             softWrap = false,
+            overflow = TextOverflow.Ellipsis,
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            "exact-IP vless links · IPv6 auto-bracketed · tls + ws",
+            s.vlessTagline,
             style = MaterialTheme.typography.bodySmall,
             color = Fade,
             modifier = Modifier.staggerIn(1),
@@ -135,14 +145,14 @@ fun VlessScreen(app: UmbraApp) {
 
         Spacer(Modifier.height(14.dp))
         NeonCard(modifier = Modifier.staggerIn(2)) {
-            SectionLabel("IDENTITY")
+            SectionLabel(s.identity)
             Spacer(Modifier.height(8.dp))
             OutlinedTextField(
                 value = uuid,
                 onValueChange = { uuid = it.trim() },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                placeholder = { Text("uuid", style = MonoStyleSmall, color = Fade) },
+                placeholder = { Text(s.uuidField, style = MonoStyleSmall, color = Fade) },
                 textStyle = MonoStyleSmall.copy(color = Mist),
                 trailingIcon = {
                     Box(
@@ -170,7 +180,7 @@ fun VlessScreen(app: UmbraApp) {
                 onValueChange = { host = it.trim() },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                placeholder = { Text("ip · 104.16.1.1 or 2606:4700::1", style = MonoStyleSmall, color = Fade) },
+                placeholder = { Text(s.hostPlaceholder, style = MonoStyleSmall, color = Fade) },
                 textStyle = MonoStyleSmall.copy(color = Mist),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
                 colors = OutlinedTextFieldDefaults.colors(
@@ -182,7 +192,7 @@ fun VlessScreen(app: UmbraApp) {
             if (host.contains(':') && host.isNotBlank()) {
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "IPv6 detected → brackets are added automatically: [${host.trim('[', ']')}]",
+                    s.ipv6Detected(host.trim('[', ']')),
                     style = MaterialTheme.typography.bodySmall,
                     color = accent.tint,
                     maxLines = 2,
@@ -191,22 +201,20 @@ fun VlessScreen(app: UmbraApp) {
             }
 
             Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(
-                    value = port,
-                    onValueChange = { port = it.filter(Char::isDigit).take(5) },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                    placeholder = { Text("port", style = MonoStyleSmall, color = Fade) },
-                    textStyle = MonoStyleSmall.copy(color = Mist),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = accent.primary.copy(alpha = 0.8f),
-                        unfocusedBorderColor = SlateLine,
-                        cursorColor = accent.primary,
-                    ),
-                )
-            }
+            OutlinedTextField(
+                value = port,
+                onValueChange = { port = it.filter(Char::isDigit).take(5) },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                placeholder = { Text(s.portField, style = MonoStyleSmall, color = Fade) },
+                textStyle = MonoStyleSmall.copy(color = Mist),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = accent.primary.copy(alpha = 0.8f),
+                    unfocusedBorderColor = SlateLine,
+                    cursorColor = accent.primary,
+                ),
+            )
 
             Spacer(Modifier.height(12.dp))
             OutlinedTextField(
@@ -215,7 +223,7 @@ fun VlessScreen(app: UmbraApp) {
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 isError = testOnly,
-                placeholder = { Text("your worker domain · sni + host", style = MonoStyleSmall, color = Fade) },
+                placeholder = { Text(s.sniPlaceholder, style = MonoStyleSmall, color = Fade) },
                 textStyle = MonoStyleSmall.copy(color = Mist),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
                 colors = OutlinedTextFieldDefaults.colors(
@@ -227,8 +235,7 @@ fun VlessScreen(app: UmbraApp) {
             if (testOnly) {
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "⚠ this sni only proves reachability — the link will NOT route to a proxy. " +
-                        "use your own cloudflare-fronted domain.",
+                    s.sniTestOnlyWarning,
                     style = MaterialTheme.typography.bodySmall,
                     color = accent.tint,
                     maxLines = 3,
@@ -243,7 +250,7 @@ fun VlessScreen(app: UmbraApp) {
                     onValueChange = { wsPath = it },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
-                    placeholder = { Text("ws path", style = MonoStyleSmall, color = Fade) },
+                    placeholder = { Text(s.wsPathField, style = MonoStyleSmall, color = Fade) },
                     textStyle = MonoStyleSmall.copy(color = Mist),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
                     colors = OutlinedTextFieldDefaults.colors(
@@ -257,7 +264,7 @@ fun VlessScreen(app: UmbraApp) {
                     onValueChange = { remark = it },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
-                    placeholder = { Text("remark", style = MonoStyleSmall, color = Fade) },
+                    placeholder = { Text(s.remarkField, style = MonoStyleSmall, color = Fade) },
                     textStyle = MonoStyleSmall.copy(color = Mist),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
                     colors = OutlinedTextFieldDefaults.colors(
@@ -271,11 +278,11 @@ fun VlessScreen(app: UmbraApp) {
 
         Spacer(Modifier.height(14.dp))
         NeonCard(glow = false, modifier = Modifier.staggerIn(3)) {
-            SectionLabel("GENERATED LINK")
+            SectionLabel(s.generatedLink)
             Spacer(Modifier.height(8.dp))
             SelectionContainer {
                 Text(
-                    if (valid) link else "fill uuid + ip to forge the link",
+                    if (valid) link else s.fillToForge,
                     style = MonoStyle.copy(fontSize = 10.5.sp),
                     color = if (valid) accent.tint else Fade,
                     maxLines = 6,
@@ -283,14 +290,14 @@ fun VlessScreen(app: UmbraApp) {
                 )
             }
             Spacer(Modifier.height(14.dp))
-            ActionRow(Icons.Rounded.ContentCopy, "COPY LINK", tint = if (valid) Mist else Fog) {
+            ActionRow(Icons.Rounded.ContentCopy, s.copyLink, tint = if (valid) Mist else Fog) {
                 if (valid) {
                     clipboard.setText(AnnotatedString(link))
                     Toast.makeText(context, "vless link copied", Toast.LENGTH_SHORT).show()
                 }
             }
             Spacer(Modifier.height(7.dp))
-            ActionRow(Icons.Rounded.Share, "SHARE LINK", tint = if (valid) Mist else Fog) {
+            ActionRow(Icons.Rounded.Share, s.shareLink, tint = if (valid) Mist else Fog) {
                 if (valid) {
                     val intent = Intent(Intent.ACTION_SEND).apply {
                         type = "text/plain"
@@ -300,7 +307,7 @@ fun VlessScreen(app: UmbraApp) {
                 }
             }
             Spacer(Modifier.height(7.dp))
-            ActionRow(Icons.Rounded.QrCode2, if (showQr) "HIDE QR" else "SHOW QR", tint = accent.tint) {
+            ActionRow(Icons.Rounded.QrCode2, if (showQr) s.hideQr else s.showQr, tint = accent.tint) {
                 showQr = !showQr
             }
             AnimatedVisibility(
@@ -332,7 +339,7 @@ fun VlessScreen(app: UmbraApp) {
                     }
                     Spacer(Modifier.height(10.dp))
                 Text(
-                    "scan from your vpn client — imports the full profile",
+                    s.qrHint,
                     style = MaterialTheme.typography.bodySmall,
                     color = Fade,
                     modifier = Modifier.align(Alignment.CenterHorizontally),
@@ -343,9 +350,7 @@ fun VlessScreen(app: UmbraApp) {
 
         Spacer(Modifier.height(14.dp))
         Text(
-            "usage: this link routes to a Cloudflare-fronted worker of YOURS. " +
-                "put your worker/proxy domain in the sni field (it also becomes the ws host). " +
-                "the scanned ip only carries the connection — the domain decides what answers.",
+            s.vlessUsageNote,
             style = MaterialTheme.typography.bodySmall,
             color = Fog,
             modifier = Modifier.padding(horizontal = 4.dp),

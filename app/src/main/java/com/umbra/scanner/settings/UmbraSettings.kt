@@ -6,6 +6,7 @@ import com.umbra.scanner.core.Presets
 import com.umbra.scanner.core.ScanMode
 import com.umbra.scanner.core.ScanParams
 import com.umbra.scanner.core.WarpFlavor
+import com.umbra.scanner.i18n.AppLanguage
 import kotlinx.coroutines.flow.MutableStateFlow
 
 class UmbraSettings(context: Context) {
@@ -17,6 +18,17 @@ class UmbraSettings(context: Context) {
     val haptics = MutableStateFlow(prefs.getBoolean("haptics", true))
     val highRefresh = MutableStateFlow(prefs.getBoolean("high_refresh", true))
     val lightFx = MutableStateFlow(prefs.getBoolean("light_fx", false))
+
+    // ── language (0 = english · 1 = فارسی · default follows system locale) ──
+    val language = MutableStateFlow(
+        prefs.getInt("language", -1).let { stored ->
+            if (stored in 0..1) stored else AppLanguage.defaultFor(
+                context.resources.configuration.locales.get(0)?.language
+            )
+        }
+    )
+
+    fun setLanguage(v: Int) { language.value = v; prefs.edit().putInt("language", v).apply() }
 
     // ── update channel ──
     val autoUpdate = MutableStateFlow(prefs.getBoolean("auto_update", true))

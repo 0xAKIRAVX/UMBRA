@@ -7,9 +7,39 @@ import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
+import com.umbra.scanner.i18n.LocalStrings
 import com.umbra.scanner.ui.UmbraRoot
+import com.umbra.scanner.ui.components.OrbitGlobe
+import com.umbra.scanner.ui.components.staggerIn
 import com.umbra.scanner.ui.theme.UmbraTheme
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
 
@@ -29,6 +59,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             UmbraTheme(settings = app.settings) {
                 UmbraRoot(app = app)
+                BootSplash()
             }
         }
         scheduleUpdateCheck()
@@ -44,6 +75,74 @@ class MainActivity : ComponentActivity() {
     /** Silent GitHub check a moment after the UI settles — never blocks startup. */
     private fun scheduleUpdateCheck() {
         updateDelay.postDelayed({ app.updateCenter.maybeAutoCheck() }, 1500L)
+    }
+}
+
+/**
+ * v3 boot splash — the crimson orbit globe breathing over the void with the
+ * gradient wordmark, dissolving into the app once the first frame settles.
+ * Pure overlay: no extra activity, no window lock, tap to skip.
+ */
+@Composable
+private fun BootSplash() {
+    var visible by remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) {
+        delay(1150)
+        visible = false
+    }
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(90)),
+        exit = fadeOut(tween(420)),
+    ) {
+        val accent = com.umbra.scanner.ui.theme.LocalAccent.current
+        val bg = MaterialTheme.colorScheme.background
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(bg),
+        ) {
+            Column(
+                Modifier
+                    .align(Alignment.Center)
+                    .staggerIn(0),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                OrbitGlobe(sizeDp = 148.dp)
+                Spacer(Modifier.height(22.dp))
+                Text(
+                    "U M B R A",
+                    style = MaterialTheme.typography.displayLarge.copy(
+                        brush = Brush.verticalGradient(
+                            listOf(accent.glow, accent.primary, accent.secondary)
+                        )
+                    ),
+                    color = Color.Unspecified,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    LocalStrings.current.brandTagline,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = com.umbra.scanner.ui.theme.Fog,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            // subtle bottom-inset version whisper
+            Text(
+                "v3.0",
+                style = MaterialTheme.typography.labelSmall,
+                color = com.umbra.scanner.ui.theme.Fade,
+                maxLines = 1,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 34.dp),
+            )
+        }
     }
 }
 

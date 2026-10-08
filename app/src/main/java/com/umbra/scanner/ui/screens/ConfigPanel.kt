@@ -41,7 +41,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
@@ -57,6 +56,7 @@ import com.umbra.scanner.core.ScanMode
 import com.umbra.scanner.core.ScanParams
 import com.umbra.scanner.core.WarpFlavor
 import com.umbra.scanner.engine.AutoTune
+import com.umbra.scanner.i18n.LocalStrings
 import com.umbra.scanner.ui.components.GradientButton
 import com.umbra.scanner.ui.components.LabeledSlider
 import com.umbra.scanner.ui.components.NeonCard
@@ -82,6 +82,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
     val accent = LocalAccent.current
+    val s = LocalStrings.current
     val saved = remember { app.settings.loadParams() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -141,10 +142,10 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
     }
 
     NeonCard(modifier = Modifier.staggerIn(1)) {
-        Text("MODE", style = MaterialTheme.typography.labelSmall, color = Fade)
+        Text(s.mode, style = MaterialTheme.typography.labelSmall, color = Fade)
         Spacer(Modifier.height(7.dp))
         Segmented(
-            options = listOf("CF EDGE", "WARP", "CUSTOM"),
+            options = listOf(s.modeCfEdge, s.modeWarp, s.modeCustom),
             selected = modeIdx,
             onSelect = { i ->
                 modeIdx = i
@@ -155,7 +156,11 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
         )
         Spacer(Modifier.height(6.dp))
         Text(
-            mode.tagline,
+            when (mode) {
+                ScanMode.CF_EDGE -> s.taglineCfEdge
+                ScanMode.WARP -> s.taglineWarp
+                ScanMode.CUSTOM -> s.taglineCustom
+            },
             style = MaterialTheme.typography.bodySmall,
             color = Fade,
             maxLines = 1,
@@ -164,7 +169,7 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
 
         Spacer(Modifier.height(14.dp))
         if (mode == ScanMode.CUSTOM) {
-            SectionLabel("CIDR LIST")
+            SectionLabel(s.cidrList)
             Spacer(Modifier.height(7.dp))
             OutlinedTextField(
                 value = customCidrs,
@@ -186,7 +191,7 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlineButton(
-                    text = "+ CF SET",
+                    text = s.addCfSet,
                     onClick = {
                         customCidrs = (customCidrs.lines() + Presets.CF_EDGE_V4 + Presets.CF_EDGE_V6)
                             .filter { it.isNotBlank() }.distinct().joinToString("\n")
@@ -194,7 +199,7 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
                     height = 36.dp,
                 )
                 OutlineButton(
-                    text = "+ WARP SET",
+                    text = s.addWarpSet,
                     onClick = {
                         customCidrs = (customCidrs.lines() + Presets.WARP_V4 + Presets.WARP_V6)
                             .filter { it.isNotBlank() }.distinct().joinToString("\n")
@@ -205,16 +210,16 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
             Spacer(Modifier.height(14.dp))
         } else {
             if (mode == ScanMode.WARP) {
-                SectionLabel("FLAVOR")
+                SectionLabel(s.flavor)
                 Spacer(Modifier.height(7.dp))
                 Segmented(
-                    options = listOf("WARP", "WARP+"),
+                    options = listOf(s.modeWarp, s.warpPlus),
                     selected = if (warpPlus) 1 else 0,
                     onSelect = { warpPlus = it == 1 },
                 )
                 Spacer(Modifier.height(14.dp))
             }
-            Text("FAMILY", style = MaterialTheme.typography.labelSmall, color = Fade)
+            Text(s.family, style = MaterialTheme.typography.labelSmall, color = Fade)
             Spacer(Modifier.height(7.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 NetFamily.entries.forEachIndexed { i, f ->
@@ -237,7 +242,7 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
             )
             Spacer(Modifier.padding(start = 8.dp))
             Text(
-                "AUTO-TUNE",
+                s.autoTune,
                 style = MaterialTheme.typography.labelMedium,
                 color = accent.tint,
                 modifier = Modifier.weight(1f),
@@ -245,15 +250,15 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
         }
         Spacer(Modifier.height(4.dp))
         Text(
-            "probes the live network + device, then picks the best advanced settings",
+            s.autoTuneHint,
             style = MaterialTheme.typography.bodySmall,
             color = Fade,
         )
         Spacer(Modifier.height(8.dp))
         OutlineButton(
             text = when {
-                tuning -> "CALIBRATING…"
-                else -> "PICK BEST SETTINGS"
+                tuning -> s.calibrating
+                else -> s.pickBestSettings
             },
             onClick = {
                 if (tuning) return@OutlineButton
@@ -308,7 +313,7 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
                         .background(Graphite.copy(alpha = 0.65f), RoundedCornerShape(12.dp))
                         .padding(12.dp),
                 ) {
-                    SectionLabel("AUTO-TUNE REPORT · APPLIED")
+                    SectionLabel(s.autoTuneReport)
                     Spacer(Modifier.height(8.dp))
                     tuneNotes.forEach { note ->
                         Text(
@@ -326,14 +331,14 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
                             .padding(vertical = 5.dp),
                         horizontalArrangement = Arrangement.End,
                     ) {
-                        Text("DISMISS", style = MaterialTheme.typography.labelSmall, color = Fade)
+                        Text(s.dismiss, style = MaterialTheme.typography.labelSmall, color = Fade)
                     }
                 }
             }
         }
 
         Spacer(Modifier.height(14.dp))
-        Text("PORT", style = MaterialTheme.typography.labelSmall, color = Fade)
+        Text(s.port, style = MaterialTheme.typography.labelSmall, color = Fade)
         Spacer(Modifier.height(7.dp))
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(7.dp),
@@ -341,8 +346,7 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
         ) {
             if (mode == ScanMode.WARP) {
                 SelectChip(
-                    text = if (sweepPorts.isEmpty()) "SWEEP ×${Presets.warpPortsCount()}"
-                    else "SWEEP ×${sweepPorts.size}",
+                    text = s.sweepLabel(if (sweepPorts.isEmpty()) Presets.warpPortsCount() else sweepPorts.size),
                     selected = sweep,
                     onClick = {
                         sweep = !sweep
@@ -364,18 +368,17 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
         if (mode == ScanMode.WARP) {
             Spacer(Modifier.height(10.dp))
             ToggleRow(
-                title = "UDP NOISE",
-                subtitle = "anti-DPI burst of 5 random packets before every handshake — the BPB trick for ISPs that throttle WARP",
+                title = s.udpNoise,
+                subtitle = s.udpNoiseHint,
                 checked = udpNoise,
                 onChange = { udpNoise = it },
             )
             Spacer(Modifier.height(8.dp))
             Text(
                 if (sweepEnabled) {
-                    val n = if (sweepPorts.isEmpty()) Presets.warpPortsCount() else sweepPorts.size
-                    "sweep validates $n canonical warp ports per IP with a real wireguard handshake + in-tunnel ping"
+                    s.warpSweepHint(if (sweepPorts.isEmpty()) Presets.warpPortsCount() else sweepPorts.size)
                 } else {
-                    "every endpoint is proven by a real wireguard handshake — results work in wireguard / v2rayng / hiddify"
+                    s.warpSingleHint
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = Fog,
@@ -383,7 +386,7 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
         }
 
         Spacer(Modifier.height(16.dp))
-        SectionLabel("ENGINE")
+        SectionLabel(s.engine)
         Spacer(Modifier.height(4.dp))
         Row(
             Modifier.fillMaxWidth().padding(vertical = 6.dp),
@@ -392,8 +395,7 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
             Icon(Icons.Rounded.Public, null, tint = accent.primary.copy(alpha = 0.7f))
             Spacer(Modifier.padding(start = 8.dp))
             Text(
-                "≈ $estimate PROBES · ${cidrs.size} PREFIXES" +
-                    if (portFactor > 1) " · ×$portFactor PORTS" else "",
+                s.probesEstimate(estimate, cidrs.size) + if (portFactor > 1) s.portsFactor(portFactor) else "",
                 style = MonoStyle.copy(fontSize = 12.sp),
                 color = Fog,
                 maxLines = 1,
@@ -426,7 +428,7 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
             )
             Spacer(Modifier.padding(start = 8.dp))
             Text(
-                if (advanced) "HIDE ADVANCED" else "ADVANCED ENGINE",
+                if (advanced) s.hideAdvanced else s.advancedEngine,
                 style = MaterialTheme.typography.labelMedium,
                 color = accent.tint,
                 maxLines = 1,
@@ -442,43 +444,41 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
         ) {
             Column {
                 Spacer(Modifier.height(8.dp))
-                LabeledSlider("SAMPLES / PREFIX", samples, { samples = it }, 50..3000, valueText = samples.toString())
+                LabeledSlider(s.samplesPerPrefix, samples, { samples = it }, 50..3000, valueText = samples.toString())
                 LabeledSlider(
-                    if (mode == ScanMode.WARP) "WG RETRIES" else "TCP ATTEMPTS",
+                    if (mode == ScanMode.WARP) s.wgRetries else s.tcpAttempts,
                     attempts, { attempts = it }, 1..10,
-                    valueText = "×$attempts",
+                    valueText = s.retryLabel(attempts),
                 )
-                LabeledSlider("TIMEOUT", timeoutMs, { timeoutMs = it }, 300..6000 step 100, valueText = "${timeoutMs}ms")
-                LabeledSlider("CONCURRENCY", concurrency, { concurrency = it }, 10..400, valueText = concurrency.toString())
+                LabeledSlider(s.timeout, timeoutMs, { timeoutMs = it }, 300..6000 step 100, valueText = s.milliseconds(timeoutMs))
+                LabeledSlider(s.concurrency, concurrency, { concurrency = it }, 10..400, valueText = concurrency.toString())
                 LabeledSlider(
-                    "TLS VERIFY BUDGET",
+                    s.tlsVerifyBudget,
                     verifyTopN, { verifyTopN = it }, 50..2000,
                     valueText = verifyTopN.toString(),
                 )
-                LabeledSlider("SPEED TOP N", speedTopN, { speedTopN = it }, 5..300, valueText = speedTopN.toString())
-                LabeledSlider("SPEED LANES", speedConc, { speedConc = it }, 1..8, valueText = "×$speedConc")
+                LabeledSlider(s.speedTopN, speedTopN, { speedTopN = it }, 5..300, valueText = speedTopN.toString())
+                LabeledSlider(s.speedLanes, speedConc, { speedConc = it }, 1..8, valueText = s.retryLabel(speedConc))
                 ToggleRow(
-                    title = "TLS VERIFY",
-                    subtitle = "cert-verified handshake — the real alive filter (anti-fake-dpi)",
+                    title = s.tlsVerify,
+                    subtitle = s.tlsVerifyHint,
                     checked = tlsOn,
                     onChange = { tlsOn = it },
                 )
                 ToggleRow(
-                    title = "SPEED TEST",
-                    subtitle = if (mode == ScanMode.WARP)
-                        "exact-IP HTTPS download · always via :443 on warp mode"
-                    else "exact-IP HTTPS download · sni speed.cloudflare.com",
+                    title = s.speedTest,
+                    subtitle = if (mode == ScanMode.WARP) s.speedTestHintWarp else s.speedTestHintEdge,
                     checked = speedOn,
                     onChange = { speedOn = it },
                 )
                 if (speedOn) {
                     Spacer(Modifier.height(8.dp))
-                    SectionLabel("DOWNLOAD SIZE")
+                    SectionLabel(s.downloadSize)
                     Spacer(Modifier.height(7.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                         listOf(1, 5, 10, 20, 50).forEach { mb ->
                             SelectChip(
-                                text = "${mb}MB",
+                                text = s.megabytes(mb),
                                 selected = dlMb == mb,
                                 onClick = { dlMb = mb },
                             )
@@ -490,7 +490,7 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
 
         Spacer(Modifier.height(18.dp))
         GradientButton(
-            text = "INITIATE DEEP SCAN",
+            text = s.initiateDeepScan,
             enabled = !tuning,
             onClick = {
                 val params = ScanParams(
@@ -520,7 +520,7 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            "candidates are probed at their literal address — DNS is never involved",
+            s.dnsNeverUsed,
             style = MaterialTheme.typography.bodySmall,
             color = Fade,
             modifier = Modifier.padding(horizontal = 2.dp),

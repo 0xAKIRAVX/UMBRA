@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">UMBRA</string>
+    <string name="channel_name">موتور اسکن</string>
+    <string name="channel_desc">پیشرفت زندهٔ اسکن‌های عمیق UMBRA</string>
+    <string name="notif_title">UMBRA · اسکن عمیق</string>
+    <string name="notif_action_stop">توقف</string>
+</resources>

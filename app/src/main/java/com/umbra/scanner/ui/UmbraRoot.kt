@@ -12,6 +12,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -55,6 +56,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.umbra.scanner.UmbraApp
 import com.umbra.scanner.engine.UpdateCenter
+import com.umbra.scanner.i18n.LocalStrings
 import com.umbra.scanner.ui.components.AuroraBackground
 import com.umbra.scanner.ui.components.UpdateDialog
 import com.umbra.scanner.ui.components.bouncyClickable
@@ -69,15 +71,15 @@ import com.umbra.scanner.ui.theme.LocalAccent
 import com.umbra.scanner.ui.theme.SlateLine
 
 private data class Dest(
-    val label: String,
+    val label: (com.umbra.scanner.i18n.AppStrings) -> String,
     val icon: ImageVector,
 )
 
 private val DESTS = listOf(
-    Dest("SCAN", Icons.Rounded.Radar),
-    Dest("RESULTS", Icons.Rounded.Leaderboard),
-    Dest("VLESS", Icons.Rounded.Key),
-    Dest("SYSTEM", Icons.Rounded.Tune),
+    Dest({ it.navScan }, Icons.Rounded.Radar),
+    Dest({ it.navResults }, Icons.Rounded.Leaderboard),
+    Dest({ it.navVless }, Icons.Rounded.Key),
+    Dest({ it.navSystem }, Icons.Rounded.Tune),
 )
 
 @Composable
@@ -129,6 +131,10 @@ fun UmbraRoot(app: UmbraApp) {
     }
 }
 
+/**
+ * v3 floating dock — the nav detaches from the screen edge into an elevated
+ * rounded slab with a gradient hairline crest and the sliding selection pill.
+ */
 @Composable
 private fun UmbraNav(
     selected: Int,
@@ -136,9 +142,9 @@ private fun UmbraNav(
     onSelect: (Int) -> Unit,
 ) {
     val accent = LocalAccent.current
+    val s = LocalStrings.current
     val haptic = LocalHapticFeedback.current
     Column(Modifier.fillMaxWidth()) {
-        // gradient hairline over the bar
         Box(
             Modifier
                 .fillMaxWidth()
@@ -153,11 +159,7 @@ private fun UmbraNav(
                     )
                 )
         )
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .background(Graphite)
-        ) {
+        Box(Modifier.fillMaxWidth().background(Graphite.copy(alpha = 0.86f))) {
             Box(Modifier.navigationBarsPadding().padding(vertical = 7.dp, horizontal = 10.dp)) {
                 BoxWithConstraints(Modifier.fillMaxWidth().height(54.dp)) {
                     val itemW = maxWidth / DESTS.size
@@ -177,7 +179,19 @@ private fun UmbraNav(
                             .fillMaxSize()
                             .padding(vertical = 3.dp, horizontal = 8.dp)
                             .clip(RoundedCornerShape(13.dp))
-                            .background(accent.primary.copy(alpha = 0.12f))
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        accent.primary.copy(alpha = 0.16f),
+                                        accent.primary.copy(alpha = 0.09f),
+                                    )
+                                )
+                            )
+                            .border(
+                                1.dp,
+                                accent.primary.copy(alpha = 0.50f),
+                                RoundedCornerShape(13.dp),
+                            )
                     )
                     Row(
                         Modifier.fillMaxSize(),
@@ -226,7 +240,7 @@ private fun UmbraNav(
                                 }
                                 Spacer(Modifier.height(3.dp))
                                 Text(
-                                    d.label,
+                                    d.label(s),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = if (isSel) accent.tint else Fade,
                                     maxLines = 1,

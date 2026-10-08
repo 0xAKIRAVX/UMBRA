@@ -26,6 +26,13 @@ val MajorMono = FontFamily(
     Font(R.font.major_mono_display, FontWeight.Normal),
 )
 
+/** Persian UI face — Vazirmatn (SIL OFL), the standard face of Persian apps. */
+val Vazir = FontFamily(
+    Font(R.font.vazirmatn_regular, FontWeight.Normal),
+    Font(R.font.vazirmatn_medium, FontWeight.Medium),
+    Font(R.font.vazirmatn_bold, FontWeight.SemiBold),
+)
+
 val UmbraTypography = Typography(
     displayLarge = TextStyle(
         fontFamily = BrunoAce, fontWeight = FontWeight.Normal,
@@ -89,4 +96,53 @@ val MonoStyleLarge = TextStyle(
     fontWeight = FontWeight.Normal,
     fontSize = 17.sp,
     letterSpacing = 0.8.sp,
+)
+
+/**
+ * Persian typography: Vazirmatn, zero letter-spacing (Arabic script connects
+ * glyphs — tracking would tear the words apart), and a touch more size to
+ * match the x-height of the Latin faces. Display styles keep Bruno Ace for
+ * the Latin wordmark; body/labels switch to Vazir.
+ */
+val UmbraTypographyFa = Typography(
+    displayLarge = TextStyle(
+        fontFamily = BrunoAce, fontWeight = FontWeight.Normal,
+        fontSize = 26.sp, letterSpacing = 7.sp,
+    ),
+    displayMedium = TextStyle(
+        fontFamily = Vazir, fontWeight = FontWeight.SemiBold,
+        fontSize = 17.sp, letterSpacing = 0.sp,
+    ),
+    titleLarge = TextStyle(
+        fontFamily = Vazir, fontWeight = FontWeight.SemiBold,
+        fontSize = 16.sp, letterSpacing = 0.sp,
+    ),
+    titleMedium = TextStyle(
+        fontFamily = Vazir, fontWeight = FontWeight.Medium,
+        fontSize = 14.sp, letterSpacing = 0.sp,
+    ),
+    bodyLarge = TextStyle(
+        fontFamily = Vazir, fontWeight = FontWeight.Normal,
+        fontSize = 15.sp, letterSpacing = 0.sp,
+    ),
+    bodyMedium = TextStyle(
+        fontFamily = Vazir, fontWeight = FontWeight.Normal,
+        fontSize = 13.sp, letterSpacing = 0.sp,
+    ),
+    bodySmall = TextStyle(
+        fontFamily = Vazir, fontWeight = FontWeight.Normal,
+        fontSize = 12.sp, letterSpacing = 0.sp,
+    ),
+    labelLarge = TextStyle(
+        fontFamily = Vazir, fontWeight = FontWeight.Medium,
+        fontSize = 13.sp, letterSpacing = 0.sp,
+    ),
+    labelMedium = TextStyle(
+        fontFamily = Vazir, fontWeight = FontWeight.Medium,
+        fontSize = 11.sp, letterSpacing = 0.sp,
+    ),
+    labelSmall = TextStyle(
+        fontFamily = Vazir, fontWeight = FontWeight.Medium,
+        fontSize = 10.sp, letterSpacing = 0.sp,
+    ),
 )

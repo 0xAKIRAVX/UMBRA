@@ -1,8 +1,8 @@
 package com.umbra.scanner.ui.screens
 
+import android.app.Activity
 import android.content.Intent
 import android.net.Uri
-import android.view.WindowManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -41,12 +41,15 @@ import androidx.core.content.pm.PackageInfoCompat
 import com.umbra.scanner.UmbraApp
 import com.umbra.scanner.core.Project
 import com.umbra.scanner.engine.UpdateCenter
+import com.umbra.scanner.i18n.AppLanguage
+import com.umbra.scanner.i18n.LocalStrings
 import com.umbra.scanner.unlockMaxRefreshRate
 import com.umbra.scanner.ui.components.GradientButton
 import com.umbra.scanner.ui.components.NeonCard
 import com.umbra.scanner.ui.components.OutlineButton
 import com.umbra.scanner.ui.components.PulsingDot
 import com.umbra.scanner.ui.components.SectionLabel
+import com.umbra.scanner.ui.components.Segmented
 import com.umbra.scanner.ui.components.ToggleRow
 import com.umbra.scanner.ui.components.bouncyClickable
 import com.umbra.scanner.ui.components.staggerIn
@@ -60,7 +63,6 @@ import com.umbra.scanner.ui.theme.MonoStyleSmall
 import com.umbra.scanner.ui.theme.OkMint
 import com.umbra.scanner.ui.theme.SlateLine
 import com.umbra.scanner.ui.theme.WarnAmber
-import android.app.Activity
 
 @Composable
 fun SettingsScreen(app: UmbraApp) {
@@ -70,9 +72,11 @@ fun SettingsScreen(app: UmbraApp) {
     val haptics by settings.haptics.collectAsState()
     val highRefresh by settings.highRefresh.collectAsState()
     val lightFx by settings.lightFx.collectAsState()
+    val language by settings.language.collectAsState()
     val accent = LocalAccent.current
     val context = LocalContext.current
     val resultsCount = app.controller.results.collectAsState().value.size
+    val s = LocalStrings.current
 
     val displayHz = rememberDisplayHz()
     val update = app.updateCenter
@@ -96,7 +100,7 @@ fun SettingsScreen(app: UmbraApp) {
     ) {
         Spacer(Modifier.height(10.dp))
         Text(
-            "SYSTEM",
+            s.system,
             style = MaterialTheme.typography.displayMedium,
             color = Mist,
             modifier = Modifier.staggerIn(0),
@@ -105,7 +109,7 @@ fun SettingsScreen(app: UmbraApp) {
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            "identity · performance · internals",
+            s.systemTagline,
             style = MaterialTheme.typography.bodySmall,
             color = Fade,
             modifier = Modifier.staggerIn(1),
@@ -115,8 +119,27 @@ fun SettingsScreen(app: UmbraApp) {
 
         Spacer(Modifier.height(14.dp))
 
-        NeonCard(modifier = Modifier.staggerIn(2)) {
-            SectionLabel("SIGNAL PALETTE")
+        // ── language ──────────────────────────────────────────────
+        NeonCard(glow = false, modifier = Modifier.staggerIn(2)) {
+            SectionLabel(s.language)
+            Spacer(Modifier.height(8.dp))
+            Segmented(
+                options = listOf("ENGLISH", "فارسی"),
+                selected = language,
+                onSelect = { settings.setLanguage(it) },
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                s.languageHint,
+                style = MaterialTheme.typography.bodySmall,
+                color = Fade,
+            )
+        }
+
+        Spacer(Modifier.height(14.dp))
+
+        NeonCard(modifier = Modifier.staggerIn(3)) {
+            SectionLabel(s.signalPalette)
             Spacer(Modifier.height(10.dp))
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 ACCENTS.forEachIndexed { i, scheme ->
@@ -159,26 +182,26 @@ fun SettingsScreen(app: UmbraApp) {
                             overflow = TextOverflow.Ellipsis,
                         )
                         if (selected) {
-                            Text("ACTIVE", style = MaterialTheme.typography.labelSmall, color = scheme.primary)
+                            PulsingDot(color = scheme.primary, sizeDp = 7.dp)
                         }
                     }
                 }
             }
             Spacer(Modifier.height(6.dp))
             Text(
-                "rare palettes — phantom mint, lunar iris, nova rose, ember flare",
+                s.paletteHint,
                 style = MaterialTheme.typography.bodySmall,
                 color = Fade,
             )
         }
 
         Spacer(Modifier.height(14.dp))
-        NeonCard(glow = false, modifier = Modifier.staggerIn(3)) {
-            SectionLabel("PERFORMANCE")
+        NeonCard(glow = false, modifier = Modifier.staggerIn(4)) {
+            SectionLabel(s.performance)
             Spacer(Modifier.height(6.dp))
             ToggleRow(
-                title = "MAX REFRESH RATE",
-                subtitle = "unlocks 90 / 120 / 144 Hz — display: ${displayHz ?: "?"} Hz",
+                title = s.maxRefreshRate,
+                subtitle = s.maxRefreshHint(displayHz?.toInt()?.toString() ?: "?"),
                 checked = highRefresh,
                 onChange = { on ->
                     settings.setHighRefresh(on)
@@ -186,20 +209,20 @@ fun SettingsScreen(app: UmbraApp) {
                 },
             )
             ToggleRow(
-                title = "LIGHTWEIGHT FX",
-                subtitle = "freezes radar + glow animations on very weak devices",
+                title = s.lightweightFx,
+                subtitle = s.lightweightFxHint,
                 checked = lightFx,
                 onChange = { settings.setLightFx(it) },
             )
             ToggleRow(
-                title = "AMOLED VOID",
-                subtitle = "true-black surfaces for OLED panels",
+                title = s.amoledVoid,
+                subtitle = s.amoledVoidHint,
                 checked = amoled,
                 onChange = { settings.setAmoled(it) },
             )
             ToggleRow(
-                title = "HAPTIC SIGNALS",
-                subtitle = "subtle feedback on controls and scan start",
+                title = s.hapticSignals,
+                subtitle = s.hapticSignalsHint,
                 checked = haptics,
                 onChange = { settings.setHaptics(it) },
             )
@@ -207,12 +230,12 @@ fun SettingsScreen(app: UmbraApp) {
 
         Spacer(Modifier.height(14.dp))
 
-        NeonCard(glow = false, modifier = Modifier.staggerIn(4)) {
-            SectionLabel("UPDATE CHANNEL")
+        NeonCard(glow = false, modifier = Modifier.staggerIn(5)) {
+            SectionLabel(s.updateChannel)
             Spacer(Modifier.height(6.dp))
             ToggleRow(
-                title = "AUTO CHECK",
-                subtitle = "silent background check on launch · every 24 h",
+                title = s.autoCheck,
+                subtitle = s.autoCheckHint,
                 checked = autoUpdate,
                 onChange = { app.settings.setAutoUpdate(it) },
             )
@@ -221,12 +244,12 @@ fun SettingsScreen(app: UmbraApp) {
                 Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                when (val s = updateState) {
+                when (val st = updateState) {
                     UpdateCenter.State.Checking -> {
                         PulsingDot(color = accent.primary, sizeDp = 8.dp)
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "contacting github…",
+                            s.contactingGithub,
                             style = MonoStyleSmall,
                             color = accent.tint,
                             maxLines = 1,
@@ -238,7 +261,7 @@ fun SettingsScreen(app: UmbraApp) {
                         PulsingDot(color = OkMint, sizeDp = 8.dp)
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "v${s.release.tag.removePrefix("v")} ready — you are on ${s.currentVersion}",
+                            s.updateReady(st.release.tag.removePrefix("v"), st.currentVersion),
                             style = MonoStyleSmall,
                             color = OkMint,
                             maxLines = 1,
@@ -247,7 +270,7 @@ fun SettingsScreen(app: UmbraApp) {
                     }
 
                     is UpdateCenter.State.UpToDate -> Text(
-                        "up to date · latest is v${s.latestTag.removePrefix("v")}",
+                        s.upToDate(st.latestTag.removePrefix("v")),
                         style = MonoStyleSmall,
                         color = OkMint,
                         maxLines = 1,
@@ -255,7 +278,7 @@ fun SettingsScreen(app: UmbraApp) {
                     )
 
                     is UpdateCenter.State.Unreachable -> Text(
-                        s.reason,
+                        s.githubUnreachable,
                         style = MonoStyleSmall,
                         color = WarnAmber,
                         maxLines = 1,
@@ -263,7 +286,7 @@ fun SettingsScreen(app: UmbraApp) {
                     )
 
                     UpdateCenter.State.Idle -> Text(
-                        "checks github releases for newer builds",
+                        s.updateIdle,
                         style = MonoStyleSmall,
                         color = Fade,
                         maxLines = 1,
@@ -275,7 +298,7 @@ fun SettingsScreen(app: UmbraApp) {
                 Spacer(Modifier.height(8.dp))
                 val release = (updateState as UpdateCenter.State.Available).release
                 GradientButton(
-                    text = "GET v${release.tag.removePrefix("v")}",
+                    text = s.getVersion(release.tag.removePrefix("v")),
                     onClick = {
                         runCatching {
                             context.startActivity(
@@ -290,7 +313,7 @@ fun SettingsScreen(app: UmbraApp) {
             }
             Spacer(Modifier.height(8.dp))
             OutlineButton(
-                text = "CHECK NOW",
+                text = s.checkNow,
                 onClick = { update.checkNow() },
                 modifier = Modifier.fillMaxWidth(),
                 height = 40.dp,
@@ -298,35 +321,33 @@ fun SettingsScreen(app: UmbraApp) {
         }
 
         Spacer(Modifier.height(14.dp))
-        NeonCard(glow = false, modifier = Modifier.staggerIn(5)) {
-            SectionLabel("ABOUT UMBRA")
+        NeonCard(glow = false, modifier = Modifier.staggerIn(6)) {
+            SectionLabel(s.aboutUmbra)
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth()) {
-                Text("VERSION", style = MaterialTheme.typography.labelMedium, color = Fade, modifier = Modifier.weight(1f))
+                Text(s.version, style = MaterialTheme.typography.labelMedium, color = Fade, modifier = Modifier.weight(1f))
                 Text(versionLabel, style = MonoStyleSmall, color = accent.tint, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
             }
             Spacer(Modifier.height(5.dp))
             Row(Modifier.fillMaxWidth()) {
-                Text("ENGINE", style = MaterialTheme.typography.labelMedium, color = Fade, modifier = Modifier.weight(1f))
-                Text("exact-IP tcp + tls + https", style = MonoStyleSmall, color = Fog, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+                Text(s.engineLabel, style = MaterialTheme.typography.labelMedium, color = Fade, modifier = Modifier.weight(1f))
+                Text(s.engineValue, style = MonoStyleSmall, color = Fog, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
             }
             Spacer(Modifier.height(5.dp))
             Row(Modifier.fillMaxWidth()) {
-                Text("DNS", style = MaterialTheme.typography.labelMedium, color = Fade, modifier = Modifier.weight(1f))
-                Text("never used for candidates", style = MonoStyleSmall, color = Fog, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+                Text(s.dnsLabel, style = MaterialTheme.typography.labelMedium, color = Fade, modifier = Modifier.weight(1f))
+                Text(s.dnsValue, style = MonoStyleSmall, color = Fog, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
             }
             Spacer(Modifier.height(12.dp))
             Text(
-                "fonts · Bruno Ace SC, Chakra Petch, Major Mono Display — SIL Open Font License. " +
-                    "scoring · latency 34% · loss 26% · speed 20% · jitter 10% + tls bonus. " +
-                    "use responsibly and within your local network policies.",
+                s.aboutNote,
                 style = MaterialTheme.typography.bodySmall,
                 color = Fade,
             )
             if (resultsCount > 0) {
                 Spacer(Modifier.height(12.dp))
                 OutlineButton(
-                    text = "CLEAR RESULT BOARD ($resultsCount)",
+                    text = s.clearResultBoard(resultsCount),
                     onClick = { app.controller.clearResults() },
                     modifier = Modifier.fillMaxWidth(),
                     height = 40.dp,
@@ -337,8 +358,8 @@ fun SettingsScreen(app: UmbraApp) {
         Spacer(Modifier.height(14.dp))
 
         // ── project & creator card ─────────────────────────────────
-        NeonCard(glow = true, modifier = Modifier.staggerIn(6)) {
-            SectionLabel("PROJECT")
+        NeonCard(glow = true, modifier = Modifier.staggerIn(7)) {
+            SectionLabel(s.project)
             Spacer(Modifier.height(10.dp))
             Row(
                 Modifier
@@ -373,7 +394,7 @@ fun SettingsScreen(app: UmbraApp) {
                         softWrap = false,
                     )
                     Text(
-                        "creator & maintainer",
+                        s.creatorRole,
                         style = MaterialTheme.typography.bodySmall,
                         color = Fade,
                         maxLines = 1,
@@ -382,7 +403,7 @@ fun SettingsScreen(app: UmbraApp) {
             }
             Spacer(Modifier.height(10.dp))
             Row(Modifier.fillMaxWidth()) {
-                Text("SOURCE", style = MaterialTheme.typography.labelMedium, color = Fade, modifier = Modifier.weight(1f))
+                Text(s.source, style = MaterialTheme.typography.labelMedium, color = Fade, modifier = Modifier.weight(1f))
                 Text(
                     "github.com/${Project.GITHUB_USER}/${Project.GITHUB_REPO}",
                     style = MonoStyleSmall,
@@ -397,13 +418,13 @@ fun SettingsScreen(app: UmbraApp) {
             }
             Spacer(Modifier.height(5.dp))
             Row(Modifier.fillMaxWidth()) {
-                Text("LICENSE", style = MaterialTheme.typography.labelMedium, color = Fade, modifier = Modifier.weight(1f))
-                Text("MIT · open source", style = MonoStyleSmall, color = Fog, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+                Text(s.license, style = MaterialTheme.typography.labelMedium, color = Fade, modifier = Modifier.weight(1f))
+                Text(s.licenseValue, style = MonoStyleSmall, color = Fog, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
             }
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 GradientButton(
-                    text = "OPEN ON GITHUB",
+                    text = s.openOnGithub,
                     onClick = {
                         runCatching {
                             context.startActivity(
@@ -416,7 +437,7 @@ fun SettingsScreen(app: UmbraApp) {
                     height = 42.dp,
                 )
                 OutlineButton(
-                    text = "COPY LINK",
+                    text = s.copyLink,
                     onClick = { clipboard.setText(AnnotatedString(Project.REPO_URL)) },
                     modifier = Modifier.weight(1f),
                     height = 42.dp,

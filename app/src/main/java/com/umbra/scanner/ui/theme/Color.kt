@@ -22,6 +22,15 @@ data class AccentScheme(
     val tint: Color,
 )
 
+/** v3.0 default — mirrors the crimson cyber-globe launcher icon. */
+val CrimsonOrbit = AccentScheme(
+    name = "CRIMSON ORBIT",
+    primary = Color(0xFFFF3B4A),
+    glow = Color(0xFFFF9AA5),
+    secondary = Color(0xFF7CE7FF),
+    tint = Color(0xFFFFE9EC),
+)
+
 val PhantomMint = AccentScheme(
     name = "PHANTOM MINT",
     primary = Color(0xFF00F0B5),
@@ -54,7 +63,12 @@ val EmberFlare = AccentScheme(
     tint = Color(0xFFFFF3E2),
 )
 
-val ACCENTS = listOf(PhantomMint, LunarIris, NovaRose, EmberFlare)
+val ACCENTS = listOf(CrimsonOrbit, PhantomMint, LunarIris, NovaRose, EmberFlare)
+
+// medal tints for the results board top-3
+val GoldMedal = Color(0xFFF5C26B)
+val SilverMedal = Color(0xFFC9D6E3)
+val BronzeMedal = Color(0xFFD6905F)
 
 // semantic
 val Ultraviolet = Color(0xFF8F6BFF)

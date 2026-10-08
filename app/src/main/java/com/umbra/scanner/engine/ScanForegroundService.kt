@@ -15,10 +15,12 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import androidx.compose.ui.graphics.toArgb
 import com.umbra.scanner.MainActivity
 import com.umbra.scanner.R
 import com.umbra.scanner.UmbraApp
 import com.umbra.scanner.core.ScanUi
+import com.umbra.scanner.ui.theme.ACCENTS
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -125,10 +127,15 @@ class ScanForegroundService : Service() {
             .setContentIntent(contentIntent)
             .addAction(0, getString(R.string.notif_action_stop), stopIntent)
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
-            .setColor(0xFF00F0B5.toInt())
+            .setColor(notificationAccent())
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
         return builder.build()
     }
+
+    /** v3 fix: the notification tint now follows the palette chosen in settings. */
+    private fun notificationAccent(): Int =
+        ACCENTS[(application as UmbraApp).settings.accent.value.coerceIn(0, ACCENTS.size - 1)]
+            .primary.toArgb()
 
     private fun buildFinalNotification(done: ScanUi.Done): Notification {
         val s = done.summary
@@ -155,7 +162,7 @@ class ScanForegroundService : Service() {
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setAutoCancel(true)
             .setContentIntent(contentIntent)
-            .setColor(0xFF00F0B5.toInt())
+            .setColor(notificationAccent())
             .build()
     }
 
