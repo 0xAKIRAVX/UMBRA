@@ -42,12 +42,15 @@ data class ScanParams(
     val cidrs: List<String> = emptyList(),
     val family: NetFamily = NetFamily.BOTH,
     val port: Int = 443,
-    val samplesPerPrefix: Int = 500,
+    val samplesPerPrefix: Int = 96,
     val tcpAttempts: Int = 3,
     val tcpTimeoutMs: Int = 2000,
     val concurrency: Int = 150,
     val tlsVerify: Boolean = true,
-    val verifyTopN: Int = 80,
+    /** EDGE/CUSTOM: how many TCP-alive endpoints get full TLS verification.
+     *  This is the REAL alive filter — a bare TCP connect proves nothing on
+     *  networks with DPI middleboxes that fake-accept every handshake. */
+    val verifyTopN: Int = 400,
     val speedTest: Boolean = true,
     val speedTopN: Int = 50,
     val speedConcurrency: Int = 4,
@@ -72,11 +75,11 @@ data class ScanParams(
      *  throughput check always rides 443, where every WARP IP is a normal edge. */
     val speedPort: Int get() = if (mode == ScanMode.WARP) 443 else port
 
-    /** WARP mode now validates endpoints with a full WireGuard handshake plus an
-     *  in-tunnel ICMP ping — strictly stronger than any TLS probe, so the TLS
-     *  phase only runs for non-WARP scans (or WARP when the speed test is off
-     *  and no WG data exists — never in practice). */
-    val needsTlsPhase: Boolean get() = tlsVerify && mode != ScanMode.WARP && !speedTest
+    /** EDGE/CUSTOM scans ALWAYS TLS-verify their TCP-alive candidates: on
+     *  heavily-filtered networks (e.g. Iran) DPI boxes complete the TCP
+     *  handshake for any destination, so TCP-alive alone means nothing. Only
+     *  an IP serving a valid certificate for a real Cloudflare host is real. */
+    val needsTlsPhase: Boolean get() = tlsVerify && mode != ScanMode.WARP
     val downloadMbLabel: Int get() = (downloadBytes / (1024 * 1024)).toInt()
 
     /** Every (ip, port) pair the TCP storm will probe. */
@@ -109,7 +112,22 @@ data class ScanResult(
     val error: String? = null,
     val mode: ScanMode = ScanMode.CF_EDGE,
 ) {
-    val alive: Boolean get() = successfulAttempts > 0
+    /**
+     * An endpoint is alive only when it was PROVEN real:
+     *  - WARP: data actually flowed through the tunnel (in-tunnel ICMP ping)
+     *  - EDGE/CUSTOM: a full TLS handshake with a valid certificate for
+     *    speed.cloudflare.com (or an HTTP 200 from the speed endpoint)
+     * A bare TCP connect is NOT aliveness — DPI middleboxes fake it.
+     */
+    val alive: Boolean
+        get() = when (mode) {
+            ScanMode.WARP -> successfulAttempts > 0
+            else -> tlsSuccess || httpStatus == 200
+        }
+
+    /** TCP-level reachability only (pre-filter, not proof). */
+    val tcpAlive: Boolean get() = successfulAttempts > 0
+
     val id: String get() = "$ip:$port"
     val lossPct: Int get() = (packetLoss * 100).toInt()
 

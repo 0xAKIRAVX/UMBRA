@@ -450,12 +450,16 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
                 )
                 LabeledSlider("TIMEOUT", timeoutMs, { timeoutMs = it }, 300..6000 step 100, valueText = "${timeoutMs}ms")
                 LabeledSlider("CONCURRENCY", concurrency, { concurrency = it }, 10..400, valueText = concurrency.toString())
-                LabeledSlider("TLS VERIFY TOP N", verifyTopN, { verifyTopN = it }, 10..300, valueText = verifyTopN.toString())
+                LabeledSlider(
+                    "TLS VERIFY BUDGET",
+                    verifyTopN, { verifyTopN = it }, 50..2000,
+                    valueText = verifyTopN.toString(),
+                )
                 LabeledSlider("SPEED TOP N", speedTopN, { speedTopN = it }, 5..300, valueText = speedTopN.toString())
                 LabeledSlider("SPEED LANES", speedConc, { speedConc = it }, 1..8, valueText = "×$speedConc")
                 ToggleRow(
                     title = "TLS VERIFY",
-                    subtitle = "handshake + certificate check on top endpoints",
+                    subtitle = "cert-verified handshake — the real alive filter (anti-fake-dpi)",
                     checked = tlsOn,
                     onChange = { tlsOn = it },
                 )

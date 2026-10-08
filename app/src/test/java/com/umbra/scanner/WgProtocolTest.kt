@@ -133,6 +133,7 @@ class WgProtocolTest {
             senderIndex = hs.getInt("sender_index"),
             ephemeralPriv = hex(hs.getString("eph_priv")),
             timestamp = hex(hs.getString("timestamp")),
+            reserved = hex(hs.getString("reserved")),
         )
         assertEquals(148, packet.size)
         assertArrayEquals(hex(hs.getString("init_packet")), packet)
@@ -156,6 +157,7 @@ class WgProtocolTest {
             senderIndex = hs.getInt("sender_index"),
             ephemeralPriv = hex(hs.getString("eph_priv")),
             timestamp = hex(hs.getString("timestamp")),
+            reserved = hex(hs.getString("reserved")),
         )
         val (session, _) = WgProtocol.consumeResponse(pending, initPriv, hex(hs.getString("response_packet")))
         assertNotNull(session)
@@ -187,12 +189,51 @@ class WgProtocolTest {
             senderIndex = hs.getInt("sender_index"),
             ephemeralPriv = hex(hs.getString("eph_priv")),
             timestamp = hex(hs.getString("timestamp")),
+            reserved = hex(hs.getString("reserved")),
         )
         val resp = hex(hs.getString("response_packet"))
         resp[8] = (resp[8].toInt() xor 0x01).toByte() // corrupt receiver index
         val (session, err) = WgProtocol.consumeResponse(pending, initPriv, resp)
         assertNull(session)
         assertTrue(err.isNotEmpty())
+    }
+
+    @Test
+    fun `warp reserved bytes ride in packet bytes 1 to 3`() {
+        val hs = vectors().getJSONObject("handshake")
+        val reserved = hex(hs.getString("reserved"))
+        val (packet, _) = WgProtocol.buildInitiation(
+            staticPriv = hex(hs.getString("init_static_priv")),
+            staticPub = hex(hs.getString("init_static_pub")),
+            responderPub = hex(hs.getString("resp_static_pub")),
+            senderIndex = hs.getInt("sender_index"),
+            ephemeralPriv = hex(hs.getString("eph_priv")),
+            timestamp = hex(hs.getString("timestamp")),
+            reserved = reserved,
+        )
+        // type byte stays 1, the 3 WARP client_id bytes follow immediately
+        assertEquals(1, packet[0].toInt())
+        for (i in 0..2) assertEquals(reserved[i], packet[1 + i])
+        // and the transport packets carry them too
+        val initPriv = hex(hs.getString("init_static_priv"))
+        val (_, pending) = WgProtocol.buildInitiation(
+            staticPriv = initPriv,
+            staticPub = hex(hs.getString("init_static_pub")),
+            responderPub = hex(hs.getString("resp_static_pub")),
+            senderIndex = hs.getInt("sender_index"),
+            ephemeralPriv = hex(hs.getString("eph_priv")),
+            timestamp = hex(hs.getString("timestamp")),
+            reserved = reserved,
+        )
+        val (session, _) = WgProtocol.consumeResponse(
+            pending, initPriv, hex(hs.getString("response_packet")))
+        assertNotNull(session)
+        val tr = vectors().getJSONObject("transport_req")
+        val inner = WgProtocol.icmpEchoRequest(
+            byteArrayOf(172.toByte(), 16, 0, 2), byteArrayOf(1, 1, 1, 1),
+            tr.getInt("ident"), tr.getInt("seq"))
+        val tp = session!!.buildTransport(inner)
+        for (i in 0..2) assertEquals(reserved[i], tp[1 + i])
     }
 
     @Test

@@ -233,7 +233,10 @@ class ScanController {
             ratePerSec = rate,
             etaSec = eta,
         )
-        if (currentPhase == ScanPhase.TCP || currentPhase == ScanPhase.WG) {
+        // live top-5 board updates during every probing phase (TCP / WG / TLS)
+        if (currentPhase == ScanPhase.TCP || currentPhase == ScanPhase.WG ||
+            currentPhase == ScanPhase.PROBE
+        ) {
             val snap = synchronized(lock) { resultMap.values.filter { it.alive } }
             if (snap.isNotEmpty()) {
                 _top.value = snap.sortedBy { it.latencyMs ?: Double.MAX_VALUE }.take(5)

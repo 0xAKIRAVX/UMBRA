@@ -57,6 +57,15 @@ class VlessTest {
     }
 
     @Test
+    fun `isTestOnlySni flags test snis`() {
+        assertTrue(VlessGenerator.isTestOnlySni("speed.cloudflare.com"))
+        assertTrue(VlessGenerator.isTestOnlySni(""))
+        assertTrue(VlessGenerator.isTestOnlySni("www.speedtest.net"))
+        assertFalse(VlessGenerator.isTestOnlySni("my-worker.crazymosophist.workers.dev"))
+        assertFalse(VlessGenerator.isTestOnlySni("panel.example.com"))
+    }
+
+    @Test
     fun `uuid validation`() {
         assertTrue(VlessGenerator.isValidUuid("6ba14b1e-8fd8-4c1f-9a2b-2b7c12345678"))
         assertFalse(VlessGenerator.isValidUuid("not-a-uuid"))
@@ -74,7 +83,7 @@ class RankingTest {
         speed: Double? = null,
         ok: Int = 3,
         attempts: Int = 3,
-        tls: Boolean = false,
+        tls: Boolean = true,
         jitter: Double? = null,
     ) = ScanResult(
         ip = ip,
@@ -98,7 +107,33 @@ class RankingTest {
 
     @Test
     fun `dead endpoints score zero`() {
-        assertEquals(0.0, Ranking.scoreOf(result("3.3.3.3", null, ok = 0)), 0.001)
+        assertEquals(0.0, Ranking.scoreOf(result("3.3.3.3", null, ok = 0, tls = false)), 0.001)
+    }
+
+    @Test
+    fun `dpi fake tcp without tls is dead even when tcp attempts succeeded`() {
+        // v2.5.0 semantics: a bare TCP connect proves nothing — an EDGE result
+        // that never passed TLS verification is not alive and scores zero.
+        val fake = result("5.5.5.5", 8.0, ok = 3, attempts = 3, tls = false)
+        assertFalse(fake.alive)
+        assertTrue(fake.tcpAlive)
+        assertEquals(0.0, Ranking.scoreOf(fake), 0.001)
+    }
+
+    @Test
+    fun `warp result stays alive on in-tunnel pings without tls`() {
+        val warp = ScanResult(
+            ip = "162.159.193.10",
+            protocol = com.umbra.scanner.core.IpProtocol.IPv4,
+            port = 2408,
+            latencyMs = 90.0,
+            tcpAttempts = 3,
+            successfulAttempts = 2,
+            wgHandshakes = 3,
+            mode = com.umbra.scanner.core.ScanMode.WARP,
+        )
+        assertTrue(warp.alive)
+        assertTrue(Ranking.scoreOf(warp) > 0.0)
     }
 
     @Test
@@ -109,12 +144,10 @@ class RankingTest {
     }
 
     @Test
-    fun `speed and tls add score`() {
+    fun `speed adds score over verified baseline`() {
         val base = Ranking.scoreOf(result("1.1.1.1", 50.0))
         val fast = Ranking.scoreOf(result("2.2.2.2", 50.0, speed = 80.0))
-        val fastTls = Ranking.scoreOf(result("4.4.4.4", 50.0, speed = 80.0, tls = true))
         assertTrue(fast > base)
-        assertTrue(fastTls > fast)
     }
 
     @Test

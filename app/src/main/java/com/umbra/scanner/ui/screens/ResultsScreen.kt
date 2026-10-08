@@ -551,9 +551,12 @@ private fun DetailSheet(
                 onCopy("Endpoint = ${IpText.forUrl(r.ip)}:${r.port}", "Endpoint line")
             }
             Spacer(Modifier.height(7.dp))
+        } else {
+            // VLESS only makes sense for TLS-able edge ports (:443 etc) — a
+            // WARP endpoint on :2408 never serves a websocket.
+            ActionRow(Icons.Rounded.Key, "CREATE VLESS FROM THIS IP", tint = accent.tint) { onVless() }
+            Spacer(Modifier.height(7.dp))
         }
-        ActionRow(Icons.Rounded.Key, "CREATE VLESS FROM THIS IP", tint = accent.tint) { onVless() }
-        Spacer(Modifier.height(7.dp))
         ActionRow(Icons.Rounded.Share, "SHARE ENDPOINT LINE") { onShare() }
         Spacer(Modifier.height(26.dp))
     }

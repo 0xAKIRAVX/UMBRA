@@ -16,6 +16,12 @@ import java.util.concurrent.atomic.AtomicLong
  *   initiation: [type 4][sender 4][ephemeral 32][static 48][timestamp 28][mac1 16][mac2 16]
  *   response:   [type 4][sender 4][receiver 4][ephemeral 32][empty 16][mac1 16][mac2 16]
  *   transport:  [type 4][receiver 4][counter 8][aead(payload)]
+ *
+ * WARP extension (verified against Xray-core proxy/wireguard/bind.go Send()):
+ * Cloudflare's data plane reads the 3-byte WireGuard "reserved" field (bytes
+ * 1..3 of EVERY packet, handshake included) as the account's client_id. A
+ * packet without it cannot be associated with the registered identity and is
+ * silently dropped — this was the root cause of "fake" scan results.
  */
 object WgProtocol {
 
@@ -89,8 +95,14 @@ object WgProtocol {
         internal val ephPriv: ByteArray,
         internal val hash: ByteArray,
         internal val chainKey: ByteArray,
+        internal val reserved: ByteArray,
         val senderIndex: Int,
     )
+
+    /** WARP client_id bytes carried in the reserved field of every packet. */
+    fun warpReserved(accountClientId: ByteArray): ByteArray =
+        if (accountClientId.size >= 3) accountClientId.copyOf(3)
+        else accountClientId + ByteArray(3 - accountClientId.size)
 
     /**
      * Builds a handshake initiation packet for [staticPriv]/[staticPub] talking
@@ -104,6 +116,8 @@ object WgProtocol {
         senderIndex: Int,
         ephemeralPriv: ByteArray,
         timestamp: ByteArray = tai64nNow(),
+        /** WARP account client_id — written into the reserved bytes (1..3). */
+        reserved: ByteArray = ByteArray(3),
     ): Pair<ByteArray, PendingHandshake> {
         val ephPub = WgCrypto.x25519Base(ephemeralPriv)
 
@@ -129,6 +143,8 @@ object WgProtocol {
 
         val packet = ByteArray(INITIATION_SIZE)
         putLeInt(packet, 0, MSG_INITIATION)
+        // WARP: reserved bytes carry the client_id (Xray bind.go parity)
+        writeReserved(packet, reserved)
         putLeInt(packet, 4, senderIndex)
         System.arraycopy(ephPub, 0, packet, 8, 32)
         System.arraycopy(staticCt, 0, packet, 40, 48)
@@ -139,7 +155,7 @@ object WgProtocol {
         System.arraycopy(mac1, 0, packet, 116, 16)
         // mac2 stays zero (no cookie)
 
-        return packet to PendingHandshake(ephemeralPriv, h, ck, senderIndex)
+        return packet to PendingHandshake(ephemeralPriv, h, ck, warpReserved(reserved), senderIndex)
     }
 
     /**
@@ -175,7 +191,7 @@ object WgProtocol {
         }
         h = mixHash(h, empty)
         val (sendKey, recvKey) = kdf2(ck, ByteArray(0))
-        return WgSession(sendKey, recvKey, pending.senderIndex, sender) to ""
+        return WgSession(sendKey, recvKey, pending.senderIndex, sender, pending.reserved) to ""
     }
 
     // -------------------------------------------------------- data plane ----
@@ -186,6 +202,8 @@ object WgProtocol {
         private val recvKey: ByteArray,
         val ourIndex: Int,
         val theirIndex: Int,
+        /** WARP client_id — written into bytes 1..3 of every outgoing packet. */
+        private val reserved: ByteArray = ByteArray(3),
     ) {
         private val sendCounter = AtomicLong(0)
 
@@ -198,6 +216,7 @@ object WgProtocol {
             val ct = WgCrypto.chacha20Poly1305Seal(sendKey, nonce, padded, ByteArray(0))
             val packet = ByteArray(TRANSPORT_HEADER_SIZE + ct.size)
             putLeInt(packet, 0, MSG_TRANSPORT)
+            writeReserved(packet, reserved)
             putLeInt(packet, 4, theirIndex)
             putLeLong(packet, 8, counter)
             System.arraycopy(ct, 0, packet, 16, ct.size)
@@ -207,13 +226,21 @@ object WgProtocol {
         /** Opens a transport data packet received from the responder. */
         fun openTransport(packet: ByteArray): ByteArray? {
             if (packet.size < 32) return null
-            if (leInt(packet, 0) != MSG_TRANSPORT) return null
+            // byte-wise type check — WARP server transport packets keep their
+            // reserved field zero, but ignoring those bytes is protocol-correct
+            // (the RFC mandates receivers ignore them) and future-proof.
+            if (packet[0].toInt() != MSG_TRANSPORT) return null
             if (leInt(packet, 4) != ourIndex) return null
             val counter = leLong(packet, 8)
             val nonce = ByteArray(12)
             putLeLong(nonce, 4, counter)
             return WgCrypto.chacha20Poly1305Open(recvKey, nonce, packet.copyOfRange(16, packet.size), ByteArray(0))
         }
+    }
+
+    /** Writes the WARP client_id into the WireGuard reserved bytes (1..3). */
+    private fun writeReserved(packet: ByteArray, reserved: ByteArray) {
+        for (i in 0..2) packet[1 + i] = reserved.getOrElse(i) { 0 }
     }
 
     // ------------------------------------------------------------ ICMP v4 ----

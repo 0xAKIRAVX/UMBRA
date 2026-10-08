@@ -340,10 +340,12 @@ object AutoTune {
         )
 
         // ---- sampling ----
+        // TLS verification (EDGE/CUSTOM) and the WG handshake storm (WARP) are
+        // the real filters, so candidate counts stay moderate for wall-time.
         val samples = when {
             sweep -> if (c.lowRam) 64 else 96
-            mode == ScanMode.WARP && family == NetFamily.BOTH -> 400
-            else -> 450
+            mode == ScanMode.WARP -> if (c.lowRam) 150 else 250
+            else -> if (c.lowRam) 64 else 96
         }
 
         // ---- speed test ----
@@ -375,6 +377,8 @@ object AutoTune {
                 else "rtt unknown → ${warpAttempts} wireguard retries per endpoint"
             )
             notes.add("every endpoint is proven by handshake + in-tunnel ping · results work in wireguard/v2rayng")
+        } else {
+            notes.add("every result is tls-cert-verified — dpi fake endpoints are discarded")
         }
         if (mode == ScanMode.WARP) notes.add("warp speed is measured on :443 — warp ports never serve the speed endpoint")
 
@@ -390,7 +394,7 @@ object AutoTune {
             tcpTimeoutMs = timeout,
             concurrency = concurrency,
             tlsVerify = true,
-            verifyTopN = if (c.lowRam) 48 else 80,
+            verifyTopN = if (c.lowRam) 800 else 1200,
             speedTest = speedTest,
             speedTopN = if (c.lowRam) 20 else 40,
             speedConcurrency = speedConcurrency,

@@ -88,7 +88,7 @@ fun VlessScreen(app: UmbraApp) {
     }
     var host by rememberSaveable { mutableStateOf(prefilled ?: "") }
     var port by rememberSaveable { mutableStateOf("443") }
-    var sni by rememberSaveable { mutableStateOf("speed.cloudflare.com") }
+    var sni by rememberSaveable { mutableStateOf("") }
     var wsPath by rememberSaveable { mutableStateOf("/") }
     var remark by rememberSaveable { mutableStateOf("UMBRA-node") }
     var showQr by rememberSaveable { mutableStateOf(false) }
@@ -103,7 +103,8 @@ fun VlessScreen(app: UmbraApp) {
         remark = remark,
     )
     val link = VlessGenerator.buildLink(config)
-    val valid = host.isNotBlank() && VlessGenerator.isValidUuid(uuid)
+    val valid = host.isNotBlank() && VlessGenerator.isValidUuid(uuid) && !VlessGenerator.isTestOnlySni(sni)
+    val testOnly = sni.isNotBlank() && VlessGenerator.isTestOnlySni(sni)
     val qrBitmap = remember(link, showQr) { if (showQr) QrGen.generate(link) else null }
 
     Column(
@@ -213,7 +214,8 @@ fun VlessScreen(app: UmbraApp) {
                 onValueChange = { sni = it },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                placeholder = { Text("sni / host header", style = MonoStyleSmall, color = Fade) },
+                isError = testOnly,
+                placeholder = { Text("your worker domain · sni + host", style = MonoStyleSmall, color = Fade) },
                 textStyle = MonoStyleSmall.copy(color = Mist),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
                 colors = OutlinedTextFieldDefaults.colors(
@@ -222,6 +224,17 @@ fun VlessScreen(app: UmbraApp) {
                     cursorColor = accent.primary,
                 ),
             )
+            if (testOnly) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "⚠ this sni only proves reachability — the link will NOT route to a proxy. " +
+                        "use your own cloudflare-fronted domain.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = accent.tint,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
 
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -330,8 +343,9 @@ fun VlessScreen(app: UmbraApp) {
 
         Spacer(Modifier.height(14.dp))
         Text(
-            "usage: point this at a Cloudflare-fronted worker / proxy domain that routes your UUID. " +
-                "the sni+host must match your worker domain, or keep speed.cloudflare.com for pure reachability tests.",
+            "usage: this link routes to a Cloudflare-fronted worker of YOURS. " +
+                "put your worker/proxy domain in the sni field (it also becomes the ws host). " +
+                "the scanned ip only carries the connection — the domain decides what answers.",
             style = MaterialTheme.typography.bodySmall,
             color = Fog,
             modifier = Modifier.padding(horizontal = 4.dp),

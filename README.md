@@ -9,12 +9,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v2.4.0-00f5d4?style=flat-square&labelColor=0d1420" alt="release"></a>
+  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v2.5.0-00f5d4?style=flat-square&labelColor=0d1420" alt="release"></a>
   <img src="https://img.shields.io/badge/platform-Android%208.0%2B-34d399?style=flat-square&labelColor=0d1420" alt="platform">
   <img src="https://img.shields.io/badge/Kotlin-2.0-7f52ff?style=flat-square&labelColor=0d1420" alt="kotlin">
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285f4?style=flat-square&labelColor=0d1420" alt="compose">
   <img src="https://img.shields.io/badge/APK-%E2%89%881.8%20MB-f15bb5?style=flat-square&labelColor=0d1420" alt="size">
-  <img src="https://img.shields.io/badge/tests-72%2F72%20green-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
+  <img src="https://img.shields.io/badge/tests-76%2F76%20green-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-9b5de5?style=flat-square&labelColor=0d1420" alt="license">
 </p>
 
@@ -77,12 +77,14 @@ Grab the latest signed APK from the **[Releases](https://github.com/0xAKIRAVX/UM
 
 | | |
 | --- | --- |
-| Latest version | **v2.4.0** (build 6) |
+| Latest version | **v2.5.0** (build 7) |
 | Requirement | Android 8.0+ (API 26) |
 | Architecture | Universal (all ABIs) |
 | Permissions | `INTERNET`, `FOREGROUND_SERVICE`, `POST_NOTIFICATIONS` — nothing else |
 
-> Install like any sideloaded app: download, open, allow "unknown sources" if asked, done. The APK is signed with the UMBRA release key; updates install over previous versions.
+> Install like any sideloaded app: download, open, allow "unknown sources" if asked, done.
+>
+> ⚠ **Upgrading from v2.4.0 or older?** The v2.5.0 APK is signed with a **new release key** (the original key was rotated), so Android will refuse an in-place update. **Uninstall the old UMBRA first, then install v2.5.0** — nothing of value is lost (scans are per-session, settings take 5 seconds to re-pick).
 
 ---
 
@@ -92,8 +94,8 @@ Grab the latest signed APK from the **[Releases](https://github.com/0xAKIRAVX/UM
 | --- | --- | --- |
 | IPv4 pools | 14 Cloudflare edge CIDRs (`104.16.0.0/13`, `172.64.0.0/13`, …) | 14 BPB-verified WARP `/24`s: `162.159.192/193/195.x`, `188.114.96–99.x`, **`8.34.146.x`**, **`8.39.214.x`**, **`8.6.112.x`**, … |
 | IPv6 pools | 7 Cloudflare v6 /32s (`2606:4700::/32`, …) | `2606:4700:d0::/48`, `2606:4700:d1::/48` (v4-embedded hosts) |
-| Ports | 443, 8443, 2053, 2083, 2087, 2096 | 55 canonical WARP ports (BPB list + 443), `2408` first |
-| Validation | TCP + TLS handshake | **Real WireGuard handshake + ICMP ping inside the tunnel** |
+| Ports | 443, 8443, 2053, 2083, 2087, 2096 | 57 canonical WARP ports (BPB list + 443), `2408` first |
+| Validation | TCP pre-filter + **mandatory TLS-certificate verification** | **Real WireGuard handshake + ICMP ping inside the tunnel** |
 | Output use | VLESS / proxy config, best-IP routing | WireGuard endpoint, WARP client config |
 
 The WARP v6 generator is not random guessing: real WARP endpoints embed their IPv4 address in the low 32 bits (`162.159.192.1` ⇔ `2606:4700:d0::a29f:c001`), so UMBRA maps the live v4 pool into both `/48`s and hits real hosts instead of spraying into 2^80 dead space.
@@ -106,6 +108,17 @@ UMBRA never resolves `speed.cloudflare.com` with DNS. It opens TLS **directly to
 - a green result proves that exact IP is usable as a host override / endpoint;
 - failures are honest — reported as `TLS handshake timeout`, `HTTP status: 403`, etc. Nothing is silently dropped.
 
+### Why a TCP connect alone is never "alive" (v2.5.0)
+
+On heavily-filtered networks (Iran being the textbook case) DPI middleboxes
+**complete the TCP handshake for any destination** — connect() succeeds to IPs
+that are nowhere near alive. A scanner that trusts TCP will happily hand you a
+board full of fake endpoints. UMBRA v2.5.0 therefore treats TCP as a mere
+pre-filter: every edge-mode result is only reported after a full **TLS
+handshake whose certificate validates for `speed.cloudflare.com`** through that
+exact IP. DPI-fake endpoints fail that check and are discarded — what remains
+is guaranteed to work in v2rayNG / Hiddify / sing-box as a host override.
+
 ---
 
 ## Real WireGuard Validation — why UMBRA's WARP results actually work
@@ -114,7 +127,7 @@ Most "WARP scanners" check whether a TCP port answers. That proves nothing: WARP
 speaks **UDP WireGuard**, so a TCP-reachable endpoint can be completely dead for
 real traffic — which is exactly why so many scanner results look fake.
 
-UMBRA v2.4.0 ports the **BPB-Warp-Scanner** approach into pure Kotlin (no 30 MB
+UMBRA v2.5.0 ports the **BPB-Warp-Scanner** approach into pure Kotlin (no 30 MB
 xray-core, the APK stays under 2 MB):
 
 1. **Registers a free WARP identity** on `api.cloudflareclient.com` — the same
@@ -124,16 +137,22 @@ xray-core, the APK stays under 2 MB):
    (X25519 + ChaCha20-Poly1305 + BLAKE2s, hand-rolled in ~700 lines of dependency-
    free Kotlin, ported line-by-line from wireguard-go and verified byte-for-byte
    against it) is sent over UDP to each candidate `ip:port`.
-3. **Proves the data plane**: after the handshake response is authenticated,
+3. **Carries the WARP client_id in every packet** (v2.5.0 fix): Cloudflare's data
+   plane reads the 3-byte WireGuard *reserved* field of **every** packet —
+   handshake included — as the account's client_id, exactly like Xray's WARP
+   outbound does. Packets without it cannot be associated with the registered
+   identity and are silently dropped; this was the root cause of empty/dead
+   WARP scans in earlier builds.
+4. **Proves the data plane**: after the handshake response is authenticated,
    UMBRA derives the session keys, sends an **ICMP echo request to 1.1.1.1 inside
    the encrypted tunnel**, and parses the echo reply. An endpoint only counts as
    *alive* when data actually flows — the same guarantee BPB gets by pushing HTTP
    through an xray WireGuard tunnel.
-4. **Optionally fires anti-DPI noise**: a burst of 5 random UDP packets before
+5. **Optionally fires anti-DPI noise**: a burst of 5 random UDP packets before
    every handshake (on by default) — the trick that keeps WARP usable on ISPs
    that fingerprint the first packet.
 
-The crypto stack is covered by **72 unit tests**, including byte-for-byte
+The crypto stack is covered by **76 unit tests**, including byte-for-byte
 differential vectors against the Python reference implementation that was itself
 validated live against production Cloudflare WARP endpoints.
 
@@ -190,7 +209,7 @@ Every result row shows rank medal, protocol, port, TLS state, latency, loss and 
 | `preferredDisplayModeId` frame-rate unlock | High-refresh displays run at their native rate |
 | R8 full mode + resource shrinking | Whole app, fonts included, in ~1.8 MB |
 
-32 unit tests cover CIDR math, IPv6 generation, WARP embedding, ranking, VLESS formatting and AUTO-TUNE decisions; 13 more verify the WireGuard crypto stack byte-for-byte against the wireguard-go-derived reference vectors (X25519 incl. RFC 7748, BLAKE2s, HMAC, ChaCha20-Poly1305, full handshake + transport + ICMP), 6 cover the WARP registration flow, 19 cover the update checker and the rendered screenshots — **72 total, all green**.
+32 unit tests cover CIDR math, IPv6 generation, WARP embedding, ranking (incl. the v2.5.0 anti-fake-DPI aliveness rules), VLESS formatting and AUTO-TUNE decisions; 15 more verify the WireGuard crypto stack (incl. the WARP client_id/reserved-bytes vectors) byte-for-byte against the wireguard-go-derived reference vectors (X25519 incl. RFC 7748, BLAKE2s, HMAC, ChaCha20-Poly1305, full handshake + transport + ICMP), 6 cover the WARP registration flow, 19 cover the update checker and the rendered screenshots — **76 total, all green**.
 
 ---
 
@@ -260,12 +279,12 @@ app/src/main/java/com/umbra/scanner/
 
 <details>
 <summary><b>Why do other scanners' WARP endpoints not work, and UMBRA's do?</b></summary>
-&nbsp;TCP-reachable ≠ WARP-alive. WARP speaks UDP WireGuard, so a port that answers TCP can be completely dead for real tunnel traffic. Since v2.4.0, UMBRA only lists endpoints that completed a <b>real WireGuard handshake</b> and passed an <b>ICMP ping inside the encrypted tunnel</b> — copy them into WireGuard / v2rayNG / Hiddify and they work.
+&nbsp;TCP-reachable ≠ WARP-alive. WARP speaks UDP WireGuard, so a port that answers TCP can be completely dead for real tunnel traffic. Since v2.4.0, UMBRA only lists endpoints that completed a <b>real WireGuard handshake</b> and passed an <b>ICMP ping inside the encrypted tunnel</b>; since <b>v2.5.0</b> every packet also carries the account's <b>client_id</b> in the reserved bytes (Xray parity), which is what makes Cloudflare's data plane actually route the tunnel traffic. Copy the results into WireGuard / v2rayNG / Hiddify and they work.
 </details>
 
 <details>
 <summary><b>WARP scan finds nothing on my network</b></summary>
-&nbsp;Your ISP is probably blocking port 2408 (common in some regions). Enable <b>SWEEP</b> in the WARP port row — UMBRA will validate all 55 canonical WARP ports per candidate with real handshakes, and always falls back to 443 for the speed measurement. If literally every port is dead, run AUTO-TUNE: its report will tell you which ports survived a live handshake. Keep <b>UDP NOISE</b> enabled — it defeats DPI throttling of the first WARP packet.
+&nbsp;Your ISP is probably blocking port 2408 (common in some regions). Enable <b>SWEEP</b> in the WARP port row — UMBRA will validate all 57 canonical WARP ports per candidate with real handshakes, and always falls back to 443 for the speed measurement. If literally every port is dead, run AUTO-TUNE: its report will tell you which ports survived a live handshake. Keep <b>UDP NOISE</b> enabled — it defeats DPI throttling of the first WARP packet.
 </details>
 
 <details>
@@ -301,8 +320,8 @@ The in-app PROJECT card (SYSTEM tab) exposes the same credits — creator, repos
 
 ## Acknowledgements
 
-- **[BPB-Warp-Scanner](https://github.com/bia-pain-bache/BPB-Warp-Scanner)** (bia-pain-bache) — the endpoint validation model (fresh WARP registration + real-traffic proof + UDP noise) and the verified IP/port pool that UMBRA's v2.4.0 WireGuard probe is built on.
-- **[WireGuard](https://www.wireguard.com)** / [wireguard-go](https://github.com/WireGuard/wireguard-go) — the Noise_IKpsk2 handshake spec and reference implementation the crypto port follows.
+- **[BPB-Warp-Scanner](https://github.com/bia-pain-bache/BPB-Warp-Scanner)** (bia-pain-bache) — the endpoint validation model (fresh WARP registration + real-traffic proof + UDP noise) and the verified IP/port pool that UMBRA's WireGuard probe is built on.
+- **[wireguard-go](https://github.com/WireGuard/wireguard-go)** / **[Xray-core](https://github.com/XTLS/Xray-core)** — protocol references: the noise KDF chain is ported line-by-line from wireguard-go, and the WARP client_id-in-reserved-bytes extension is verified against Xray's `proxy/wireguard/bind.go`.
 - **Cloudflare** — for publishing its IP ranges and running a fast, open edge.
 - **[Bruno Ace SC](https://fonts.google.com/specimen/Bruno+Ace+SC)**, **[Chakra Petch](https://fonts.google.com/specimen/Chakra+Petch)**, **[Major Mono Display](https://fonts.google.com/specimen/Major+Mono+Display)** by their respective designers, under the SIL Open Font License.
 - **[ZXing](https://github.com/zxing/zxing)** for QR generation.

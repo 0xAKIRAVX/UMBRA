@@ -30,11 +30,15 @@ object Presets {
     )
 
     /** WARP v4 pool — BPB-Warp-Scanner range set (includes the newer 8.x blocks
-     *  that many ISPs have not rate-limited yet). */
+     *  that many ISPs have not rate-limited yet). Endpoints on these ranges are
+     *  only reported when a real WireGuard handshake answers, so stale or
+     *  non-WARP ranges are harmless (they simply never validate). */
     val WARP_V4: List<String> = listOf(
         "162.159.192.0/24",
         "162.159.193.0/24",
         "162.159.195.0/24",
+        "162.159.198.0/24",
+        "162.159.199.0/24",
         "188.114.96.0/24",
         "188.114.97.0/24",
         "188.114.98.0/24",

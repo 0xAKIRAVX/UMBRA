@@ -128,40 +128,49 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
         jobs.joinAll()
         stormCh.close()
         stormCollector.join()
-        val alive = sink.snapshot().count { it.alive }
+        val tcpAlive = sink.snapshot().count { it.tcpAlive }
         sink.onLog(
-            if (isWarp) "wg probe storm done · verified $alive / $pairCount endpoints"
-            else "tcp storm done · alive $alive / $pairCount"
+            if (isWarp) "wg probe storm done · ${sink.snapshot().count { it.alive }} verified of $pairCount" +
+                " (handshake + in-tunnel ping)"
+            else "tcp storm done · $tcpAlive tcp-alive of $pairCount → tls verification next"
         )
 
-        // ---- TLS verify (WARP endpoints, or edge without speed test) ----
+        // ---- TLS verification (EDGE/CUSTOM): the REAL aliveness filter ----
+        // A TCP connect proves nothing on networks where DPI middleboxes
+        // fake-accept every handshake (Iran/Russia/etc). Only a full TLS
+        // handshake whose certificate validates for a real Cloudflare host
+        // proves the endpoint is a genuine, usable edge.
         if (params.needsTlsPhase) {
             sink.onPhase(ScanPhase.PROBE)
-            val targets = sink.snapshot().filter { it.alive }
-                .sortedBy { it.latencyMs ?: Double.MAX_VALUE }
-                .take(params.verifyTopN.coerceIn(5, 500))
+            val pool = sink.snapshot().filter { it.tcpAlive }
+            // Natural (arrival) order — deliberately NOT latency-sorted: on
+            // censored networks fake-DPI endpoints win every latency race and
+            // would crowd the real ones out of a sorted top-N.
+            val targets = pool.take(params.verifyTopN.coerceIn(50, 2000))
             if (targets.isNotEmpty()) {
-                sink.onLog("tls probing ${targets.size} endpoints · sni=${params.warpSni}")
-                mapInParallel(targets, 12) { r ->
+                sink.onLog(
+                    "tls verifying ${targets.size}/${pool.size} tcp-alive · sni=${params.speedSni} · " +
+                        "dpi-fake endpoints are discarded here"
+                )
+                mapInParallel(targets, 48) { r ->
                     val bytes = IpText.literalToBytes(r.ip) ?: return@mapInParallel null
                     val res = ExactIpHttps.tlsProbe(
-                        bytes, r.port, params.warpSni,
+                        bytes, r.port, params.speedSni,
                         connectTimeoutMs = params.tcpTimeoutMs.coerceAtLeast(1500),
                         readTimeoutMs = 6000,
                     )
-                    // WARP: some ports accept TCP but not TLS — that is still a
-                    // usable endpoint, so the failure is downgraded to a note.
-                    val soft = params.mode == ScanMode.WARP
                     r.copy(
                         tlsSuccess = res.ok,
                         tlsHandshakeMs = res.handshakeMs,
-                        error = when {
-                            res.ok -> null
-                            soft && r.alive -> "tcp-only · tls n/a on :${r.port}"
-                            else -> res.error
-                        },
+                        error = if (res.ok) null else res.error ?: "tls failed",
                     )
                 }
+                val verified = sink.snapshot().count { it.alive }
+                val skipped = pool.size - targets.size
+                sink.onLog(
+                    "tls verify done · $verified real of ${pool.size} tcp-alive" +
+                        (if (skipped > 0) " · $skipped skipped (cap ${params.verifyTopN})" else "")
+                )
             }
         }
 

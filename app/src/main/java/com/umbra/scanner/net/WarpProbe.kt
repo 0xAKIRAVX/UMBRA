@@ -73,6 +73,9 @@ class WarpProbe(
     private val pingTarget: ByteArray = byteArrayOf(1, 1, 1, 1),
 ) {
 
+    /** WARP client_id (reserved bytes) — required by Cloudflare's data plane. */
+    private val reserved: ByteArray = WgProtocol.warpReserved(account.reserved)
+
     /**
      * Probes one endpoint [attempts] times with [timeoutMs] per datagram wait.
      * Cooperatively cancellable (runInterruptible sockets). Each call builds its
@@ -171,6 +174,7 @@ class WarpProbe(
         val (initPacket, pending) = WgProtocol.buildInitiation(
             account.privateKey, account.publicKey, account.responderPublicKey,
             senderIndex, ephPriv,
+            reserved = reserved,
         )
 
         val t0 = System.nanoTime()
