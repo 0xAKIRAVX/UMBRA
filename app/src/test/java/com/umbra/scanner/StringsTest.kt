@@ -161,6 +161,31 @@ class StringsTest {
         Triple("newVersionAvailable", EnglishStrings.newVersionAvailable, PersianStrings.newVersionAvailable),
         Triple("downloadFromGithub", EnglishStrings.downloadFromGithub, PersianStrings.downloadFromGithub),
         Triple("later", EnglishStrings.later, PersianStrings.later),
+        Triple("netCheck", EnglishStrings.netCheck, PersianStrings.netCheck),
+        Triple("netCheckHint", EnglishStrings.netCheckHint, PersianStrings.netCheckHint),
+        Triple("measureMyNet", EnglishStrings.measureMyNet, PersianStrings.measureMyNet),
+        Triple("measuringNet", EnglishStrings.measuringNet, PersianStrings.measuringNet),
+        Triple("reMeasure", EnglishStrings.reMeasure, PersianStrings.reMeasure),
+        Triple("gradeExcellent", EnglishStrings.gradeExcellent, PersianStrings.gradeExcellent),
+        Triple("gradeGood", EnglishStrings.gradeGood, PersianStrings.gradeGood),
+        Triple("gradeFair", EnglishStrings.gradeFair, PersianStrings.gradeFair),
+        Triple("gradePoor", EnglishStrings.gradePoor, PersianStrings.gradePoor),
+        Triple("netDown", EnglishStrings.netDown, PersianStrings.netDown),
+        Triple("netUp", EnglishStrings.netUp, PersianStrings.netUp),
+        Triple("ipv6Live", EnglishStrings.ipv6Live, PersianStrings.ipv6Live),
+        Triple("ipv6Dead", EnglishStrings.ipv6Dead, PersianStrings.ipv6Dead),
+        Triple("dpiDetected", EnglishStrings.dpiDetected, PersianStrings.dpiDetected),
+        Triple("netOffline", EnglishStrings.netOffline, PersianStrings.netOffline),
+        Triple("smartPicks", EnglishStrings.smartPicks, PersianStrings.smartPicks),
+        Triple("smartNoProfile", EnglishStrings.smartNoProfile, PersianStrings.smartNoProfile),
+        Triple("pickBest", EnglishStrings.pickBest, PersianStrings.pickBest),
+        Triple("pickPing", EnglishStrings.pickPing, PersianStrings.pickPing),
+        Triple("pickStable", EnglishStrings.pickStable, PersianStrings.pickStable),
+        Triple("pickFast", EnglishStrings.pickFast, PersianStrings.pickFast),
+        Triple("smartWhyExcellent", EnglishStrings.smartWhyExcellent, PersianStrings.smartWhyExcellent),
+        Triple("smartWhyGood", EnglishStrings.smartWhyGood, PersianStrings.smartWhyGood),
+        Triple("smartWhyFair", EnglishStrings.smartWhyFair, PersianStrings.smartWhyFair),
+        Triple("smartWhyPoor", EnglishStrings.smartWhyPoor, PersianStrings.smartWhyPoor),
     )
 
     @Test
@@ -204,6 +229,9 @@ class StringsTest {
         check("جارو ×12" == PersianStrings.sweepLabel(12))
         check("۱۵۰ مورد بیشتر · 9 مخفی" == PersianStrings.revealMore(9))
         check("آخرین خطا · x" == PersianStrings.lastError("x"))
+        // v3.1 netsense parameters
+        check("12 min ago" == EnglishStrings.measuredAgoMin(12))
+        check("3 دقیقه پیش" == PersianStrings.measuredAgoMin(3))
     }
 
     @Test

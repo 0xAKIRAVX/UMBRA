@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
 import androidx.core.content.ContextCompat
-import com.umbra.scanner.core.Ranking
 import com.umbra.scanner.core.ScanMode
 import com.umbra.scanner.core.ScanParams
 import com.umbra.scanner.core.ScanPhase
@@ -12,7 +11,8 @@ import com.umbra.scanner.core.ScanResult
 import com.umbra.scanner.core.ScanStats
 import com.umbra.scanner.core.ScanSummary
 import com.umbra.scanner.core.ScanUi
-import com.umbra.scanner.core.SortKey
+import com.umbra.scanner.core.SmartRanking
+import com.umbra.scanner.settings.UmbraSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -30,8 +30,12 @@ import java.util.concurrent.atomic.AtomicInteger
  * App-scoped scan orchestrator. Owns the engine scope, live statistics, the result
  * store, and drives the foreground service lifecycle. Survives Activity rotation
  * and keeps the scan alive in the background while the service is in the foreground.
+ *
+ * v3.1: wired to [UmbraSettings] — final ranking uses the adaptive SmartRanking
+ * weights (measured network profile when available) and the top verified results
+ * per mode are persisted so the smart-pick board can recommend WARP + EDGE at once.
  */
-class ScanController {
+class ScanController(private val settings: UmbraSettings? = null) {
 
     private val _ui = MutableStateFlow<ScanUi>(ScanUi.Idle)
     val ui: StateFlow<ScanUi> = _ui.asStateFlow()
@@ -237,9 +241,13 @@ class ScanController {
             ratePerSec = rate,
             etaSec = eta,
         )
-        // live top-5 board updates during every probing phase (TCP / WG / TLS)
-        if (currentPhase == ScanPhase.TCP || currentPhase == ScanPhase.WG ||
-            currentPhase == ScanPhase.PROBE
+        // live top-5 board — only VERIFIED phases feed it (v3.1 fix: during the
+        // EDGE tcp storm "alive" merely means tcp-connect, which DPI middleboxes
+        // fake-accept; showing those as "top endpoints" was misleading)
+        val scanMode = params?.mode
+        if (currentPhase == ScanPhase.WG ||
+            (scanMode != ScanMode.WARP &&
+                (currentPhase == ScanPhase.PROBE || currentPhase == ScanPhase.RANKING))
         ) {
             val snap = synchronized(lock) { resultMap.values.filter { it.alive } }
             if (snap.isNotEmpty()) {
@@ -253,12 +261,22 @@ class ScanController {
         scope?.cancel()
         scanJob = null
         tickerJob = null
-        val finalAlive = Ranking.sort(
+        // v3.1: adaptive final ranking — smart weights from the measured profile
+        val profile = settings?.networkProfile?.value
+        val finalAlive = SmartRanking.sort(
             synchronized(lock) { ArrayList(resultMap.values) }.filter { it.alive },
-            SortKey.SCORE,
+            profile,
         )
         _results.value = finalAlive
         _top.value = finalAlive.take(5)
+        // persist the verified top results of this mode for the smart-pick board
+        val mode = params?.mode
+        if (settings != null && mode != null && finalAlive.isNotEmpty()) {
+            settings.saveScanResults(mode, finalAlive)
+        }
+        if (profile != null) {
+            appendLog("net profile · ${com.umbra.scanner.net.NetQuality.describe(profile)}")
+        }
         publishStats()
         val elapsed = if (startedElapsed == 0L) 0L else SystemClock.elapsedRealtime() - startedElapsed
         _ui.value = ScanUi.Done(

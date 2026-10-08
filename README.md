@@ -9,12 +9,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.0.0-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
+  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.1.0-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
   <img src="https://img.shields.io/badge/platform-Android%208.0%2B-34d399?style=flat-square&labelColor=0d1420" alt="platform">
   <img src="https://img.shields.io/badge/Kotlin-2.0-7f52ff?style=flat-square&labelColor=0d1420" alt="kotlin">
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285f4?style=flat-square&labelColor=0d1420" alt="compose">
   <img src="https://img.shields.io/badge/APK-%E2%89%882.5%20MB-f15bb5?style=flat-square&labelColor=0d1420" alt="size">
-  <img src="https://img.shields.io/badge/tests-80%2F80%20green-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
+  <img src="https://img.shields.io/badge/tests-94%2F94%20green-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-9b5de5?style=flat-square&labelColor=0d1420" alt="license">
 </p>
 
@@ -27,6 +27,15 @@ Your connection to Cloudflare's edge is only as good as the *specific IP* your n
 **UMBRA flips the table.** It samples the live Cloudflare and WARP address space directly from *your* device, measures what your network *actually* delivers to each candidate — latency, packet loss, TLS handshake, real download speed — ranks everything for you, and generates a VLESS config bound to the winner.
 
 No root. No Termux. No server. ~2 MB.
+
+---
+
+## What's new in v3.1.0 — the NETSENSE release
+
+- **نت‌سنج / NET CHECK** — a new card on the scan tab measures **your own line**: ping (12 interleaved TCP handshakes to Cloudflare seeds), jitter, packet loss, a **DPI-proof real TLS round-trip** (immune to fake-accepting middleboxes), exact-IP download **and upload**, and the IPv6 route. The result grades your network (عالی / خوب / متوسط / ضعیف) and is stored on-device.
+- **SMART PICKS · انتخاب‌های هوشمند** — the results board now opens with a recommendation board computed **for your measured line**: the adaptive **BEST**, the **lowest PING**, the **most STABLE**, and the **FASTEST** endpoint — **both WARP and CF EDGE on one screen** (each family keeps its last verified results). Tap any pick to open its full profile.
+- **Adaptive ranking (SMART sort)** — the default sort now weighs every endpoint *relative to your own baseline*: a 350 ms endpoint ranks high on a 300 ms line and low on a 40 ms one. Excellent lines → throughput dominates; poor, lossy lines → stability + ping dominate (speed measurements on a rough line are noise).
+- **Bug fixes** — the live top-endpoints board no longer shows unverified TCP-alive endpoints during edge scans (DPI fakes used to flash there before TLS verification pruned them); a failed speed test no longer stamps an error onto a fully-verified WARP endpoint; auto-tune + scan now **share one WARP identity** (15-min cache) instead of registering two accounts per session; the boot splash version label is read from the package instead of being hardcoded.
 
 ---
 
@@ -50,17 +59,21 @@ No root. No Termux. No server. ~2 MB.
 
 Real renders of the app's actual Compose UI — dark substrate, rare typefaces (Bruno Ace SC · Chakra Petch · Major Mono Display · Vazirmatn), spring physics and neon glow:
 
-| Scan configuration | Live scan · radar console |
+| Scan configuration | NET CHECK · نت‌سنج card |
 | :---: | :---: |
-| ![Scan configuration](docs/screenshots/scan-config.png) | ![Live scan](docs/screenshots/scan-live.png) |
+| ![Scan configuration](docs/screenshots/scan-config.png) | ![Net check](docs/screenshots/netcheck.png) |
 
-| Results board | VLESS generator · QR |
+| Live scan · radar console | Results · smart picks + board |
 | :---: | :---: |
-| ![Results](docs/screenshots/results.png) | ![VLESS](docs/screenshots/vless.png) |
+| ![Live scan](docs/screenshots/scan-live.png) | ![Results](docs/screenshots/results.png) |
 
 | System settings | Update announcement |
 | :---: | :---: |
 | ![Settings](docs/screenshots/settings.png) | ![Update dialog](docs/screenshots/update-dialog.png) |
+
+| VLESS generator · QR |
+| :---: |
+| ![VLESS](docs/screenshots/vless.png) |
 
 ---
 
@@ -78,6 +91,8 @@ Real renders of the app's actual Compose UI — dark substrate, rare typefaces (
 | **TLS verification** | Real handshake against each candidate — valid cert required, per-port SNI (edge mode) |
 | **True speed test** | HTTPS download **directly from the candidate IP** with SNI/Host pinned to `speed.cloudflare.com` — DNS cannot redirect the measurement |
 | **Ranking engine** | WARP results ranked by in-tunnel ping RTT + loss; edge results by the composite score |
+| **NET CHECK / نت‌سنج** | Measures the user's own line — ping, jitter, loss, DPI-proof TLS RTT, exact-IP download **and upload** (POST `speed.cloudflare.com/__up`), IPv6 — and grades it عالی/خوب/متوسط/ضعیف |
+| **SMART PICKS / انتخاب‌های هوشمند** | Adaptive BEST · LOW PING · MOST STABLE · FASTEST per family (WARP + CF EDGE side by side), baseline-relative scoring, weights that shift with the measured grade of your line |
 | **VLESS generator** | One-tap `vless://` URLs, QR codes, IPv6 correctly bracketed (`vless://uuid@[2606:4700:...]:443`) |
 | **AUTO-TUNE** | Single-tap network calibration — the WARP port sweep now validates each port with a **live WireGuard handshake**, so the tuned port list is guaranteed to carry WARP traffic on your network |
 | **Export** | Results as CSV, JSON, or TXT |
@@ -94,14 +109,14 @@ Grab the latest signed APK from the **[Releases](https://github.com/0xAKIRAVX/UM
 
 | | |
 | --- | --- |
-| Latest version | **v3.0.0** (build 8) |
+| Latest version | **v3.1.0** (build 9) |
 | Requirement | Android 8.0+ (API 26) |
 | Architecture | Universal (all ABIs) |
 | Permissions | `INTERNET`, `FOREGROUND_SERVICE`, `POST_NOTIFICATIONS` — nothing else |
 
 > Install like any sideloaded app: download, open, allow "unknown sources" if asked, done.
 >
-> ⚠ **Upgrading from v2.5.0 or older?** The v3.0.0 APK is signed with a **new release key** (the signing workstation was rebuilt and the old private key could not be recovered), so Android will refuse an in-place update. **Uninstall the old UMBRA first, then install v3.0.0** — nothing of value is lost (scans are per-session, settings take 5 seconds to re-pick).
+> ⚠ **Upgrading from v2.5.0 or older?** The v3.0.0+ APKs are signed with a **new release key** (the signing workstation was rebuilt and the old private key could not be recovered), so Android will refuse an in-place update. **Uninstall the old UMBRA first, then install v3.1.0** — nothing of value is lost (scans are per-session, settings take 5 seconds to re-pick). **v3.0.0 users upgrade in place.**
 
 ---
 

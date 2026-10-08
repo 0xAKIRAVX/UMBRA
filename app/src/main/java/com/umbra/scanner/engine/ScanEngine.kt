@@ -207,7 +207,13 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
                         tlsSuccess = d.tlsOk || r.tlsSuccess,
                         tlsHandshakeMs = d.handshakeMs ?: r.tlsHandshakeMs,
                         httpStatus = d.httpStatus,
-                        error = if (mbps == null) d.error ?: "no measurable throughput" else null,
+                        // v3.1 fix: WARP endpoints ride the speed test on a
+                        // DIFFERENT port (:443) than the one they were proven on —
+                        // a failed bonus measurement must never taint an endpoint
+                        // that already passed handshake + in-tunnel ping.
+                        error = if (mbps == null && params.mode != ScanMode.WARP) {
+                            d.error ?: "no measurable throughput"
+                        } else null,
                     )
                 }
             }

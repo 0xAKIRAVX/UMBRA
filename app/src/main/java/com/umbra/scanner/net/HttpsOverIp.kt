@@ -53,6 +53,80 @@ object ExactIpHttps {
         }
     }
 
+    data class UploadResult(
+        val bytes: Long,
+        val durationMs: Long,
+        val httpStatus: Int? = null,
+        val error: String? = null,
+    )
+
+    /**
+     * Upload measurement: POSTs [bytes] of data to speed.cloudflare.com's /__up
+     * sink over the exact-IP TLS session. The write phase is timed; the server
+     * answers 200 once the body is fully consumed. Throughput is approximate
+     * (kernel socket buffering can hide the tail), which is fine for a
+     * line-quality signal.
+     */
+    fun upload(
+        ip: ByteArray,
+        port: Int,
+        sni: String,
+        bytes: Long,
+        connectTimeoutMs: Int,
+        readTimeoutMs: Int,
+        maxDurationMs: Long,
+    ): UploadResult {
+        when (val session = openTls(ip, port, sni, connectTimeoutMs, readTimeoutMs)) {
+            is TlsSession.Fail -> return UploadResult(0, 0, null, session.error)
+            is TlsSession.Ok -> {
+                val ssl = session.socket
+                try {
+                    val out = BufferedOutputStream(ssl.outputStream, 32 * 1024)
+                    val req = buildString {
+                        append("POST /__up?bytes=").append(bytes)
+                        append(" HTTP/1.1\r\nHost: ").append(sni)
+                        append("\r\nUser-Agent: ").append(UA)
+                        append("\r\nAccept: */*\r\nContent-Type: application/octet-stream")
+                        append("\r\nContent-Length: ").append(bytes)
+                        append("\r\nConnection: close\r\n\r\n")
+                    }
+                    out.write(req.toByteArray(Charsets.ISO_8859_1))
+
+                    val chunk = ByteArray(16 * 1024)
+                    var sent = 0L
+                    val t0 = System.nanoTime()
+                    val deadline = t0 + maxDurationMs * 1_000_000L
+                    while (sent < bytes) {
+                        if (System.nanoTime() >= deadline) break
+                        val n = minOf(chunk.size.toLong(), bytes - sent).toInt()
+                        out.write(chunk, 0, n)
+                        sent += n
+                        // flush in reasonable batches so the write timing tracks the wire
+                        if (sent % (64 * 1024) == 0L) out.flush()
+                    }
+                    out.flush()
+                    val durMs = (System.nanoTime() - t0) / 1_000_000L
+
+                    if (sent <= 0L) return UploadResult(0, 0, null, "upload aborted")
+                    if (sent < bytes) return UploadResult(sent, durMs.coerceAtLeast(1L), null, "upload truncated")
+
+                    // server must acknowledge the consumed body
+                    val input = BufferedInputStream(ssl.inputStream, 8 * 1024)
+                    val status = readStatusLine(input)
+                    return when {
+                        status == null -> UploadResult(sent, durMs.coerceAtLeast(1L), null, "no HTTP response")
+                        status != 200 -> UploadResult(sent, durMs.coerceAtLeast(1L), status, "HTTP status: $status")
+                        else -> UploadResult(sent, durMs.coerceAtLeast(1L), 200, null)
+                    }
+                } catch (e: Exception) {
+                    return UploadResult(0, 0, null, describe(e))
+                } finally {
+                    runCatching { ssl.close() }
+                }
+            }
+        }
+    }
+
     fun download(
         ip: ByteArray,
         port: Int,

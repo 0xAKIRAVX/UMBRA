@@ -3,11 +3,16 @@ package com.umbra.scanner.settings
 import android.content.Context
 import com.umbra.scanner.core.NetFamily
 import com.umbra.scanner.core.Presets
+import com.umbra.scanner.core.ResultCodec
 import com.umbra.scanner.core.ScanMode
 import com.umbra.scanner.core.ScanParams
+import com.umbra.scanner.core.ScanResult
 import com.umbra.scanner.core.WarpFlavor
 import com.umbra.scanner.i18n.AppLanguage
+import com.umbra.scanner.net.NetQuality
+import com.umbra.scanner.net.NetworkProfile
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 class UmbraSettings(context: Context) {
 
@@ -34,6 +39,42 @@ class UmbraSettings(context: Context) {
     val autoUpdate = MutableStateFlow(prefs.getBoolean("auto_update", true))
     val dismissedUpdateTag = MutableStateFlow(prefs.getString("dismissed_update_tag", null))
     val lastUpdateCheck = MutableStateFlow(prefs.getLong("last_update_check", 0L))
+
+    // ── netsense: the measured line profile powering smart ranking ──
+    private val _networkProfile = MutableStateFlow(
+        NetQuality.profileFromJson(prefs.getString("net_profile_v1", null))
+    )
+    val networkProfile = _networkProfile.asStateFlow()
+
+    fun setNetworkProfile(p: NetworkProfile) {
+        _networkProfile.value = p
+        prefs.edit().putString("net_profile_v1", NetQuality.profileToJson(p)).apply()
+    }
+
+    // ── netsense: last verified results per bucket (WARP / CF-EDGE) so the
+    //    smart-pick board can recommend BOTH families at once ──
+    private val _savedWarpResults = MutableStateFlow(loadSaved("saved_warp_v1"))
+    val savedWarpResults = _savedWarpResults.asStateFlow()
+
+    private val _savedEdgeResults = MutableStateFlow(loadSaved("saved_edge_v1"))
+    val savedEdgeResults = _savedEdgeResults.asStateFlow()
+
+    private fun loadSaved(key: String): List<ScanResult> =
+        ResultCodec.fromJsonList(prefs.getString(key, null))
+
+    fun saveScanResults(mode: ScanMode, results: List<ScanResult>) {
+        val capped = results.take(60)
+        when (mode) {
+            ScanMode.WARP -> {
+                _savedWarpResults.value = capped
+                prefs.edit().putString("saved_warp_v1", ResultCodec.toJsonList(capped)).apply()
+            }
+            else -> { // CF_EDGE + CUSTOM both land in the edge bucket
+                _savedEdgeResults.value = capped
+                prefs.edit().putString("saved_edge_v1", ResultCodec.toJsonList(capped)).apply()
+            }
+        }
+    }
 
     fun setAccent(v: Int) { accent.value = v; prefs.edit().putInt("accent", v).apply() }
     fun setAmoled(v: Boolean) { amoled.value = v; prefs.edit().putBoolean("amoled", v).apply() }

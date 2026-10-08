@@ -7,6 +7,9 @@ object Ranking {
     /**
      * 0..100 composite quality score.
      * latency 34% · loss 26% · speed 20% · jitter 10% + TLS bonus 10.
+     *
+     * This is the FIXED classic ruler — exports and the SCORE sort chip.
+     * The adaptive, network-aware score lives in SmartRanking (SMART chip).
      */
     fun scoreOf(r: ScanResult): Double {
         if (!r.alive) return 0.0
@@ -22,6 +25,7 @@ object Ranking {
     }
 
     fun sort(results: List<ScanResult>, key: SortKey): List<ScanResult> = when (key) {
+        SortKey.SMART -> SmartRanking.sort(results, null) // neutral weights — caller passes a profile via SmartRanking directly
         SortKey.SCORE -> results.sortedByDescending { scoreOf(it) }
         SortKey.LATENCY -> results.filter { it.latencyMs != null }.sortedBy { it.latencyMs ?: Double.MAX_VALUE }
         SortKey.JITTER -> results.filter { it.jitterMs != null }.sortedBy { it.jitterMs ?: Double.MAX_VALUE }

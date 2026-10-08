@@ -75,7 +75,9 @@ import com.umbra.scanner.core.Ranking
 import com.umbra.scanner.core.ScanMode
 import com.umbra.scanner.core.ScanResult
 import com.umbra.scanner.core.ScanUi
+import com.umbra.scanner.core.SmartRanking
 import com.umbra.scanner.core.SortKey
+import com.umbra.scanner.net.NetworkProfile
 import com.umbra.scanner.export.Exporters
 import com.umbra.scanner.i18n.LocalStrings
 import com.umbra.scanner.ui.components.ActionRow
@@ -85,6 +87,7 @@ import com.umbra.scanner.ui.components.OutlineButton
 import com.umbra.scanner.ui.components.PulsingDot
 import com.umbra.scanner.ui.components.SectionLabel
 import com.umbra.scanner.ui.components.SelectChip
+import com.umbra.scanner.ui.components.SmartPickBoard
 import com.umbra.scanner.ui.components.StatCell
 import com.umbra.scanner.ui.components.bouncyClickable
 import com.umbra.scanner.ui.components.staggerIn
@@ -117,6 +120,9 @@ fun ResultsScreen(
     val controller = app.controller
     val ui by controller.ui.collectAsState()
     val results by controller.results.collectAsState()
+    val profile by app.settings.networkProfile.collectAsState()
+    val savedWarp by app.settings.savedWarpResults.collectAsState()
+    val savedEdge by app.settings.savedEdgeResults.collectAsState()
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     val accent = LocalAccent.current
@@ -130,7 +136,7 @@ fun ResultsScreen(
 
     val params = (ui as? ScanUi.Done)?.summary?.params
 
-    val filtered = remember(results, sortIdx, filterIdx, query) {
+    val filtered = remember(results, sortIdx, filterIdx, query, profile) {
         val base = results.asSequence().filter { it.alive }
         val family = when (filterIdx) {
             1 -> base.filter { it.protocol == IpProtocol.IPv4 }
@@ -140,7 +146,13 @@ fun ResultsScreen(
         }
         val q = query.trim()
         val searched = if (q.isEmpty()) family else family.filter { it.ip.contains(q, ignoreCase = true) }
-        Ranking.sort(searched.toList(), SortKey.entries.getOrElse(sortIdx) { SortKey.SCORE })
+        val key = SortKey.entries.getOrElse(sortIdx) { SortKey.SMART }
+        if (key == SortKey.SMART) {
+            // v3.1: adaptive score — weighed for the user's measured line
+            searched.toList().sortedByDescending { SmartRanking.score(it, profile) }
+        } else {
+            Ranking.sort(searched.toList(), key)
+        }
     }
     fun stampName(ext: String): String =
         "umbra_scan_" + SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date()) + "." + ext
@@ -198,6 +210,19 @@ fun ResultsScreen(
             return@Column
         }
 
+        Spacer(Modifier.height(12.dp))
+
+        // v3.1 smart pick board — بهترین‌ها برای نت شما، هر دو خانواده
+        val currentMode = (ui as? ScanUi.Done)?.summary?.params?.mode
+            ?: results.firstOrNull()?.mode ?: ScanMode.CF_EDGE
+        val warpList = if (currentMode == ScanMode.WARP) results else savedWarp
+        val edgeList = if (currentMode != ScanMode.WARP) results else savedEdge
+        SmartPickBoard(
+            profile = profile,
+            warpResults = warpList,
+            edgeResults = edgeList,
+            onPick = { detail = it },
+        )
         Spacer(Modifier.height(12.dp))
 
         // summary
@@ -296,7 +321,7 @@ fun ResultsScreen(
                         placementSpec = spring(stiffness = 380f, dampingRatio = Spring.DampingRatioLowBouncy)
                     )
                 ) {
-                    ResultRow(rank = idx + 1, r = r, onClick = { detail = r })
+                    ResultRow(rank = idx + 1, r = r, profile = profile, onClick = { detail = r })
                 }
             }
             if (filtered.size > visible) {
@@ -320,6 +345,7 @@ fun ResultsScreen(
         ) {
             DetailSheet(
                 r = r,
+                profile = profile,
                 onCopy = ::copy,
                 onVless = {
                     controller.pendingVlessIp = r.ip
@@ -341,7 +367,7 @@ fun ResultsScreen(
 }
 
 @Composable
-private fun ResultRow(rank: Int, r: ScanResult, onClick: () -> Unit) {
+private fun ResultRow(rank: Int, r: ScanResult, profile: NetworkProfile?, onClick: () -> Unit) {
     val accent = LocalAccent.current
     val top3 = rank <= 3
     // v3 medal tints — gold / silver / bronze for the podium
@@ -431,7 +457,7 @@ private fun ResultRow(rank: Int, r: ScanResult, onClick: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(4.dp))
-            ScoreBar(score = (Ranking.scoreOf(r) / 110.0).toFloat())
+            ScoreBar(score = (SmartRanking.score(r, profile) / 110.0).toFloat())
         }
     }
 }
@@ -483,6 +509,7 @@ private fun ScoreBar(score: Float) {
 @Composable
 private fun DetailSheet(
     r: ScanResult,
+    profile: NetworkProfile?,
     onCopy: (String, String) -> Unit,
     onVless: () -> Unit,
     onShare: () -> Unit,
@@ -518,7 +545,7 @@ private fun DetailSheet(
                 StatCell(s.inTunnelPing, "${r.successfulAttempts}/${r.tcpAttempts}", Modifier.weight(1f))
             } else {
                 StatCell("TLS", if (r.tlsSuccess) "OK" else "—", Modifier.weight(1f))
-                StatCell(s.score, "%.0f".format(Ranking.scoreOf(r)), Modifier.weight(1f))
+                StatCell(s.score, "%.0f".format(SmartRanking.score(r, profile)), Modifier.weight(1f))
             }
         }
         Spacer(Modifier.height(10.dp))
@@ -530,7 +557,7 @@ private fun DetailSheet(
         if (r.mode == ScanMode.WARP) {
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                StatCell(s.score, "%.0f".format(Ranking.scoreOf(r)), Modifier.weight(1f))
+                StatCell(s.score, "%.0f".format(SmartRanking.score(r, profile)), Modifier.weight(1f))
                 StatCell(s.port, r.port.toString(), Modifier.weight(1f))
                 StatCell(s.family, r.protocol.label, Modifier.weight(1f))
             }

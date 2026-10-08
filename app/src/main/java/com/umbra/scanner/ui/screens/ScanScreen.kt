@@ -49,6 +49,7 @@ import com.umbra.scanner.core.ScanResult
 import com.umbra.scanner.i18n.LocalStrings
 import com.umbra.scanner.ui.components.AnimatedCountText
 import com.umbra.scanner.ui.components.GradientButton
+import com.umbra.scanner.ui.components.NetStatusCard
 import com.umbra.scanner.ui.components.NeonCard
 import com.umbra.scanner.ui.components.OrbitGlobe
 import com.umbra.scanner.ui.components.OutlineButton
@@ -113,6 +114,8 @@ fun ScanScreen(app: UmbraApp, onGoResults: () -> Unit) {
                 }
 
                 ScanUi.Idle -> {
+                    NetStatusCard(app = app, modifier = Modifier.staggerIn(1))
+                    Spacer(Modifier.height(12.dp))
                     ConfigPanel(app = app, onStart = { params -> startScan(context, app, params) })
                     Spacer(Modifier.height(24.dp))
                 }

@@ -39,6 +39,28 @@ object WarpRegistration {
     private const val API_BASE = "https://api.cloudflareclient.com/v0a4005/reg"
     private const val USER_AGENT = "insomnia/8.6.1"
 
+    /**
+     * Identity cache (15 min TTL) — v3.1 fix: auto-tune + the scan itself used
+     * to register TWO separate accounts per session; BPB reuses one identity
+     * for the whole run, and the API is rate-limited per source IP, so the
+     * registered account is now shared until it goes stale.
+     */
+    private const val CACHE_TTL_MS = 15 * 60 * 1000L
+
+    @Volatile private var cachedAccount: WarpAccount? = null
+    @Volatile private var cachedAtMs: Long = 0L
+
+    fun clearCache() {
+        cachedAccount = null
+        cachedAtMs = 0L
+    }
+
+    private fun cached(): WarpAccount? {
+        val acc = cachedAccount ?: return null
+        if (System.currentTimeMillis() - cachedAtMs >= CACHE_TTL_MS) return null
+        return acc
+    }
+
     /** Deterministic identity generation, isolated for unit tests. */
     fun newIdentity(random: Random = Random(System.nanoTime())): Pair<ByteArray, ByteArray> {
         val priv = WgCrypto.clampScalar(ByteArray(32).also { random.nextBytes(it) })
@@ -89,10 +111,12 @@ object WarpRegistration {
         }.getOrNull()
 
     /**
-     * Registers a new account. Retries a couple of times with a fresh identity
-     * (the API occasionally returns 4xx under load). Throws on final failure.
+     * Registers a new account (or reuses the cached identity within its TTL).
+     * Retries a couple of times with a fresh identity (the API occasionally
+     * returns 4xx under load). Throws on final failure.
      */
     suspend fun register(attempts: Int = 3): WarpAccount = withContext(Dispatchers.IO) {
+        cached()?.let { return@withContext it }
         var lastError: Exception? = null
         repeat(attempts) {
             try {
@@ -111,8 +135,11 @@ object WarpRegistration {
                     val code = conn.responseCode
                     if (code !in 200..299) throw java.io.IOException("registration HTTP $code")
                     val body = conn.inputStream.bufferedReader().use { it.readText() }
-                    parseResponse(body, priv, pub)?.let { return@withContext it }
+                    val account = parseResponse(body, priv, pub)
                         ?: throw java.io.IOException("unparsable registration payload")
+                    cachedAccount = account
+                    cachedAtMs = System.currentTimeMillis()
+                    return@withContext account
                 } finally {
                     conn.disconnect()
                 }

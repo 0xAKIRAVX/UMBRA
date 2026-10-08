@@ -33,7 +33,7 @@ enum class ScanPhase(val label: String, val order: Int) {
 }
 
 enum class SortKey(val label: String) {
-    SCORE("SCORE"), LATENCY("LATENCY"), JITTER("JITTER"), LOSS("LOSS"), SPEED("SPEED");
+    SMART("SMART"), SCORE("SCORE"), LATENCY("LATENCY"), JITTER("JITTER"), LOSS("LOSS"), SPEED("SPEED");
 }
 
 @Immutable

@@ -59,7 +59,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             UmbraTheme(settings = app.settings) {
                 UmbraRoot(app = app)
-                BootSplash()
+                BootSplash(version = "v" + app.updateCenter.currentVersion)
             }
         }
         scheduleUpdateCheck()
@@ -84,7 +84,7 @@ class MainActivity : ComponentActivity() {
  * Pure overlay: no extra activity, no window lock, tap to skip.
  */
 @Composable
-private fun BootSplash() {
+private fun BootSplash(version: String) {
     var visible by remember { mutableStateOf(true) }
     LaunchedEffect(Unit) {
         delay(1150)
@@ -134,7 +134,7 @@ private fun BootSplash() {
             }
             // subtle bottom-inset version whisper
             Text(
-                "v3.0",
+                version,
                 style = MaterialTheme.typography.labelSmall,
                 color = com.umbra.scanner.ui.theme.Fade,
                 maxLines = 1,
