@@ -131,14 +131,17 @@ private fun startScan(
 ) {
     app.settings.saveParams(params)
     if (Build.VERSION.SDK_INT >= 33 &&
+        !app.settings.notifAsked.value &&
         ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
     ) {
-        // asked politely once; the scan itself runs regardless of the answer
+        // v3.1.1 fix: asked exactly ONCE per install — the old code re-popped
+        // the system dialog on every single scan start
         runCatching {
             (context as? android.app.Activity)?.let { activity ->
                 activity.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 4711)
             }
         }
+        app.settings.setNotifAsked()
     }
     app.controller.start(context, params)
 }
@@ -234,7 +237,7 @@ private fun LivePanel(
                 }
                 Spacer(Modifier.height(9.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    StatCell(s.rate, "${"%.1f".format(stats.ratePerSec)}${s.perSec}", Modifier.weight(1f))
+                    StatCell(s.rate, "${"%.1f".format(java.util.Locale.US, stats.ratePerSec)}${s.perSec}", Modifier.weight(1f))
                     StatCell(s.active, stats.active.toString(), Modifier.weight(1f))
                 }
                 Spacer(Modifier.height(9.dp))
@@ -271,7 +274,7 @@ private fun LivePanel(
                         modifier = Modifier.weight(1f),
                     )
                     Text(
-                        r.latencyMs?.let { "%.0f ms".format(it) } ?: "—",
+                        r.latencyMs?.let { "%.0f ms".format(java.util.Locale.US, it) } ?: "—",
                         style = MonoStyleSmall,
                         color = accent.tint,
                         maxLines = 1,
@@ -418,10 +421,10 @@ private fun DonePanel(
                 )
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatCell(s.lat, best.latencyMs?.let { "%.0fms".format(it) } ?: "—", Modifier.weight(1f))
-                    StatCell(s.jit, best.jitterMs?.let { "%.0fms".format(it) } ?: "—", Modifier.weight(1f))
+                    StatCell(s.lat, best.latencyMs?.let { "%.0fms".format(java.util.Locale.US, it) } ?: "—", Modifier.weight(1f))
+                    StatCell(s.jit, best.jitterMs?.let { "%.0fms".format(java.util.Locale.US, it) } ?: "—", Modifier.weight(1f))
                     StatCell(s.loss, "${best.lossPct}%", Modifier.weight(1f))
-                    StatCell(s.speed, best.speedMbps?.let { "%.1fM".format(it) } ?: "—", Modifier.weight(1f))
+                    StatCell(s.speed, best.speedMbps?.let { "%.1fM".format(java.util.Locale.US, it) } ?: "—", Modifier.weight(1f))
                 }
                 Spacer(Modifier.height(16.dp))
             }
@@ -436,7 +439,7 @@ internal fun formatElapsed(ms: Long): String {
     val s = ms / 1000
     return when {
         s < 60 -> "${s}s"
-        s < 3600 -> "%d:%02d".format(s / 60, s % 60)
-        else -> "%d:%02d:%02d".format(s / 3600, (s % 3600) / 60, s % 60)
+        s < 3600 -> "%d:%02d".format(java.util.Locale.US, s / 60, s % 60)
+        else -> "%d:%02d:%02d".format(java.util.Locale.US, s / 3600, (s % 3600) / 60, s % 60)
     }
 }

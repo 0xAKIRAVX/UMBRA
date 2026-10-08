@@ -44,7 +44,15 @@ data class NetworkProfile(
     val v6Ok: Boolean = false,
     val measuredAt: Long = System.currentTimeMillis(),
 ) {
-    val grade: NetGrade get() = NetQuality.gradeOf(latencyMs, jitterMs, packetLoss, downloadMbps)
+    val grade: NetGrade
+        get() {
+            val g = NetQuality.gradeOf(latencyMs, jitterMs, packetLoss, downloadMbps)
+            // v3.1.1: a line where TCP answers but real TLS never completes is
+            // under DPI fake-accept — its flawless TCP numbers must not grade
+            // EXCELLENT (that would tilt the smart weights toward raw speed on
+            // a line that cannot even complete a real handshake)
+            return if (dpiSuspected && g == NetGrade.EXCELLENT) NetGrade.GOOD else g
+        }
 
     /** Age of this measurement in minutes (>= 1). */
     val ageMinutes: Long
@@ -192,7 +200,11 @@ object NetQuality {
     }
 
     private suspend fun uploadMbps(v6Ok: Boolean): Double? {
-        val seed = if (v6Ok) "2606:4700:4700::1111" else "104.16.1.1"
+        // v3.1.1 fix: 2606:4700:4700::1111 (1.1.1.1 v6) is the resolver anycast —
+        // it does not reliably serve the speed.cloudflare.com SNI, which silently
+        // nulled the upload metric on every v6-capable line. The WARP v6 edge
+        // (same address download uses) serves both.
+        val seed = if (v6Ok) "2606:4700:d0::a29f:c001" else "104.16.1.1"
         val bytes = IpText.literalToBytes(seed) ?: return null
         val u = runCatching {
             withTimeoutOrNull(9000) {
@@ -307,7 +319,7 @@ object NetQuality {
             }
         )
         p.latencyMs?.let { append(" · ping ${it.roundToInt()}ms") }
-        p.downloadMbps?.let { append(" · down ${"%.1f".format(it)}mbps") }
+        p.downloadMbps?.let { append(" · down ${"%.1f".format(java.util.Locale.US, it)}mbps") }
         if (p.dpiSuspected) append(" · dpi fake-accept suspected")
     }
 }

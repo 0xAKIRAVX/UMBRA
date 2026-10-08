@@ -52,6 +52,23 @@ class ScanController(private val settings: UmbraSettings? = null) {
     private val _log = MutableStateFlow<List<String>>(emptyList())
     val log: StateFlow<List<String>> = _log.asStateFlow()
 
+    init {
+        // v3.1.1 fix: the top verified results of the last scan were persisted
+        // precisely so they survive a restart — but the results tab showed
+        // "NO SCAN DATA YET" on every fresh process until a new scan finished.
+        // Hydrate the board from the persisted bucket of the last scan's mode.
+        if (settings != null) {
+            val saved = when (settings.lastScanMode()) {
+                ScanMode.WARP -> settings.savedWarpResults.value
+                else -> settings.savedEdgeResults.value
+            }
+            if (saved.isNotEmpty()) {
+                _results.value = saved
+                _top.value = saved.take(5)
+            }
+        }
+    }
+
     /** IP pre-filled into the VLESS generator from a result row. */
     @Volatile
     var pendingVlessIp: String? = null
@@ -151,12 +168,15 @@ class ScanController(private val settings: UmbraSettings? = null) {
         _log.value = logValue
     }
 
-    /** Wipe the current result board. */
+    /** Wipe the current result board — memory AND the persisted buckets. */
     fun clearResults() {
         if (isRunning) return
         synchronized(lock) { resultMap.clear() }
         _results.value = emptyList()
         _top.value = emptyList()
+        // v3.1.1: also wipe the persisted smart-pick buckets, otherwise the
+        // board resurrected on next launch from storage
+        settings?.clearSavedResults()
         _ui.value = ScanUi.Idle
     }
 

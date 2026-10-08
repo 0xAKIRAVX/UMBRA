@@ -2,6 +2,7 @@ package com.umbra.scanner.net
 
 import android.util.Base64
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -118,7 +119,7 @@ object WarpRegistration {
     suspend fun register(attempts: Int = 3): WarpAccount = withContext(Dispatchers.IO) {
         cached()?.let { return@withContext it }
         var lastError: Exception? = null
-        repeat(attempts) {
+        repeat(attempts) { i ->
             try {
                 val (priv, pub) = newIdentity()
                 val pubB64 = Base64.encodeToString(pub, Base64.NO_WRAP)
@@ -148,6 +149,10 @@ object WarpRegistration {
             } catch (e: Exception) {
                 lastError = e
             }
+            // v3.1.1 fix: the API is rate-limited per source IP — three instant
+            // back-to-back retries all hit the same limiter window and all fail.
+            // A short backoff lets the window slide and the retry actually land.
+            if (i < attempts - 1) delay(700)
         }
         throw IllegalStateException(
             "WARP registration failed: ${lastError?.message ?: "unknown"}", lastError)

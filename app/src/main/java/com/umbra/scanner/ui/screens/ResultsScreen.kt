@@ -141,7 +141,11 @@ fun ResultsScreen(
         val family = when (filterIdx) {
             1 -> base.filter { it.protocol == IpProtocol.IPv4 }
             2 -> base.filter { it.protocol == IpProtocol.IPv6 }
-            3 -> base.filter { it.tlsSuccess }
+            // v3.1.1 fix: "TLS OK" was meaningless in WARP scans (tlsSuccess is
+            // only set by the bonus :443 speed test) — for WARP rows the real
+            // proof is the WireGuard handshake, so the chip now filters on
+            // "verified" for both families
+            3 -> base.filter { it.tlsSuccess || it.wgHandshakes > 0 }
             else -> base
         }
         val q = query.trim()
@@ -241,13 +245,13 @@ fun ResultsScreen(
             StatCell(s.alive, results.size.toString(), Modifier.weight(1f))
             StatCell(
                 s.bestLat,
-                best?.latencyMs?.let { "%.0fms".format(it) } ?: "—",
+                best?.latencyMs?.let { "%.0fms".format(java.util.Locale.US, it) } ?: "—",
                 Modifier.weight(1f),
             )
-            StatCell(s.median, medLat?.let { "%.0fms".format(it) } ?: "—", Modifier.weight(1f))
+            StatCell(s.median, medLat?.let { "%.0fms".format(java.util.Locale.US, it) } ?: "—", Modifier.weight(1f))
             StatCell(
                 s.topSpeed,
-                filtered.maxOfOrNull { it.speedMbps ?: 0.0 }?.let { if (it > 0) "%.1fM".format(it) else "—" } ?: "—",
+                filtered.maxOfOrNull { it.speedMbps ?: 0.0 }?.let { if (it > 0) "%.1fM".format(java.util.Locale.US, it) else "—" } ?: "—",
                 Modifier.weight(1f),
             )
         }
@@ -353,8 +357,8 @@ fun ResultsScreen(
                     onGoVless()
                 },
                 onShare = {
-                    val line = "${r.ip}:${r.port} · lat ${r.latencyMs?.let { "%.0fms".format(it) }} · loss ${r.lossPct}%" +
-                        (r.speedMbps?.let { " · ${"%.1f".format(it)} Mbps" } ?: "")
+                    val line = "${r.ip}:${r.port} · lat ${r.latencyMs?.let { "%.0fms".format(java.util.Locale.US, it) }} · loss ${r.lossPct}%" +
+                        (r.speedMbps?.let { " · ${"%.1f".format(java.util.Locale.US, it)} Mbps" } ?: "")
                     val intent = Intent(Intent.ACTION_SEND).apply {
                         type = "text/plain"
                         putExtra(Intent.EXTRA_TEXT, line)
@@ -430,7 +434,7 @@ private fun ResultRow(rank: Int, r: ScanResult, profile: NetworkProfile?, onClic
         Spacer(Modifier.width(8.dp))
         Column(horizontalAlignment = Alignment.End, modifier = Modifier.width(54.dp)) {
             Text(
-                r.latencyMs?.let { "%.0fms".format(it) } ?: "—",
+                r.latencyMs?.let { "%.0fms".format(java.util.Locale.US, it) } ?: "—",
                 style = MonoStyleSmall,
                 color = accent.tint,
                 maxLines = 1,
@@ -449,7 +453,7 @@ private fun ResultRow(rank: Int, r: ScanResult, profile: NetworkProfile?, onClic
         Spacer(Modifier.width(6.dp))
         Column(horizontalAlignment = Alignment.End, modifier = Modifier.width(46.dp)) {
             Text(
-                r.speedMbps?.let { "%.1fM".format(it) } ?: "· · ·",
+                r.speedMbps?.let { "%.1fM".format(java.util.Locale.US, it) } ?: "· · ·",
                 style = MonoStyleSmall,
                 color = OkMint,
                 maxLines = 1,
@@ -533,31 +537,31 @@ private fun DetailSheet(
         SectionLabel(if (r.mode == ScanMode.WARP) s.warpProfile else s.edgeProfile)
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StatCell(s.latency, r.latencyMs?.let { "%.1f ms".format(it) } ?: "—", Modifier.weight(1f))
-            StatCell(s.jitter, r.jitterMs?.let { "%.1f ms".format(it) } ?: "—", Modifier.weight(1f))
+            StatCell(s.latency, r.latencyMs?.let { "%.1f ms".format(java.util.Locale.US, it) } ?: "—", Modifier.weight(1f))
+            StatCell(s.jitter, r.jitterMs?.let { "%.1f ms".format(java.util.Locale.US, it) } ?: "—", Modifier.weight(1f))
             StatCell(s.loss, "${r.lossPct}%", Modifier.weight(1f))
         }
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StatCell(s.speed, r.speedMbps?.let { "%.2f Mbps".format(it) } ?: "—", Modifier.weight(1f))
+            StatCell(s.speed, r.speedMbps?.let { "%.2f Mbps".format(java.util.Locale.US, it) } ?: "—", Modifier.weight(1f))
             if (r.mode == ScanMode.WARP) {
                 StatCell(s.wgHs, "${r.wgHandshakes}×", Modifier.weight(1f))
                 StatCell(s.inTunnelPing, "${r.successfulAttempts}/${r.tcpAttempts}", Modifier.weight(1f))
             } else {
                 StatCell("TLS", if (r.tlsSuccess) "OK" else "—", Modifier.weight(1f))
-                StatCell(s.score, "%.0f".format(SmartRanking.score(r, profile)), Modifier.weight(1f))
+                StatCell(s.score, "%.0f".format(java.util.Locale.US, SmartRanking.score(r, profile)), Modifier.weight(1f))
             }
         }
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             StatCell(s.attempts, "${r.successfulAttempts}/${r.tcpAttempts}", Modifier.weight(1f))
             StatCell(s.http, r.httpStatus?.toString() ?: "—", Modifier.weight(1f))
-            StatCell(s.data, "%,.1f MB".format(r.downloadedBytes / 1048576.0), Modifier.weight(1f))
+            StatCell(s.data, "%,.1f MB".format(java.util.Locale.US, r.downloadedBytes / 1048576.0), Modifier.weight(1f))
         }
         if (r.mode == ScanMode.WARP) {
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                StatCell(s.score, "%.0f".format(SmartRanking.score(r, profile)), Modifier.weight(1f))
+                StatCell(s.score, "%.0f".format(java.util.Locale.US, SmartRanking.score(r, profile)), Modifier.weight(1f))
                 StatCell(s.port, r.port.toString(), Modifier.weight(1f))
                 StatCell(s.family, r.protocol.label, Modifier.weight(1f))
             }
@@ -571,7 +575,7 @@ private fun DetailSheet(
             r.tlsHandshakeMs?.let {
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatCell(s.tlsTime, "%.0f ms".format(it), Modifier.weight(1f))
+                    StatCell(s.tlsTime, "%.0f ms".format(java.util.Locale.US, it), Modifier.weight(1f))
                     StatCell(s.port, r.port.toString(), Modifier.weight(1f))
                     StatCell(s.family, r.protocol.label, Modifier.weight(1f))
                 }

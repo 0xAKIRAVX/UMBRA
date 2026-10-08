@@ -359,7 +359,7 @@ object AutoTune {
         val speedTest = true
         val speedConcurrency = if (c.lowRam) 2 else if (mbps != null && mbps < 2.0) 3 else 4
         notes.add(
-            if (mbps != null) "link ≈ ${"%.1f".format(mbps)} mbps → ${downloadMb}mb sample · ${speedConcurrency}× speed lanes"
+            if (mbps != null) "link ≈ ${"%.1f".format(java.util.Locale.US, mbps)} mbps → ${downloadMb}mb sample · ${speedConcurrency}× speed lanes"
             else "link unknown → ${downloadMb}mb sample"
         )
 

@@ -176,7 +176,7 @@ private fun PickRow(
                         .padding(horizontal = 7.dp, vertical = 3.dp),
                 ) {
                     Text(
-                        "${s.pickBest} · ${"%.0f".format(SmartRanking.score(best, profile))}",
+                        "${s.pickBest} · ${"%.0f".format(java.util.Locale.US, SmartRanking.score(best, profile))}",
                         style = MaterialTheme.typography.labelSmall,
                         color = accent.tint,
                         maxLines = 1,
@@ -197,7 +197,7 @@ private fun PickRow(
                 icon = Icons.Rounded.Speed,
                 tint = accent.secondary,
                 result = picks.ping,
-                value = picks.ping?.latencyMs?.let { "${"%.0f".format(it)}ms" },
+                value = picks.ping?.latencyMs?.let { "${"%.0f".format(java.util.Locale.US, it)}ms" },
                 onPick = onPick,
                 modifier = Modifier.weight(1f),
             )
@@ -207,7 +207,7 @@ private fun PickRow(
                 tint = OkMint,
                 result = picks.stable,
                 value = picks.stable?.let {
-                    "jit ${it.jitterMs?.let { j -> "${"%.0f".format(j)}ms" } ?: "—"} · ${it.lossPct}%"
+                    "jit ${it.jitterMs?.let { j -> "${"%.0f".format(java.util.Locale.US, j)}ms" } ?: "—"} · ${it.lossPct}%"
                 },
                 onPick = onPick,
                 modifier = Modifier.weight(1f),
@@ -217,7 +217,7 @@ private fun PickRow(
                 icon = Icons.Rounded.Bolt,
                 tint = accent.primary,
                 result = picks.fast,
-                value = picks.fast?.speedMbps?.let { "${"%.1f".format(it)}M" },
+                value = picks.fast?.speedMbps?.let { "${"%.1f".format(java.util.Locale.US, it)}M" },
                 onPick = onPick,
                 modifier = Modifier.weight(1f),
             )
@@ -291,10 +291,10 @@ private fun smartWhyLine(profile: NetworkProfile?): String? {
 @Composable
 private fun pickValue(r: ScanResult): String {
     val sb = StringBuilder()
-    r.latencyMs?.let { sb.append("${"%.0f".format(it)}ms") }
+    r.latencyMs?.let { sb.append("${"%.0f".format(java.util.Locale.US, it)}ms") }
     r.speedMbps?.let {
         if (sb.isNotEmpty()) sb.append(" · ")
-        sb.append("${"%.1f".format(it)} Mbps")
+        sb.append("${"%.1f".format(java.util.Locale.US, it)} Mbps")
     }
     if (sb.isEmpty()) sb.append("—")
     return sb.toString()

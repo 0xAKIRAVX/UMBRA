@@ -47,19 +47,42 @@ class CidrBlock private constructor(
     fun sampleCandidates(samples: Int, random: Random, out: MutableList<ByteArray>) {
         if (samples <= 0) return
         if (hostBits <= 10) {
-            // small block: enumerate everything (skip v4 net/broadcast style edges)
-            val total = size.min(BigInteger.valueOf(2048))
-            var i = BigInteger.ZERO
-            while (i < total) {
-                if (family == IpProtocol.IPv4) {
-                    val last = i.and(BigInteger.valueOf(255))
-                    if (last == BigInteger.ZERO || last == BigInteger.valueOf(255)) {
-                        i = i.add(BigInteger.ONE)
-                        continue
+            val total = size.min(BigInteger.valueOf(2048)).toLong()
+            if (samples >= total) {
+                // small block, full coverage requested (skip v4 net/broadcast style edges)
+                var i = BigInteger.ZERO
+                while (i < BigInteger.valueOf(total)) {
+                    if (family == IpProtocol.IPv4) {
+                        val last = i.and(BigInteger.valueOf(255))
+                        if (last == BigInteger.ZERO || last == BigInteger.valueOf(255)) {
+                            i = i.add(BigInteger.ONE)
+                            continue
+                        }
                     }
+                    out.add(base.add(i).toAddressBytes(bits))
+                    i = i.add(BigInteger.ONE)
                 }
-                out.add(base.add(i).toAddressBytes(bits))
-                i = i.add(BigInteger.ONE)
+                return
+            }
+            // v3.1.1 fix: small blocks now RESPECT the samples knob. The old
+            // behavior enumerated the whole block (254/256 per /24) no matter
+            // what the user configured, so a WARP scan generated ~2.6x more
+            // candidates than the UI estimate promised and ran correspondingly
+            // longer. Requested samples < block size → random-sample instead.
+            val seen = HashSet<BigInteger>(samples * 2)
+            val jrnd = java.util.Random(random.nextLong())
+            var guard = 0
+            val maxGuard = samples * 20
+            while (seen.size < samples && guard < maxGuard) {
+                guard++
+                val r = BigInteger(hostBits, jrnd)
+                val v = base.add(r)
+                if (v.signum() == 0) continue // never emit the unspecified address
+                if (family == IpProtocol.IPv4) {
+                    val last = v.and(BigInteger.valueOf(255))
+                    if (last == BigInteger.ZERO || last == BigInteger.valueOf(255)) continue
+                }
+                if (seen.add(v)) out.add(v.toAddressBytes(bits))
             }
             return
         }
@@ -175,7 +198,11 @@ object IpGenerator {
         }
         var total = 0
         for (b in blocks) {
-            val enumerated = if (b.hostBitsValue() <= 10) b.size.min(BigInteger.valueOf(2048)).toInt() else samplesPerPrefix
+            // v3.1.1: small blocks are capped by the samples knob now — the
+            // estimate matches what sampleCandidates actually emits
+            val enumerated = if (b.hostBitsValue() <= 10) {
+                minOf(b.size.min(BigInteger.valueOf(2048)).toLong(), samplesPerPrefix.toLong()).toInt()
+            } else samplesPerPrefix
             total += enumerated
         }
         return total

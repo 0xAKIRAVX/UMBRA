@@ -214,21 +214,21 @@ private fun MeasuredBody(profile: NetworkProfile, onReMeasure: () -> Unit) {
     }
     Spacer(Modifier.height(10.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        StatCell(s.lat, profile.latencyMs?.let { "${"%.0f".format(it)}ms" } ?: "—", Modifier.weight(1f))
-        StatCell(s.jit, profile.jitterMs?.let { "${"%.0f".format(it)}ms" } ?: "—", Modifier.weight(1f))
+        StatCell(s.lat, profile.latencyMs?.let { "${"%.0f".format(java.util.Locale.US, it)}ms" } ?: "—", Modifier.weight(1f))
+        StatCell(s.jit, profile.jitterMs?.let { "${"%.0f".format(java.util.Locale.US, it)}ms" } ?: "—", Modifier.weight(1f))
         StatCell(s.loss, "${(profile.packetLoss * 100).toInt()}%", Modifier.weight(1f))
     }
     Spacer(Modifier.height(9.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         StatCell(
             s.netDown,
-            profile.downloadMbps?.let { "${"%.1f".format(it)}M" } ?: "—",
+            profile.downloadMbps?.let { "${"%.1f".format(java.util.Locale.US, it)}M" } ?: "—",
             Modifier.weight(1f),
             tint = OkMint,
         )
         StatCell(
             s.netUp,
-            profile.uploadMbps?.let { "${"%.1f".format(it)}M" } ?: "—",
+            profile.uploadMbps?.let { "${"%.1f".format(java.util.Locale.US, it)}M" } ?: "—",
             Modifier.weight(1f),
             tint = OkMint,
         )

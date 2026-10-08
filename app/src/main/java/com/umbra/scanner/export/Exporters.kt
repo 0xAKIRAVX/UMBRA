@@ -24,17 +24,17 @@ object Exporters {
             sb.append(r.ip).append(',')
             sb.append(r.protocol.name).append(',')
             sb.append(r.port).append(',')
-            sb.append(r.latencyMs?.let { "%.1f".format(it) } ?: "").append(',')
-            sb.append(r.jitterMs?.let { "%.1f".format(it) } ?: "").append(',')
+            sb.append(r.latencyMs?.let { "%.1f".format(java.util.Locale.US, it) } ?: "").append(',')
+            sb.append(r.jitterMs?.let { "%.1f".format(java.util.Locale.US, it) } ?: "").append(',')
             sb.append(r.lossPct).append(',')
-            sb.append(r.speedMbps?.let { "%.2f".format(it) } ?: "").append(',')
+            sb.append(r.speedMbps?.let { "%.2f".format(java.util.Locale.US, it) } ?: "").append(',')
             sb.append(r.downloadedBytes).append(',')
             sb.append(r.tcpAttempts).append(',')
             sb.append(r.successfulAttempts).append(',')
             sb.append(if (r.tlsSuccess) "yes" else "no").append(',')
-            sb.append(r.tlsHandshakeMs?.let { "%.0f".format(it) } ?: "").append(',')
+            sb.append(r.tlsHandshakeMs?.let { "%.0f".format(java.util.Locale.US, it) } ?: "").append(',')
             sb.append(r.httpStatus ?: "").append(',')
-            sb.append("%.1f".format(Ranking.scoreOf(r))).append(',')
+            sb.append("%.1f".format(java.util.Locale.US, Ranking.scoreOf(r))).append(',')
             sb.append(r.mode.name).append(',')
             sb.append(csvEscape(r.error ?: "")).append('\n')
         }
@@ -66,10 +66,10 @@ object Exporters {
                 i + 1,
                 r.ip,
                 r.port,
-                r.latencyMs?.let { "%.0fms".format(it) } ?: "-",
+                r.latencyMs?.let { "%.0fms".format(java.util.Locale.US, it) } ?: "-",
                 r.lossPct,
-                r.speedMbps?.let { "%.1fM".format(it) } ?: "-",
-                "%.0f".format(Ranking.scoreOf(r)),
+                r.speedMbps?.let { "%.1fM".format(java.util.Locale.US, it) } ?: "-",
+                "%.0f".format(java.util.Locale.US, Ranking.scoreOf(r)),
             ))
             r.error?.let { sb.append("     ⚠ ").append(it).append('\n') }
         }
@@ -98,16 +98,16 @@ object Exporters {
             sb.append("      \"ip\": \"").append(jsonStr(r.ip)).append("\",\n")
             sb.append("      \"protocol\": \"").append(r.protocol.name).append("\",\n")
             sb.append("      \"port\": ").append(r.port).append(",\n")
-            sb.append("      \"latencyMs\": ").append(r.latencyMs?.let { "%.1f".format(it) } ?: "null").append(",\n")
-            sb.append("      \"jitterMs\": ").append(r.jitterMs?.let { "%.1f".format(it) } ?: "null").append(",\n")
+            sb.append("      \"latencyMs\": ").append(r.latencyMs?.let { "%.1f".format(java.util.Locale.US, it) } ?: "null").append(",\n")
+            sb.append("      \"jitterMs\": ").append(r.jitterMs?.let { "%.1f".format(java.util.Locale.US, it) } ?: "null").append(",\n")
             sb.append("      \"packetLoss\": ").append(r.packetLoss).append(",\n")
-            sb.append("      \"speedMbps\": ").append(r.speedMbps?.let { "%.3f".format(it) } ?: "null").append(",\n")
+            sb.append("      \"speedMbps\": ").append(r.speedMbps?.let { "%.3f".format(java.util.Locale.US, it) } ?: "null").append(",\n")
             sb.append("      \"downloadedBytes\": ").append(r.downloadedBytes).append(",\n")
             sb.append("      \"tcpAttempts\": ").append(r.tcpAttempts).append(",\n")
             sb.append("      \"successfulAttempts\": ").append(r.successfulAttempts).append(",\n")
             sb.append("      \"tlsSuccess\": ").append(r.tlsSuccess).append(",\n")
             sb.append("      \"httpStatus\": ").append(r.httpStatus ?: "null").append(",\n")
-            sb.append("      \"score\": ").append("%.1f".format(Ranking.scoreOf(r))).append(",\n")
+            sb.append("      \"score\": ").append("%.1f".format(java.util.Locale.US, Ranking.scoreOf(r))).append(",\n")
             sb.append("      \"error\": ").append(r.error?.let { "\"${jsonStr(it)}\"" } ?: "null").append("\n")
             sb.append("    }").append(if (i < results.size - 1) ",\n" else "\n")
         }

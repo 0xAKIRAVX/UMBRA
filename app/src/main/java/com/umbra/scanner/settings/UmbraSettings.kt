@@ -40,6 +40,14 @@ class UmbraSettings(context: Context) {
     val dismissedUpdateTag = MutableStateFlow(prefs.getString("dismissed_update_tag", null))
     val lastUpdateCheck = MutableStateFlow(prefs.getLong("last_update_check", 0L))
 
+    // ── v3.1.1: POST_NOTIFICATIONS is asked exactly once, not on every scan ──
+    val notifAsked = MutableStateFlow(prefs.getBoolean("notif_asked", false))
+
+    fun setNotifAsked() {
+        notifAsked.value = true
+        prefs.edit().putBoolean("notif_asked", true).apply()
+    }
+
     // ── netsense: the measured line profile powering smart ranking ──
     private val _networkProfile = MutableStateFlow(
         NetQuality.profileFromJson(prefs.getString("net_profile_v1", null))
@@ -61,6 +69,18 @@ class UmbraSettings(context: Context) {
 
     private fun loadSaved(key: String): List<ScanResult> =
         ResultCodec.fromJsonList(prefs.getString(key, null))
+
+    /** Mode of the last completed scan (p_mode is persisted on every start). */
+    fun lastScanMode(): ScanMode =
+        ScanMode.entries.getOrElse(prefs.getInt("p_mode", 0)) { ScanMode.CF_EDGE }
+
+    /** v3.1.1: wipes BOTH persisted buckets — the clear-board button must
+     *  actually clear the board, not just the in-memory list. */
+    fun clearSavedResults() {
+        _savedWarpResults.value = emptyList()
+        _savedEdgeResults.value = emptyList()
+        prefs.edit().remove("saved_warp_v1").remove("saved_edge_v1").apply()
+    }
 
     fun saveScanResults(mode: ScanMode, results: List<ScanResult>) {
         val capped = results.take(60)

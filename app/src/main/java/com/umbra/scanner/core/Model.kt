@@ -146,7 +146,10 @@ data class ScanResult(
         tlsHandshakeMs = newer.tlsHandshakeMs ?: tlsHandshakeMs,
         httpStatus = newer.httpStatus ?: httpStatus,
         wgHandshakes = maxOf(wgHandshakes, newer.wgHandshakes),
-        error = newer.error ?: error,
+        // v3.1.1 fix: a stale failure must not haunt a now-verified endpoint —
+        // once the newer state is alive (and carries no fresh error) the old
+        // "timeout"/"unreachable" note from an earlier phase is cleared
+        error = newer.error ?: if (newer.alive) null else error,
         mode = mode,
     )
 }

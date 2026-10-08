@@ -9,12 +9,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.1.0-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
+  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.1.1-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
   <img src="https://img.shields.io/badge/platform-Android%208.0%2B-34d399?style=flat-square&labelColor=0d1420" alt="platform">
   <img src="https://img.shields.io/badge/Kotlin-2.0-7f52ff?style=flat-square&labelColor=0d1420" alt="kotlin">
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285f4?style=flat-square&labelColor=0d1420" alt="compose">
   <img src="https://img.shields.io/badge/APK-%E2%89%882.5%20MB-f15bb5?style=flat-square&labelColor=0d1420" alt="size">
-  <img src="https://img.shields.io/badge/tests-94%2F94%20green-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
+  <img src="https://img.shields.io/badge/tests-109%2F109%20green-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-9b5de5?style=flat-square&labelColor=0d1420" alt="license">
 </p>
 
@@ -27,6 +27,22 @@ Your connection to Cloudflare's edge is only as good as the *specific IP* your n
 **UMBRA flips the table.** It samples the live Cloudflare and WARP address space directly from *your* device, measures what your network *actually* delivers to each candidate — latency, packet loss, TLS handshake, real download speed — ranks everything for you, and generates a VLESS config bound to the winner.
 
 No root. No Termux. No server. ~2 MB.
+
+---
+
+## What's new in v3.1.1 — the bug-hunt patch
+
+A full-codebase audit shipped **nine real fixes** (each locked in with a regression test):
+
+1. **Results survive a restart** — the persisted smart-pick board was written on every scan but never read back: the results tab greeted you with *NO SCAN DATA YET* after every app restart. The last scan's verified results now hydrate the board on launch, and *Clear board* actually clears them (it used to leave the persisted buckets behind, resurrecting "deleted" results on next launch).
+2. **The samples knob is now honest** — small blocks (every WARP `/24`) ignored the *samples/prefix* setting and fully enumerated 254 hosts per block, silently generating ~2.6× more candidates than the on-screen estimate promised and stretching scans just as long. Sampling now respects the knob exactly; the estimate and the engine agree (full enumeration only when you ask for it).
+3. **No stale error on verified endpoints** — an endpoint that had already passed full verification could still show an old "timeout" from an earlier phase in its detail sheet.
+4. **Latin digits everywhere technical** — on Persian-locale devices, every `%.1f`-style readout rendered Persian numerals inside the Latin mono typeface (fallback glyphs, broken metrics alignment) — and worse, **exported JSON/CSV contained Persian digits, producing invalid JSON**. All technical formatting is now pinned to `Locale.US` (14 call sites swept).
+5. **"TLS OK" filter works in WARP scans** — it used to yield an empty list (WARP rows carry their proof in the WireGuard handshake, not in a TLS flag); it now filters on *verified* for both families.
+6. **DPI lines can't grade عالی** — a fake-accepting line (perfect TCP, dead TLS) no longer grades EXCELLENT, which used to tilt the smart weights toward raw speed on a line that can't complete a real handshake.
+7. **Notification permission asked once** — the system dialog popped on *every* scan start; now exactly once per install.
+8. **WARP registration backoff** — the three registration retries fired back-to-back and all hit the same rate-limit window; a 700 ms backoff lets the retry actually land.
+9. **Upload metric on IPv6 lines** — the upload probe used the 1.1.1.1 v6 resolver anycast, which doesn't serve the speed SNI, silently nulling the upload number on every v6-capable line.
 
 ---
 
@@ -109,14 +125,14 @@ Grab the latest signed APK from the **[Releases](https://github.com/0xAKIRAVX/UM
 
 | | |
 | --- | --- |
-| Latest version | **v3.1.0** (build 9) |
+| Latest version | **v3.1.1** (build 10) |
 | Requirement | Android 8.0+ (API 26) |
 | Architecture | Universal (all ABIs) |
 | Permissions | `INTERNET`, `FOREGROUND_SERVICE`, `POST_NOTIFICATIONS` — nothing else |
 
 > Install like any sideloaded app: download, open, allow "unknown sources" if asked, done.
 >
-> ⚠ **Upgrading from v2.5.0 or older?** The v3.0.0+ APKs are signed with a **new release key** (the signing workstation was rebuilt and the old private key could not be recovered), so Android will refuse an in-place update. **Uninstall the old UMBRA first, then install v3.1.0** — nothing of value is lost (scans are per-session, settings take 5 seconds to re-pick). **v3.0.0 users upgrade in place.**
+> ⚠ **Upgrading from v2.5.0 or older?** The v3.0.0+ APKs are signed with a **new release key** (the signing workstation was rebuilt and the old private key could not be recovered), so Android will refuse an in-place update. **Uninstall the old UMBRA first, then install v3.1.1** — nothing of value is lost (scans are per-session, settings take 5 seconds to re-pick). **v3.0.0+ users upgrade in place.**
 
 ---
 
@@ -244,7 +260,7 @@ Every result row shows rank medal, protocol, port, TLS state, latency, loss and 
 | `preferredDisplayModeId` frame-rate unlock | High-refresh displays run at their native rate |
 | R8 full mode + resource shrinking | Whole app, fonts and launcher icons included, in ~2.5 MB |
 
-32 unit tests cover CIDR math, IPv6 generation, WARP embedding, ranking (incl. the v2.5.0 anti-fake-DPI aliveness rules), VLESS formatting and AUTO-TUNE decisions; 15 more verify the WireGuard crypto stack (incl. the WARP client_id/reserved-bytes vectors) byte-for-byte against the wireguard-go-derived reference vectors (X25519 incl. RFC 7748, BLAKE2s, HMAC, ChaCha20-Poly1305, full handshake + transport + ICMP), 6 cover the WARP registration flow, and 19 cover the update checker, the rendered screenshots, and the bilingual string system — **80 total, all green**.
+32 unit tests cover CIDR math, IPv6 generation, WARP embedding, ranking (incl. the v2.5.0 anti-fake-DPI aliveness rules), VLESS formatting and AUTO-TUNE decisions; 15 more verify the WireGuard crypto stack (incl. the WARP client_id/reserved-bytes vectors) byte-for-byte against the wireguard-go-derived reference vectors (X25519 incl. RFC 7748, BLAKE2s, HMAC, ChaCha20-Poly1305, full handshake + transport + ICMP), 6 cover the WARP registration flow, and the rest cover the update checker, the rendered screenshots, the bilingual string system, the NETSENSE quality math, the result codec — and the v3.1.1 bug-hunt regression suite — **109 total, all green**.
 
 ---
 

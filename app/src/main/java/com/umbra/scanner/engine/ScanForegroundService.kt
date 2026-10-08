@@ -108,9 +108,9 @@ class ScanForegroundService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val (text, candidates, tested) = when (stats) {
-            null -> Triple("warming up engine · phase ${'—'}", 0, 0)
+            null -> Triple("warming up engine", 0, 0)
             else -> Triple(
-                "phase ${stats.phase.label.lowercase()} · tested ${stats.tested}/${stats.candidates} · alive ${stats.alive} · ${"%.1f".format(stats.ratePerSec)}/s",
+                "phase ${stats.phase.label.lowercase()} · tested ${stats.tested}/${stats.candidates} · alive ${stats.alive} · ${"%.1f".format(java.util.Locale.US, stats.ratePerSec)}/s",
                 stats.candidates,
                 stats.tested,
             )
@@ -147,7 +147,7 @@ class ScanForegroundService : Service() {
             append(" · ").append("${s.elapsedMs / 1000}s")
             if (best != null) {
                 append("\nbest ").append(best.ip)
-                best.latencyMs?.let { append(" · ").append("%.0f".format(it)).append(" ms") }
+                best.latencyMs?.let { append(" · ").append("%.0f".format(java.util.Locale.US, it)).append(" ms") }
             }
         }
         val contentIntent = PendingIntent.getActivity(
