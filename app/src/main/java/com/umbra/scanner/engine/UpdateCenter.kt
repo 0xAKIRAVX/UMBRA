@@ -20,7 +20,9 @@ import kotlinx.coroutines.flow.asStateFlow
 class UpdateCenter(
     context: Context,
     private val settings: UmbraSettings,
-    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    private val scope: CoroutineScope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO + CrashGuard.handler("update-center")
+    ),
 ) {
 
     sealed interface State {

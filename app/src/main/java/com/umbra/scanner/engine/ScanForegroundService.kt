@@ -50,7 +50,13 @@ class ScanForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        // v3.3.1: crash-net handler — a failure inside the notification/state
+        // collector coroutine is journaled instead of killing the process
+        // (uncaught coroutine exceptions are silent process-killers).
+        scope = CoroutineScope(
+            SupervisorJob() + Dispatchers.Default +
+                CrashGuard.handler("scan-service")
+        )
         createChannel()
         observeState()
     }

@@ -22,7 +22,12 @@ class NetStatusCenter(
     private val settings: UmbraSettings,
     private val isScanRunning: () -> Boolean = { false },
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // v3.3.1: crash-net — an Error (OOM etc.) escaping the measurement would
+    // otherwise kill the process; now it is journaled and the card stays.
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO +
+            CrashGuard.handler("netsense")
+    )
 
     private val _measuring = MutableStateFlow(false)
     val measuring: StateFlow<Boolean> = _measuring.asStateFlow()

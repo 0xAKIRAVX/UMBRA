@@ -12,6 +12,7 @@ import com.umbra.scanner.core.ScanStats
 import com.umbra.scanner.core.ScanSummary
 import com.umbra.scanner.core.ScanUi
 import com.umbra.scanner.core.SmartRanking
+import com.umbra.scanner.engine.CrashGuard
 import com.umbra.scanner.settings.UmbraSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -51,6 +52,14 @@ class ScanController(private val settings: UmbraSettings? = null) {
 
     private val _log = MutableStateFlow<List<String>>(emptyList())
     val log: StateFlow<List<String>> = _log.asStateFlow()
+
+    /**
+     * v3.3.1: transient, user-facing notice (currently: why a scan start was
+     * refused). The Idle screen renders it under the start button so a
+     * deferred scan is SEEN instead of silently swallowed into the log.
+     */
+    private val _notice = MutableStateFlow<String?>(null)
+    val notice: StateFlow<String?> = _notice.asStateFlow()
 
     init {
         // v3.1.1 fix: the top verified results of the last scan were persisted
@@ -106,16 +115,33 @@ class ScanController(private val settings: UmbraSettings? = null) {
     fun start(context: Context, newParams: ScanParams) {
         if (isRunning) return
         if (startGate?.invoke() == true) {
-            appendLog("scan deferred — network measurement in progress · wait a few seconds")
+            val reason = "scan deferred — network measurement in progress · wait a few seconds"
+            appendLog(reason)
+            _notice.value = reason
             return
         }
         params = newParams
         resetState()
+        _notice.value = null
         startedElapsed = 0L
         _ui.value = ScanUi.Running(newParams, System.currentTimeMillis())
         val intent = Intent(context, ScanForegroundService::class.java)
             .setAction(ScanForegroundService.ACTION_START)
-        ContextCompat.startForegroundService(context, intent)
+        // v3.3.1: this runs on the MAIN thread at the exact moment the user
+        // presses INITIATE DEEP SCAN — the ONE spot an OEM throw (FGS start
+        // restrictions, process state races) could still kill the app cold.
+        // Any failure reverts to Idle with an honest message instead.
+        try {
+            ContextCompat.startForegroundService(context, intent)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            _ui.value = ScanUi.Idle
+            val reason = "could not start scan service: ${e.javaClass.simpleName}"
+            appendLog(reason)
+            _notice.value = reason
+            CrashGuard.recordNote("scan-start", reason)
+        }
     }
 
     /** Invoked by the service once it is in the foreground. */
@@ -123,7 +149,13 @@ class ScanController(private val settings: UmbraSettings? = null) {
         if (scanJob?.isActive == true) return
         val p = params ?: return
         startedElapsed = SystemClock.elapsedRealtime()
-        val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        // v3.3.1: the engine scope carries a crash-net handler — anything the
+        // scanJob's own catch misses (an Error, a bug in the ticker, a
+        // collector hiccup) is journaled and logged, NEVER fatal to the app.
+        val engineScope = CoroutineScope(
+            SupervisorJob() + Dispatchers.Default +
+                CrashGuard.handler("scan-engine") { line -> appendLog(line) }
+        )
         scope = engineScope
         appendLog(
             "scan session started · mode ${p.mode.name}" +
@@ -203,6 +235,7 @@ class ScanController(private val settings: UmbraSettings? = null) {
         _results.value = emptyList()
         _top.value = emptyList()
         _log.value = emptyList()
+        _notice.value = null
         _stats.value = ScanStats()
     }
 

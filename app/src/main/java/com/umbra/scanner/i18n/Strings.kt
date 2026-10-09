@@ -189,6 +189,13 @@ data class AppStrings(
     val licenseValue: String,
     val openOnGithub: String,
 
+    // ── v3.3.1 crash-log diagnostics ──────────────────────────────
+    val crashLog: String,
+    val crashLogHint: String,
+    val noCrashes: String,
+    val copyCrashReport: String,
+    val clearCrashLog: String,
+
     // ── update dialog ──────────────────────────────────────────────
     val incomingTransmission: String,
     val newVersionAvailable: String,
@@ -396,6 +403,11 @@ val EnglishStrings = AppStrings(
     license = "LICENSE",
     licenseValue = "MIT · open source",
     openOnGithub = "OPEN ON GITHUB",
+    crashLog = "CRASH LOG",
+    crashLogHint = "every unexpected internal error is recorded here — copy the report into a GitHub issue (or message) so the exact line can be fixed",
+    noCrashes = "no internal errors recorded — engine stable",
+    copyCrashReport = "COPY REPORT",
+    clearCrashLog = "CLEAR",
     incomingTransmission = "INCOMING TRANSMISSION",
     newVersionAvailable = "NEW VERSION AVAILABLE",
     downloadFromGithub = "DOWNLOAD FROM GITHUB",
@@ -596,6 +608,11 @@ val PersianStrings = AppStrings(
     license = "پروانه",
     licenseValue = "MIT · متن‌باز",
     openOnGithub = "بازکردن در گیت‌هاب",
+    crashLog = "گزارش خطا",
+    crashLogHint = "هر خطای داخلی غیرمنتظره اینجا ثبت می‌شود — گزارش را کپی کن و در ایشوی گیت‌هاب یا پیام بفرست تا دقیقاً رفع شود",
+    noCrashes = "خطای داخلی ثبت نشده — موتور پایدار است",
+    copyCrashReport = "کپی گزارش",
+    clearCrashLog = "پاک‌کردن",
     incomingTransmission = "پیام ورودی",
     newVersionAvailable = "نسخه جدید موجود است",
     downloadFromGithub = "دانلود از گیت‌هاب",

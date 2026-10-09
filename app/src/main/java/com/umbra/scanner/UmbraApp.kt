@@ -1,6 +1,7 @@
 package com.umbra.scanner
 
 import android.app.Application
+import com.umbra.scanner.engine.CrashGuard
 import com.umbra.scanner.engine.NetStatusCenter
 import com.umbra.scanner.engine.ScanController
 import com.umbra.scanner.engine.UpdateCenter
@@ -15,6 +16,8 @@ class UmbraApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // v3.3.1: FIRST — the crash journal must exist before anything can throw.
+        CrashGuard.install(this)
         settings = UmbraSettings(this)
         controller = ScanController(settings)
         updateCenter = UpdateCenter(this, settings)

@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.3.0-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
+  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.3.1-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
   <img src="https://img.shields.io/badge/platform-Android%208.0%2B-34d399?style=flat-square&labelColor=0d1420" alt="platform">
   <img src="https://img.shields.io/badge/Kotlin-2.0-7f52ff?style=flat-square&labelColor=0d1420" alt="kotlin">
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285f4?style=flat-square&labelColor=0d1420" alt="compose">
@@ -27,6 +27,19 @@ Your connection to Cloudflare's edge is only as good as the *specific IP* your n
 **UMBRA flips the table.** It samples the live Cloudflare and WARP address space directly from *your* device, measures what your network *actually* delivers to each candidate — latency, packet loss, TLS handshake, real download speed — ranks everything for you, and generates a VLESS config bound to the winner.
 
 No root. No Termux. No server. ~2 MB.
+
+---
+
+## What's new in v3.3.1 — the can't-crash-anymore release
+
+A defensive hardening pass over the entire scan pipeline. If any version ever still shows "UMBRA has stopped", this one records the exact reason and keeps running:
+
+1. **Crash journal + last-resort net** — a process-wide uncaught-exception hook records every crash (version, device, full stack trace) to an on-disk journal, visible under **SETTINGS → CRASH LOG** with a one-tap COPY REPORT button. Even a hard crash becomes a pastable, fixable report instead of a mystery.
+2. **Coroutine crash nets on every engine scope** — scan engine, foreground service, NETSENSE and the update center now carry `CoroutineExceptionHandler`s: an exception escaping any of them is journaled and logged, and the **process survives**. Uncaught coroutine exceptions are silent process-killers — this closes that class entirely.
+3. **The INITIATE DEEP SCAN button press itself is guarded** — the one main-thread call that starts the foreground service (the exact moment "has stopped" dialogs used to appear) now reverts to Idle with an honest message instead of dying on odd OEM restrictions.
+4. **Deferred scans are now visible** — starting a scan while NETSENSE is measuring used to be silently swallowed (the button looked dead); the reason now shows in an amber notice on the scan screen.
+
+> **Running an older build (≤ v3.0.0)?** Install the v3.3.1 APK from Releases — it installs in place (same signature) and fixes the WARP deep-scan crash plus adds the missing NETSENSE (نت‌سنج) card.
 
 ---
 
@@ -157,7 +170,7 @@ Grab the latest signed APK from the **[Releases](https://github.com/0xAKIRAVX/UM
 
 | | |
 | --- | --- |
-| Latest version | **v3.3.0** (build 12) |
+| Latest version | **v3.3.1** (build 13) |
 | Requirement | Android 8.0+ (API 26) |
 | Architecture | Universal (all ABIs) |
 | Permissions | `INTERNET`, `FOREGROUND_SERVICE`, `POST_NOTIFICATIONS` — nothing else |

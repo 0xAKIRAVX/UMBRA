@@ -27,7 +27,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.pm.PackageInfoCompat
 import com.umbra.scanner.UmbraApp
 import com.umbra.scanner.core.Project
+import com.umbra.scanner.engine.CrashGuard
 import com.umbra.scanner.engine.UpdateCenter
 import com.umbra.scanner.i18n.AppLanguage
 import com.umbra.scanner.i18n.LocalStrings
@@ -84,6 +87,8 @@ fun SettingsScreen(app: UmbraApp) {
     val updateState by update.state.collectAsState()
     val autoUpdate by app.settings.autoUpdate.collectAsState()
     val clipboard = LocalClipboardManager.current
+    // v3.3.1: engine crash journal — read once per settings visit; CLEAR updates it
+    var crashes by remember { mutableStateOf(CrashGuard.recentCrashes()) }
 
     val versionLabel = remember {
         runCatching {
@@ -360,8 +365,78 @@ fun SettingsScreen(app: UmbraApp) {
 
         Spacer(Modifier.height(14.dp))
 
+        // ── v3.3.1 crash-log diagnostics ──────────────────────────
+        NeonCard(glow = false, modifier = Modifier.staggerIn(7)) {
+            SectionLabel(s.crashLog)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                s.crashLogHint,
+                style = MaterialTheme.typography.bodySmall,
+                color = Fade,
+            )
+            Spacer(Modifier.height(10.dp))
+            if (crashes.isEmpty()) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(OkMint.copy(alpha = 0.08f))
+                        .padding(horizontal = 12.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    PulsingDot(color = OkMint, sizeDp = 5.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        s.noCrashes,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = OkMint,
+                    )
+                }
+            } else {
+                Text(
+                    "${crashes.size} recorded · latest:",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Fade,
+                )
+                Spacer(Modifier.height(5.dp))
+                Text(
+                    crashes.first().take(1200),
+                    style = MonoStyleSmall.copy(color = WarnAmber),
+                    color = WarnAmber,
+                    maxLines = 12,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Graphite)
+                        .border(1.dp, WarnAmber.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                        .padding(10.dp),
+                )
+                Spacer(Modifier.height(10.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    GradientButton(
+                        text = s.copyCrashReport,
+                        onClick = { clipboard.setText(AnnotatedString(crashes.joinToString("\n\n\n"))) },
+                        modifier = Modifier.weight(1f),
+                        height = 42.dp,
+                    )
+                    OutlineButton(
+                        text = s.clearCrashLog,
+                        onClick = {
+                            CrashGuard.clear()
+                            crashes = emptyList()
+                        },
+                        modifier = Modifier.weight(1f),
+                        height = 42.dp,
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(14.dp))
+
         // ── project & creator card ─────────────────────────────────
-        NeonCard(glow = true, modifier = Modifier.staggerIn(7)) {
+        NeonCard(glow = true, modifier = Modifier.staggerIn(8)) {
             SectionLabel(s.project)
             Spacer(Modifier.height(10.dp))
             Row(

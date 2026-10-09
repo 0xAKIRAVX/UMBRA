@@ -76,6 +76,7 @@ fun ScanScreen(app: UmbraApp, onGoResults: () -> Unit) {
     val stats by controller.stats.collectAsState()
     val top by controller.top.collectAsState()
     val log by controller.log.collectAsState()
+    val notice by controller.notice.collectAsState()
 
     Column(
         Modifier
@@ -116,6 +117,30 @@ fun ScanScreen(app: UmbraApp, onGoResults: () -> Unit) {
                 ScanUi.Idle -> {
                     NetStatusCard(app = app, modifier = Modifier.staggerIn(1))
                     Spacer(Modifier.height(12.dp))
+                    // v3.3.1: a refused/deferred scan start is now VISIBLE —
+                    // previously the reason only entered the engine log, which
+                    // the idle screen never showed, so the button looked dead.
+                    notice?.let { reason ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(WarnAmber.copy(alpha = 0.10f))
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            PulsingDot(color = WarnAmber, sizeDp = 5.dp)
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                reason,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = WarnAmber,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        Spacer(Modifier.height(12.dp))
+                    }
                     ConfigPanel(app = app, onStart = { params -> startScan(context, app, params) })
                     Spacer(Modifier.height(24.dp))
                 }
