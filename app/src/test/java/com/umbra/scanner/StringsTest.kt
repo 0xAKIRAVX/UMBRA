@@ -47,6 +47,9 @@ class StringsTest {
         Triple("taglineWarp", EnglishStrings.taglineWarp, PersianStrings.taglineWarp),
         Triple("taglineCustom", EnglishStrings.taglineCustom, PersianStrings.taglineCustom),
         Triple("flavor", EnglishStrings.flavor, PersianStrings.flavor),
+        // v3.4: WARP+ license key field
+        Triple("warpLicensePlaceholder", EnglishStrings.warpLicensePlaceholder, PersianStrings.warpLicensePlaceholder),
+        Triple("warpLicenseHint", EnglishStrings.warpLicenseHint, PersianStrings.warpLicenseHint),
         Triple("family", EnglishStrings.family, PersianStrings.family),
         Triple("cidrList", EnglishStrings.cidrList, PersianStrings.cidrList),
         Triple("addCfSet", EnglishStrings.addCfSet, PersianStrings.addCfSet),

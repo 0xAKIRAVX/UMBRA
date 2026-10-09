@@ -66,6 +66,11 @@ data class ScanParams(
     val udpNoise: Boolean = true,
     /** WARP only: noise packets per burst. */
     val noiseCount: Int = 5,
+    /** v3.4: WARP only — WARP+ license key; blank = free WARP identity.
+     *  Applied to the registered account via the CF account API right after
+     *  registration (wgcf flow); a rejected key degrades to free WARP with an
+     *  honest log line instead of aborting the scan. */
+    val warpLicenseKey: String = "",
 ) {
     val edgeSni: String get() = "speed.cloudflare.com"
     val warpSni: String get() = "engage.cloudflareclient.com"

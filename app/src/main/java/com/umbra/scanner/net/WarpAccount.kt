@@ -22,7 +22,9 @@ import kotlin.random.Random
  * Noise_IKpsk2 handshake plus data-plane traffic for this identity, not by
  * a meaningless TCP connect.
  */
-class WarpAccount(
+// v3.4: data class — register() returns upgraded copies via copy(licenseApplied)
+// when a WARP+ key is applied; equality/hashCode are never relied upon.
+data class WarpAccount(
     /** Clamped X25519 static private key (32 raw bytes). */
     val privateKey: ByteArray,
     /** Static public key (32 raw bytes). */
@@ -35,6 +37,12 @@ class WarpAccount(
     val v4: String,
     /** The WARP peer (responder) static public key — server-side identity. */
     val responderPublicKey: ByteArray,
+    /** v3.4: Cloudflare account id — needed to apply a WARP+ license key. */
+    val accountId: String? = null,
+    /** v3.4: registration bearer token — needed to apply a WARP+ license key. */
+    val authToken: String? = null,
+    /** v3.4: set (transiently) once a WARP+ license was applied to this identity. */
+    val licenseApplied: Boolean = false,
 ) {
     /** v3.3: JSON round-trip for the disk-backed identity fallback. */
     fun toJson(): String {
@@ -45,6 +53,10 @@ class WarpAccount(
         o.put("v6", v6)
         o.put("v4", v4)
         o.put("peer", Base64.encodeToString(responderPublicKey, Base64.NO_WRAP))
+        // v3.4: account id + token persist so a later WARP+ key can be applied
+        // to the reused identity without a fresh registration.
+        accountId?.let { o.put("aid", it) }
+        authToken?.let { o.put("tok", it) }
         return o.toString()
     }
 
@@ -59,6 +71,9 @@ class WarpAccount(
                 v6 = o.optString("v6"),
                 v4 = o.optString("v4").ifBlank { "172.16.0.2" },
                 responderPublicKey = b("peer"),
+                accountId = o.optString("aid").ifBlank { null },
+                authToken = o.optString("tok").ifBlank { null },
+                // licenseApplied is transient — a fresh process re-applies keys
             )
         }.getOrNull()?.let { acc ->
             // only accept structurally valid identities
@@ -109,10 +124,15 @@ object WarpRegistration {
             .getOrNull()
             ?.let { WarpAccount.fromJson(it) }
 
+    // v3.4: the license key applied in THIS process — re-applying the same key
+    // to the same identity is pointless, but a DIFFERENT key must be applied.
+    @Volatile private var appliedLicenseKey: String? = null
+
     /** Wipes both caches — used when the server rejects the stored identity. */
     fun clearCache() {
         cachedAccount = null
         cachedAtMs = 0L
+        appliedLicenseKey = null
         runCatching { prefs?.edit()?.remove("identity_v1")?.apply() }
     }
 
@@ -168,59 +188,116 @@ object WarpRegistration {
                 v6 = v6,
                 v4 = v4.ifBlank { "172.16.0.2" },
                 responderPublicKey = peerPub,
+                // v3.4: account id + bearer token — required for WARP+ upgrade
+                accountId = root.optString("id").ifBlank { null },
+                authToken = root.optString("token").ifBlank { null },
             )
         }.getOrNull()
+
+    /**
+     * v3.4: applies a WARP+ license key to a registered account — the wgcf
+     * flow (PUT /reg/{id}/account, bearer token, {"license": key}). A free
+     * WARP identity upgrades to WARP+ entitlements server-side; the tunnel
+     * keys stay the same, so scanning continues with the same account.
+     */
+    private suspend fun applyLicense(account: WarpAccount, licenseKey: String): Boolean =
+        withContext(Dispatchers.IO) {
+            val id = account.accountId ?: return@withContext false
+            val token = account.authToken ?: return@withContext false
+            runCatching {
+                val conn = URL("$API_BASE/$id/account").openConnection() as HttpURLConnection
+                try {
+                    conn.requestMethod = "PUT"
+                    conn.doOutput = true
+                    conn.setRequestProperty("User-Agent", USER_AGENT)
+                    conn.setRequestProperty("Content-Type", "application/json")
+                    conn.setRequestProperty("Authorization", "Bearer $token")
+                    conn.connectTimeout = 10_000
+                    conn.readTimeout = 15_000
+                    val payload = JSONObject().put("license", licenseKey).toString()
+                    conn.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
+                    conn.responseCode in 200..299
+                } finally {
+                    conn.disconnect()
+                }
+            }.getOrDefault(false)
+        }
 
     /**
      * Registers a new account (or reuses the cached identity within its TTL).
      * Falls back to the last persisted identity when the API is unreachable —
      * a dead registration endpoint no longer kills WARP scanning. Throws only
      * when neither a fresh nor a stored identity is available.
+     *
+     * v3.4: [licenseKey] — a WARP+ key is applied to the account right after
+     * registration (fresh OR reused); a rejected key never aborts the scan,
+     * the identity simply stays on the free WARP tier.
      */
-    suspend fun register(attempts: Int = 3): WarpAccount = withContext(Dispatchers.IO) {
-        cached()?.let { return@withContext it }
+    suspend fun register(licenseKey: String? = null, attempts: Int = 3): WarpAccount =
+        withContext(Dispatchers.IO) {
+        var account: WarpAccount? = cached()
         var lastError: Exception? = null
-        repeat(attempts) { i ->
-            try {
-                val (priv, pub) = newIdentity()
-                val pubB64 = Base64.encodeToString(pub, Base64.NO_WRAP)
-                val payload = buildPayload(pubB64, tosTimestamp())
-                val conn = URL(API_BASE).openConnection() as HttpURLConnection
+        if (account == null) {
+            repeat(attempts) { i ->
+                if (account != null) return@repeat // already registered — skip
                 try {
-                    conn.requestMethod = "POST"
-                    conn.doOutput = true
-                    conn.setRequestProperty("User-Agent", USER_AGENT)
-                    conn.setRequestProperty("Content-Type", "application/json")
-                    conn.connectTimeout = 10_000
-                    conn.readTimeout = 15_000
-                    conn.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
-                    val code = conn.responseCode
-                    if (code !in 200..299) throw java.io.IOException("registration HTTP $code")
-                    val body = conn.inputStream.bufferedReader().use { it.readText() }
-                    val account = parseResponse(body, priv, pub)
-                        ?: throw java.io.IOException("unparsable registration payload")
-                    cachedAccount = account
-                    cachedAtMs = System.currentTimeMillis()
-                    persist(account)
-                    return@withContext account
-                } finally {
-                    conn.disconnect()
+                    val (priv, pub) = newIdentity()
+                    val pubB64 = Base64.encodeToString(pub, Base64.NO_WRAP)
+                    val payload = buildPayload(pubB64, tosTimestamp())
+                    val conn = URL(API_BASE).openConnection() as HttpURLConnection
+                    try {
+                        conn.requestMethod = "POST"
+                        conn.doOutput = true
+                        conn.setRequestProperty("User-Agent", USER_AGENT)
+                        conn.setRequestProperty("Content-Type", "application/json")
+                        conn.connectTimeout = 10_000
+                        conn.readTimeout = 15_000
+                        conn.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
+                        val code = conn.responseCode
+                        if (code !in 200..299) throw java.io.IOException("registration HTTP $code")
+                        val body = conn.inputStream.bufferedReader().use { it.readText() }
+                        val fresh = parseResponse(body, priv, pub)
+                            ?: throw java.io.IOException("unparsable registration payload")
+                        account = fresh
+                        cachedAccount = fresh
+                        cachedAtMs = System.currentTimeMillis()
+                        persist(fresh)
+                    } finally {
+                        conn.disconnect()
+                    }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    lastError = e
                 }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                lastError = e
+                // v3.1.1 fix: the API is rate-limited per source IP — three instant
+                // back-to-back retries all hit the same limiter window and all fail.
+                // A short backoff lets the window slide and the retry actually land.
+                if (account == null && i < attempts - 1) delay(700)
             }
-            // v3.1.1 fix: the API is rate-limited per source IP — three instant
-            // back-to-back retries all hit the same limiter window and all fail.
-            // A short backoff lets the window slide and the retry actually land.
-            if (i < attempts - 1) delay(700)
+            // v3.3: API unreachable / rate-limited → reuse the last working
+            // identity instead of aborting the scan. If the endpoint later rejects
+            // it (403 / handshake failure) the user sees honest probe errors.
+            if (account == null) account = loadPersisted()
         }
-        // v3.3: API unreachable / rate-limited → reuse the last working
-        // identity instead of aborting the scan. If the endpoint later rejects
-        // it (403 / handshake failure) the user sees honest probe errors.
-        loadPersisted()?.let { return@withContext it }
-        throw IllegalStateException(
+        val acc = account ?: throw IllegalStateException(
             "WARP registration failed: ${lastError?.message ?: "unknown"}", lastError)
+
+        // v3.4: WARP+ license application (fresh, cached or persisted identity).
+        // The same key is never applied twice in one process; a DIFFERENT key
+        // always gets its own PUT. Failure is honest and non-fatal.
+        val key = licenseKey?.trim().orEmpty()
+        if (key.isNotEmpty() && appliedLicenseKey != key) {
+            val ok = try {
+                applyLicense(acc, key)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e // cancellation must never be swallowed by a license retry
+            } catch (_: Exception) {
+                false
+            }
+            appliedLicenseKey = if (ok) key else null
+            return@withContext acc.copy(licenseApplied = ok)
+        }
+        acc
     }
 }

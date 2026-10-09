@@ -93,12 +93,21 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
     var sweep by rememberSaveable { mutableStateOf(saved.portSweep) }
     var sweepPortsStr by rememberSaveable { mutableStateOf(saved.sweepPorts.joinToString(",")) }
     var warpPlus by rememberSaveable { mutableStateOf(saved.warpFlavor == WarpFlavor.WARP_PLUS) }
+    // v3.4: WARP+ license key — persisted so it survives restarts; blank = free WARP
+    var warpLicense by rememberSaveable { mutableStateOf(saved.warpLicenseKey) }
     var udpNoise by rememberSaveable { mutableStateOf(saved.udpNoise) }
     var customCidrs by rememberSaveable {
         mutableStateOf(saved.cidrs.filter { it.contains('/') }.joinToString("\n"))
     }
     var samples by rememberSaveable { mutableIntStateOf(saved.samplesPerPrefix) }
-    var attempts by rememberSaveable { mutableIntStateOf(saved.tcpAttempts) }
+    // v3.4 fix: the retries slider now starts from the value the mode actually
+    // uses — a WARP session restored warpAttempts=7 (set by auto-tune) but the
+    // slider showed tcpAttempts=3 and every relaunched scan silently ran ×3.
+    var attempts by rememberSaveable {
+        mutableIntStateOf(
+            if (saved.mode == ScanMode.WARP) saved.warpAttempts else saved.tcpAttempts
+        )
+    }
     var timeoutMs by rememberSaveable { mutableIntStateOf(saved.tcpTimeoutMs) }
     var concurrency by rememberSaveable { mutableIntStateOf(saved.concurrency) }
     var verifyTopN by rememberSaveable { mutableIntStateOf(saved.verifyTopN) }
@@ -156,6 +165,11 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
                 val m = ScanMode.entries[i]
                 port = Presets.defaultPort(m)
                 if (m != ScanMode.WARP) sweep = false
+                // v3.4 fix: the WARP engine clamps retries to 7 — an EDGE slider
+                // value of 8..10 carried into WARP mode would put the slider out
+                // of its own range. Clamp at the mode boundary, not silently in
+                // the engine.
+                if (m == ScanMode.WARP) attempts = attempts.coerceAtMost(7)
             },
         )
         Spacer(Modifier.height(6.dp))
@@ -221,6 +235,34 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
                     selected = if (warpPlus) 1 else 0,
                     onSelect = { warpPlus = it == 1 },
                 )
+                // v3.4: WARP+ is now REAL — the key is applied to the registered
+                // account (wgcf PUT /reg/{id}/account) right after registration.
+                // Empty key = plain free WARP, stated honestly.
+                if (warpPlus) {
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = warpLicense,
+                        onValueChange = { warpLicense = it.trim() },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        placeholder = { Text(s.warpLicensePlaceholder, style = MonoStyleSmall, color = Fade) },
+                        textStyle = MonoStyleSmall.copy(color = Mist),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = accent.primary.copy(alpha = 0.8f),
+                            unfocusedBorderColor = SlateLine,
+                            cursorColor = accent.primary,
+                        ),
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        s.warpLicenseHint,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Fog,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 Spacer(Modifier.height(14.dp))
             }
             Text(s.family, style = MaterialTheme.typography.labelSmall, color = Fade)
@@ -451,7 +493,10 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
                 LabeledSlider(s.samplesPerPrefix, samples, { samples = it }, 50..3000, valueText = samples.toString())
                 LabeledSlider(
                     if (mode == ScanMode.WARP) s.wgRetries else s.tcpAttempts,
-                    attempts, { attempts = it }, 1..10,
+                    attempts, { attempts = it },
+                    // v3.4 fix: the WARP probe path clamps retries to 1..7 — the
+                    // slider used to offer 8..10 in WARP mode, silently capped.
+                    if (mode == ScanMode.WARP) 1..7 else 1..10,
                     valueText = s.retryLabel(attempts),
                 )
                 LabeledSlider(s.timeout, timeoutMs, { timeoutMs = it }, 300..6000 step 100, valueText = s.milliseconds(timeoutMs))
@@ -518,6 +563,9 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
                     warpAttempts = attempts,
                     udpNoise = udpNoise,
                     noiseCount = 5,
+                    // v3.4: only a WARP+ selection carries the key — plain WARP
+                    // must never quietly apply a previously-pasted key.
+                    warpLicenseKey = if (warpPlus && mode == ScanMode.WARP) warpLicense.trim() else "",
                 )
                 onStart(params)
             },

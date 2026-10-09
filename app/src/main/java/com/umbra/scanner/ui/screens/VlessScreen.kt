@@ -114,7 +114,10 @@ fun VlessScreen(app: UmbraApp) {
         remark = remark,
     )
     val link = VlessGenerator.buildLink(config)
-    val valid = host.isNotBlank() && VlessGenerator.isValidUuid(uuid) && !VlessGenerator.isTestOnlySni(sni)
+    // v3.4 fix: "00000" parsed to port 0 and buildLink silently coerced it to 1 —
+    // a garbage port must simply be invalid, not quietly rewritten.
+    val valid = host.isNotBlank() && portInt in 1..65535 &&
+        VlessGenerator.isValidUuid(uuid) && !VlessGenerator.isTestOnlySni(sni)
     val testOnly = sni.isNotBlank() && VlessGenerator.isTestOnlySni(sni)
     // v3.2 fix: QR encoding (ZXing + 512x512 bitmap) used to run during
     // composition on the main thread and re-ran on every keystroke. It now runs

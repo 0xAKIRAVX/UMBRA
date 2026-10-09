@@ -23,8 +23,8 @@ android {
         applicationId = "com.umbra.scanner"
         minSdk = 26
         targetSdk = 34
-        versionCode = 13
-        versionName = "3.3.1"
+        versionCode = 14
+        versionName = "3.4.0"
         vectorDrawables { useSupportLibrary = true }
     }
 

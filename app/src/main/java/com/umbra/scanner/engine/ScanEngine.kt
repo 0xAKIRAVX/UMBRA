@@ -45,6 +45,13 @@ interface ScanSink {
  */
 class ScanEngine(private val random: Random = Random(System.nanoTime())) {
 
+    companion object {
+        /** v3.4: upper bound on simultaneously-live storm coroutines (the
+         *  memory valve — the semaphore in [ScanParams.concurrency] remains
+         *  the actual probing valve). */
+        private const val LAUNCH_WINDOW = 2048
+    }
+
     suspend fun run(params: ScanParams, sink: ScanSink) = coroutineScope {
         _sink = sink
         sink.onPhase(ScanPhase.GENERATING)
@@ -75,7 +82,12 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
         val PROBE_CAP = 120_000
         val effectiveCandidates: List<Candidate>
         if (pairCount > PROBE_CAP) {
-            effectiveCandidates = candidates.take((PROBE_CAP / ports.size).coerceAtLeast(1))
+            // v3.4 fix: trim in RANDOM order — the generator emits blocks
+            // sequentially (all v4 blocks first, then v6), so take(N) silently
+            // biased every capped mega-sweep toward the first few 162.159.x
+            // blocks and starved the newer 8.x ranges + v6 entirely.
+            effectiveCandidates = candidates.shuffled(random)
+                .take((PROBE_CAP / ports.size).coerceAtLeast(1))
             pairCount = effectiveCandidates.size * ports.size
             sink.onLog(
                 "probe budget capped · ${PROBE_CAP} pairs max — candidates trimmed to ${effectiveCandidates.size}"
@@ -89,11 +101,22 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
         var account: WarpAccount? = null
         if (params.mode == ScanMode.WARP) {
             sink.onPhase(ScanPhase.REGISTER)
-            sink.onLog("registering WARP identity · api.cloudflareclient.com")
+            val licenseKey = params.warpLicenseKey.trim()
+            sink.onLog(
+                "registering WARP identity · api.cloudflareclient.com" +
+                    if (licenseKey.isNotEmpty()) " · warp+ key" else ""
+            )
             account = try {
-                val acc = WarpRegistration.register()
+                val acc = WarpRegistration.register(licenseKey.ifBlank { null })
                 sink.onLog(
-                    "warp identity ready · reserved ${acc.reserved.joinToString(".")} · v6 ${acc.v6}"
+                    "warp identity ready · reserved ${acc.reserved.joinToString(".")} · v6 ${acc.v6}" +
+                        // v3.4: the WARP+ outcome is stated plainly — a placebo
+                        // toggle is worse than no toggle.
+                        when {
+                            licenseKey.isEmpty() -> ""
+                            acc.licenseApplied -> " · warp+ license applied"
+                            else -> " · warp+ license NOT applied (key rejected or api blocked) — free warp tier"
+                        }
                 )
                 acc
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -119,33 +142,47 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
         val stormCollector = launch(Dispatchers.Default) {
             for (r in stormCh) sink.onResult(r)
         }
-        val jobs = ArrayList<Job>(pairCount)
+        val jobs = ArrayList<Job>(LAUNCH_WINDOW)
+        // v3.4 fix (OOM): a capped mega-sweep used to materialize ALL pair
+        // coroutines up front — 120k suspended jobs plus a 120k-entry result
+        // map was a guaranteed low-memory kill before the first probe even
+        // answered. The launch window below keeps live jobs ≈ 2048; completed
+        // jobs are compacted out of the list so the references stay bounded.
+        val launchWindow = Semaphore(LAUNCH_WINDOW)
         for (cand in effectiveCandidates) {
             for (p in ports) {
+                launchWindow.acquire()
+                if (jobs.size >= LAUNCH_WINDOW) {
+                    jobs.removeAll { it.isCompleted }
+                }
                 jobs.add(launch(Dispatchers.IO) {
-                    stormSem.withPermit {
-                        active.incrementAndGet(); sink.onActive(1)
-                        try {
-                            // v3.3 fix (WARP crash, engine side): probeWarp/probeTcp
-                            // used to be invoked bare — any exception they leaked
-                            // (e.g. a SocketException from socket creation under fd
-                            // pressure) cancelled the WHOLE coroutine scope and the
-                            // scan died with "engine failure". Now a failed probe
-                            // returns a dead-endpoint result and the storm rolls on.
-                            if (isWarp) {
-                                // sweeping hits many ports per IP — keep the loss
-                                // statistics honest without tripling wall time
-                                val attempts = if (ports.size > 1) params.warpAttempts.coerceAtMost(2) else params.warpAttempts
-                                stormCh.send(runCatching { probeWarp(account!!, cand, p, attempts, params) }
-                                    .getOrElse { deadProbe(cand, p, params, it) })
-                            } else {
-                                val attempts = if (ports.size > 1 && params.tcpAttempts > 3) 3 else params.tcpAttempts
-                                stormCh.send(runCatching { probeTcp(cand, p, attempts, params) }
-                                    .getOrElse { deadProbe(cand, p, params, it) })
+                    try {
+                        stormSem.withPermit {
+                            active.incrementAndGet(); sink.onActive(1)
+                            try {
+                                // v3.3 fix (WARP crash, engine side): probeWarp/probeTcp
+                                // used to be invoked bare — any exception they leaked
+                                // (e.g. a SocketException from socket creation under fd
+                                // pressure) cancelled the WHOLE coroutine scope and the
+                                // scan died with "engine failure". Now a failed probe
+                                // returns a dead-endpoint result and the storm rolls on.
+                                if (isWarp) {
+                                    // sweeping hits many ports per IP — keep the loss
+                                    // statistics honest without tripling wall time
+                                    val attempts = if (ports.size > 1) params.warpAttempts.coerceAtMost(2) else params.warpAttempts
+                                    stormCh.send(runCatching { probeWarp(account!!, cand, p, attempts, params) }
+                                        .getOrElse { deadProbe(cand, p, params, it) })
+                                } else {
+                                    val attempts = if (ports.size > 1 && params.tcpAttempts > 3) 3 else params.tcpAttempts
+                                    stormCh.send(runCatching { probeTcp(cand, p, attempts, params) }
+                                        .getOrElse { deadProbe(cand, p, params, it) })
+                                }
+                            } finally {
+                                active.decrementAndGet(); sink.onActive(-1)
                             }
-                        } finally {
-                            active.decrementAndGet(); sink.onActive(-1)
                         }
+                    } finally {
+                        launchWindow.release()
                     }
                 })
             }

@@ -214,6 +214,19 @@ class ScanController(private val settings: UmbraSettings? = null) {
         _log.value = logValue
     }
 
+    /**
+     * Test hook — feeds one probe result through the REAL statistics path
+     * (the same sink the engine writes to), publishes the stats snapshot
+     * exactly like the live ticker would, and returns how many entries the
+     * engine's internal result map now holds (dead-dropped probes excluded).
+     * Never called from production code.
+     */
+    fun debugFeed(result: ScanResult): Int {
+        sink.onResult(result)
+        publishStats()
+        return synchronized(lock) { resultMap.size }
+    }
+
     /** Wipe the current result board — memory AND the persisted buckets. */
     fun clearResults() {
         if (isRunning) return
@@ -255,13 +268,30 @@ class ScanController(private val settings: UmbraSettings? = null) {
             var speedDelta = 0
             synchronized(lock) {
                 val old = resultMap[result.id]
-                val merged = old?.merge(result) ?: result
-                resultMap[result.id] = merged
-                if (old == null) newTested = true
-                val wasAlive = old?.alive == true
-                if (merged.alive && !wasAlive) aliveDelta = 1
-                if (merged.tlsSuccess && old?.tlsSuccess != true) tlsDelta = 1
-                if (merged.speedMbps != null && old?.speedMbps == null) speedDelta = 1
+                if (old == null) {
+                    newTested = true
+                    // v3.4 fix (OOM): a FIRST result that already proves the
+                    // endpoint dead (no successful attempt, no handshake) is
+                    // counted for progress but never STORED — a capped mega-sweep
+                    // must not build a 120k-entry map of dead rows nothing will
+                    // ever read: the TLS phase only touches tcp-alive entries,
+                    // the speed phase only alive ones, and the final board only
+                    // shows alive ones. Dead probes are also never re-merged:
+                    // each (ip, port) pair is probed exactly once per scan.
+                    if (result.successfulAttempts > 0 || result.wgHandshakes > 0) {
+                        resultMap[result.id] = result
+                        if (result.alive) aliveDelta = 1
+                        if (result.tlsSuccess) tlsDelta = 1
+                        if (result.speedMbps != null) speedDelta = 1
+                    }
+                } else {
+                    val merged = old.merge(result)
+                    resultMap[result.id] = merged
+                    val wasAlive = old.alive
+                    if (merged.alive && !wasAlive) aliveDelta = 1
+                    if (merged.tlsSuccess && !old.tlsSuccess) tlsDelta = 1
+                    if (merged.speedMbps != null && old.speedMbps == null) speedDelta = 1
+                }
             }
             if (newTested) tested.incrementAndGet()
             if (aliveDelta != 0) aliveCount.addAndGet(aliveDelta)

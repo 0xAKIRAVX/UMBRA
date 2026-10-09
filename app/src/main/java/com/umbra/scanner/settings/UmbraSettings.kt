@@ -131,6 +131,7 @@ class UmbraSettings(context: Context) {
             .putInt("p_warptries", p.warpAttempts)
             .putBoolean("p_noise", p.udpNoise)
             .putInt("p_noisecnt", p.noiseCount)
+            .putString("p_license", p.warpLicenseKey)
             .apply()
     }
 
@@ -163,6 +164,9 @@ class UmbraSettings(context: Context) {
             warpAttempts = prefs.getInt("p_warptries", 3).coerceIn(1, 7),
             udpNoise = prefs.getBoolean("p_noise", true),
             noiseCount = prefs.getInt("p_noisecnt", 5).coerceIn(1, 50),
+            // v3.4: WARP+ license key (blank = free warp) — trimmed so a
+            // whitespace-only paste never counts as "a key was given"
+            warpLicenseKey = (prefs.getString("p_license", "") ?: "").trim(),
         )
     }
 

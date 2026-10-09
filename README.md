@@ -9,12 +9,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.3.1-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
+  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.4.0-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
   <img src="https://img.shields.io/badge/platform-Android%208.0%2B-34d399?style=flat-square&labelColor=0d1420" alt="platform">
   <img src="https://img.shields.io/badge/Kotlin-2.0-7f52ff?style=flat-square&labelColor=0d1420" alt="kotlin">
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285f4?style=flat-square&labelColor=0d1420" alt="compose">
   <img src="https://img.shields.io/badge/APK-%E2%89%882.5%20MB-f15bb5?style=flat-square&labelColor=0d1420" alt="size">
-  <img src="https://img.shields.io/badge/tests-109%2F109%20green-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
+  <img src="https://img.shields.io/badge/tests-128%2F128%20green-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-9b5de5?style=flat-square&labelColor=0d1420" alt="license">
 </p>
 
@@ -30,6 +30,20 @@ No root. No Termux. No server. ~2 MB.
 
 ---
 
+## What's new in v3.4.0 — the honest-features release
+
+A fourth full-codebase audit found and fixed what was left: a placebo feature, a hidden memory bomb, and a handful of silent misconfigurations:
+
+1. **WARP+ is now REAL** — the WARP+ toggle used to be cosmetic: nothing ever applied a license key. Picking WARP+ now reveals a license-key field; the key is applied to the registered account through the Cloudflare account API right after registration (the wgcf flow), and the scan log states the outcome plainly — "warp+ license applied" or "key rejected — free warp tier continues". A blank key means free WARP, honestly labelled. The key persists across restarts; plain WARP mode never quietly re-applies an old key.
+2. **Mega-sweeps can no longer OOM the app** — a capped 120 000-probe sweep used to materialize every pair coroutine up front *and* keep a result entry for every dead endpoint: on low-RAM devices that was a memory kill before the first probe even answered. The storm now launches through a bounded window (≈2 048 live jobs at any moment) and confirmed-dead probes are counted for progress but never stored — the map only ever holds endpoints worth reading.
+3. **Capped sweeps no longer bias the address space** — trimming the candidate list to the 120k budget used to cut from the front, which silently starved the newer 8.x WARP ranges and IPv6 entirely. The trim is now random, so every block keeps its shot.
+4. **WARP retries: slider, engine and restore now agree** — the slider offered 8–10 retries while the engine silently clamped at 7; and a restored WARP session showed the TCP attempts value instead of the WG retries Auto-Tune had chosen. Both fixed at the source.
+5. **VLESS port garbage is rejected, not rewritten** — a port of "00000" used to parse to 0 and quietly become 1 in the generated link; now it's simply invalid.
+
+> **Running an older build (≤ v3.0.0)?** Install the v3.4.0 APK from Releases — it installs in place (same signature) and fixes the WARP deep-scan crash plus adds the missing NETSENSE (نت‌سنج) card.
+
+---
+
 ## What's new in v3.3.1 — the can't-crash-anymore release
 
 A defensive hardening pass over the entire scan pipeline. If any version ever still shows "UMBRA has stopped", this one records the exact reason and keeps running:
@@ -39,7 +53,7 @@ A defensive hardening pass over the entire scan pipeline. If any version ever st
 3. **The INITIATE DEEP SCAN button press itself is guarded** — the one main-thread call that starts the foreground service (the exact moment "has stopped" dialogs used to appear) now reverts to Idle with an honest message instead of dying on odd OEM restrictions.
 4. **Deferred scans are now visible** — starting a scan while NETSENSE is measuring used to be silently swallowed (the button looked dead); the reason now shows in an amber notice on the scan screen.
 
-> **Running an older build (≤ v3.0.0)?** Install the v3.3.1 APK from Releases — it installs in place (same signature) and fixes the WARP deep-scan crash plus adds the missing NETSENSE (نت‌سنج) card.
+> **Running an older build (≤ v3.0.0)?** Install the v3.4.0 APK from Releases — it installs in place (same signature) and fixes the WARP deep-scan crash plus adds the missing NETSENSE (نت‌سنج) card.
 
 ---
 
@@ -170,7 +184,7 @@ Grab the latest signed APK from the **[Releases](https://github.com/0xAKIRAVX/UM
 
 | | |
 | --- | --- |
-| Latest version | **v3.3.1** (build 13) |
+| Latest version | **v3.4.0** (build 14) |
 | Requirement | Android 8.0+ (API 26) |
 | Architecture | Universal (all ABIs) |
 | Permissions | `INTERNET`, `FOREGROUND_SERVICE`, `POST_NOTIFICATIONS` — nothing else |
