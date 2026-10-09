@@ -60,10 +60,15 @@ class CrashGuardTest {
         val scope = CoroutineScope(SupervisorJob() + CrashGuard.handler("test") { logged = it })
 
         // this launch would kill the process without the handler
-        scope.launch { throw IllegalStateException("coroutine kaboom") }
+        val job = scope.launch { throw IllegalStateException("coroutine kaboom") }
 
-        // give the dispatcher a moment to run the failing coroutine
-        kotlinx.coroutines.delay(300)
+        // join() returns only after the job reached its final state — the
+        // CoroutineExceptionHandler has then run and journaled the crash on
+        // the failing coroutine's own thread. (The old delay(300) raced the
+        // real dispatcher under runTest's virtual clock — it flaked under
+        // load because 300ms of VIRTUAL time is only microseconds of real
+        // time, not enough for Dispatchers.Default to reach the throw.)
+        job.join()
 
         val entries = CrashGuard.recentCrashes()
         assertTrue(entries.isNotEmpty())

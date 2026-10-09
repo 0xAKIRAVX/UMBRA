@@ -104,7 +104,8 @@ object WgProtocol {
         if (last != null && compareTimestamps(out, last) <= 0) {
             // bump a COPY — callers keep the returned array; mutating the
             // stored one would retroactively change timestamps already handed
-            // out (aliasing bug caught by the monotonic regression test).
+            // out (aliasing bug caught by the monotonic regression test). The
+            // bump advances one whitened granule, see bumpTimestamp().
             val bumped = last.copyOf()
             bumpTimestamp(bumped)
             lastTimestamp.set(bumped)
@@ -122,20 +123,26 @@ object WgProtocol {
         return 0
     }
 
-    /** in-place +1 on a TAI64N (secs, whitened-nanos) pair. */
+    /** In-place advance by one whitened granule (2^24 ns) on a TAI64N pair.
+     * v3.5.1: the v3.5 +1ns bump kept the sequence strictly monotonic but
+     * leaked the call count into the whitened low 24 bits — after a few
+     * hundred rapid probes "nanos & 0xFFFFFF" went non-zero and the
+     * whitened-nanoseconds property became timing-dependent. Stepping whole
+     * granules keeps BOTH invariants at all times: strictly increasing AND
+     * whitened. (Responders only require strict monotonicity — being a
+     * granule ahead of the wall clock is invisible and harmless.) */
     private fun bumpTimestamp(ts: ByteArray) {
-        var nanos = beInt(ts, 8)
-        if (nanos == -1) { // 0xFFFFFFFF — carry into seconds
+        val nanos = beInt(ts, 8)
+        if (nanos == 0xFF000000.toInt()) { // last whitened granule — carry into seconds
             putBeInt(ts, 8, 0)
-            var secs = beInt(ts, 0)
-            secs = secs + 1
-            putBeInt(ts, 0, secs)
-            if (secs == 0) { // 32-bit carry of the low seconds word
-                var high = beInt(ts, 4)
-                putBeInt(ts, 4, high + 1)
+            var low = beInt(ts, 4) // seconds low word lives at bytes 4..7
+            low = low + 1
+            putBeInt(ts, 4, low)
+            if (low == 0) { // 32-bit carry into the high word (bytes 0..3)
+                putBeInt(ts, 0, beInt(ts, 0) + 1)
             }
         } else {
-            putBeInt(ts, 8, nanos + 1)
+            putBeInt(ts, 8, nanos + 0x01000000)
         }
     }
 

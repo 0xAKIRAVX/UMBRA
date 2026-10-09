@@ -19,7 +19,15 @@ object WgCrypto {
     // ------------------------------------------------------------ X25519 ----
     // RFC 7748 Montgomery ladder, BigInteger arithmetic mod 2^255-19.
 
-    private val P = BigInteger.TWO.pow(255).subtract(BigInteger.valueOf(19))
+    // ⚠ PORTABILITY: the TWO static field of java.math.BigInteger exists on
+    // modern desktop JDKs (OpenJDK 21+) but NOT in Android's core-libart at
+    // ANY api level — the Kotlin compiler happily resolves it against the
+    // desktop JDK while building, then the field lookup throws
+    // NoSuchFieldError at class-init on every real device, killing the entire
+    // scan engine (the v3.5.0 crash). Always use valueOf(2) here.
+    private val TWO = BigInteger.valueOf(2)
+
+    private val P = TWO.pow(255).subtract(BigInteger.valueOf(19))
     private val A24 = BigInteger.valueOf(121665) // (486662 - 2) / 4, RFC 7748
     private val U9 = BigInteger.valueOf(9)
 
@@ -70,7 +78,7 @@ object WgCrypto {
             var tmp = x2; x2 = x3; x3 = tmp
             tmp = z2; z2 = z3; z3 = tmp
         }
-        val result = (x2 * z2.modPow(P - BigInteger.TWO, P)).mod(P)
+        val result = (x2 * z2.modPow(P - TWO, P)).mod(P)
         return bigIntToLe(result, 32)
     }
 
@@ -423,7 +431,7 @@ object WgCrypto {
 
         val r = BigInteger(1, rBytes.reversedArray())
         val s = BigInteger(1, key.copyOfRange(16, 32).reversedArray())
-        val p = BigInteger.TWO.pow(130).subtract(BigInteger.valueOf(5))
+        val p = TWO.pow(130).subtract(BigInteger.valueOf(5))
 
         var acc = BigInteger.ZERO
         var i = 0
@@ -434,7 +442,7 @@ object WgCrypto {
             acc = acc.add(n).multiply(r).mod(p)
             i += 16
         }
-        val tagInt = acc.add(s).and(BigInteger.TWO.pow(128).subtract(BigInteger.ONE))
+        val tagInt = acc.add(s).and(TWO.pow(128).subtract(BigInteger.ONE))
         val be = tagInt.toByteArray()
         val out = ByteArray(16)
         var bi = be.size - 1

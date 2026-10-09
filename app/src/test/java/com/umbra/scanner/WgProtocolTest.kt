@@ -237,6 +237,16 @@ class WgProtocolTest {
 
     @Test
     fun `tai64n has whitened nanoseconds and correct base`() {
+        // Fresh sequence state: other tests in this class burn hundreds of
+        // timestamps, and the monotonic granule-lead they accumulate (up to
+        // ~16.8 ms per rapid call) is irrelevant to the FORMAT being checked
+        // here. Reset the process-wide last timestamp so this assertion stays
+        // independent of test execution order.
+        val field = WgProtocol::class.java.getDeclaredField("lastTimestamp")
+        field.isAccessible = true
+        @Suppress("UNCHECKED_CAST")
+        (field.get(null) as java.util.concurrent.atomic.AtomicReference<ByteArray?>).set(null)
+
         val ts = WgProtocol.tai64nNow()
         assertEquals(12, ts.size)
         val secsBase = WgProtocol.beInt(ts, 0).toLong() shl 32 or (WgProtocol.beInt(ts, 4).toLong() and 0xFFFFFFFF)

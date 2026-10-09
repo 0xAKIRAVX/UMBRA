@@ -9,12 +9,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.5.0-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
+  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.5.1-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
   <img src="https://img.shields.io/badge/platform-Android%208.0%2B-34d399?style=flat-square&labelColor=0d1420" alt="platform">
   <img src="https://img.shields.io/badge/Kotlin-2.0-7f52ff?style=flat-square&labelColor=0d1420" alt="kotlin">
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285f4?style=flat-square&labelColor=0d1420" alt="compose">
   <img src="https://img.shields.io/badge/APK-%E2%89%882.5%20MB-f15bb5?style=flat-square&labelColor=0d1420" alt="size">
-  <img src="https://img.shields.io/badge/tests-129%2F129%20green%20%C2%B7%20live--verified%20WG-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
+  <img src="https://img.shields.io/badge/tests-131%2F131%20green%20%C2%B7%20live--verified%20WG-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-9b5de5?style=flat-square&labelColor=0d1420" alt="license">
 </p>
 
@@ -27,6 +27,21 @@ Your connection to Cloudflare's edge is only as good as the *specific IP* your n
 **UMBRA flips the table.** It samples the live Cloudflare and WARP address space directly from *your* device, measures what your network *actually* delivers to each candidate — latency, packet loss, TLS handshake, real download speed — ranks everything for you, and generates a VLESS config bound to the winner.
 
 No root. No Termux. No server. ~2 MB.
+
+---
+
+## What's new in v3.5.1 — the device-side crypto fix
+
+The v3.5.0 handshake rewrite was live-verified on the build machine — and still died on real phones. The crash journal told the whole story in one line:
+
+> `java.lang.NoClassDefFoundError: v1.W` → `Caused by: NoSuchFieldError: No field TWO … in class java.math.BigInteger` — `coroutine[scan-engine]`, Android 11 (API 30)
+
+1. **The WARP engine crashed at class-init on every real device.** The X25519 implementation used a BigInteger constant that exists on modern desktop JDKs (OpenJDK 21) but **not in Android's `java.math.BigInteger` at any API level**. The Kotlin compiler happily compiles it (it resolves `java.*` against the desktop JDK that runs Gradle), the desktop unit tests pass, the live handshake passes — and then the first WARP probe on a phone kills the whole scan with `NoSuchFieldError`. This is why v3.5.0 “found no WARP at all”: every endpoint died before its first packet. All crypto constants now derive from `BigInteger.valueOf(2)`, portable across every JDK and every Android ever shipped.
+2. **A whole bug class is now regression-tested.** The new `JdkPortabilityTest` greps production sources for a denylist of desktop-JDK-only members (that TWO field, `java.net.http`, `String.formatted`, `stripIndent`) that pass every JVM test and crash only on devices — the exact trap v3.5.0 fell into can never silently return.
+3. **TAI64N timestamps: monotonic *and* whitened, plus a dormant carry bug.** The v3.5 monotonic bump advanced timestamps by +1 ns, which leaked the rapid-call count into the whitened low 24 bits; the bump now advances whole whitened granules, preserving both invariants. Writing it properly also exposed that the (previously unreachable) seconds-carry incremented the **high** word of the 8-byte seconds field instead of the low one — fixed and covered.
+4. **Flaky-test hardening** — the CrashGuard journal test raced a real dispatcher under `runTest`'s virtual clock; it now joins the failing job deterministically. The suite runs green on three consecutive full reruns (131/131) and the live WireGuard handshake test passes against production Cloudflare from the fixed code.
+
+> **v3.5.0 finds no WARP endpoints on your phone?** That was this crash, not your network. Install v3.5.1 — same signature, installs in place.
 
 ---
 
@@ -198,7 +213,7 @@ Grab the latest signed APK from the **[Releases](https://github.com/0xAKIRAVX/UM
 
 | | |
 | --- | --- |
-| Latest version | **v3.5.0** (build 15) |
+| Latest version | **v3.5.1** (build 16) |
 | Requirement | Android 8.0+ (API 26) |
 | Architecture | Universal (all ABIs) |
 | Permissions | `INTERNET`, `FOREGROUND_SERVICE`, `POST_NOTIFICATIONS` — nothing else |
