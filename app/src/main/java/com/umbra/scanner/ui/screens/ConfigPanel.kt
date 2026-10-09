@@ -87,9 +87,17 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
-    var modeIdx by rememberSaveable { mutableIntStateOf(saved.mode.ordinal) }
+    // v3.7: UI mode order — ENDPOINT first (the app's headline mode), then
+    // the classic trio. ScanMode's enum ordinals stay untouched (they are
+    // persisted); this list only drives the segmented control.
+    val uiModes = listOf(ScanMode.ENDPOINT, ScanMode.CF_EDGE, ScanMode.WARP, ScanMode.CUSTOM)
+    var modeIdx by rememberSaveable {
+        mutableIntStateOf(uiModes.indexOf(saved.mode).let { if (it < 0) 0 else it })
+    }
     var familyIdx by rememberSaveable { mutableIntStateOf(saved.family.ordinal) }
     var port by rememberSaveable { mutableIntStateOf(saved.port) }
+    // v3.7: ENDPOINT-mode knob — how many random ip:port endpoints to test
+    var endpoints by rememberSaveable { mutableIntStateOf(saved.endpointsCount) }
     var sweep by rememberSaveable { mutableStateOf(saved.portSweep) }
     var sweepPortsStr by rememberSaveable { mutableStateOf(saved.sweepPorts.joinToString(",")) }
     var warpPlus by rememberSaveable { mutableStateOf(saved.warpFlavor == WarpFlavor.WARP_PLUS) }
@@ -123,7 +131,7 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
     var tuneStep by remember { mutableStateOf<String?>(null) }
     var tuneNotes by remember { mutableStateOf<List<String>>(emptyList()) }
 
-    val mode = ScanMode.entries.getOrElse(modeIdx) { ScanMode.CF_EDGE }
+    val mode = uiModes.getOrElse(modeIdx) { ScanMode.ENDPOINT }
     val family = NetFamily.entries.getOrElse(familyIdx) { NetFamily.BOTH }
     val cidrs = if (mode == ScanMode.CUSTOM) {
         customCidrs.lines().map { it.trim() }.filter { it.isNotBlank() }
@@ -136,7 +144,7 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
         (if (sweepPorts.isEmpty()) Presets.WARP_PORTS_FULL else sweepPorts).size
     } else 1
 
-    val estimate = remember(mode, cidrs, family, samples, sweepEnabled, sweepPortsStr) {
+    val estimate = remember(mode, cidrs, family, samples, sweepEnabled, sweepPortsStr, endpoints) {
         // v3.2 fix: WARP used to hand-roll `blocks × samples`, ignoring the
         // small-block enumeration cap (254/24) — with the slider above 256 the
         // displayed probe count was overstated up to 12x. Use the same capped
@@ -148,6 +156,9 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
                 NetFamily.V6 -> v4 * 2
                 else -> v4 * 3
             }
+        } else if (mode == ScanMode.ENDPOINT) {
+            // v3.7: one endpoint = one probe — the count IS the estimate
+            endpoints
         } else {
             IpGenerator.estimate(cidrs, family, samples)
         }
@@ -158,11 +169,11 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
         Text(s.mode, style = MaterialTheme.typography.labelSmall, color = Fade)
         Spacer(Modifier.height(7.dp))
         Segmented(
-            options = listOf(s.modeCfEdge, s.modeWarp, s.modeCustom),
+            options = listOf(s.modeEndpoint, s.modeCfEdge, s.modeWarp, s.modeCustom),
             selected = modeIdx,
             onSelect = { i ->
                 modeIdx = i
-                val m = ScanMode.entries[i]
+                val m = uiModes[i]
                 port = Presets.defaultPort(m)
                 if (m != ScanMode.WARP) sweep = false
                 // v3.4 fix: the WARP engine clamps retries to 7 — an EDGE slider
@@ -170,6 +181,13 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
                 // of its own range. Clamp at the mode boundary, not silently in
                 // the engine.
                 if (m == ScanMode.WARP) attempts = attempts.coerceAtMost(7)
+                // v3.7: endpoint mode opens as a pure BPB-style latency scan —
+                // no TLS phase (random warp ports don't serve speed.cloudflare.com)
+                // and no throughput pass unless the user turns it on.
+                if (m == ScanMode.ENDPOINT) {
+                    speedOn = false
+                    tlsOn = false
+                }
             },
         )
         Spacer(Modifier.height(6.dp))
@@ -178,6 +196,7 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
                 ScanMode.CF_EDGE -> s.taglineCfEdge
                 ScanMode.WARP -> s.taglineWarp
                 ScanMode.CUSTOM -> s.taglineCustom
+                ScanMode.ENDPOINT -> s.taglineEndpoint
             },
             style = MaterialTheme.typography.bodySmall,
             color = Fade,
@@ -265,6 +284,21 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
                 }
                 Spacer(Modifier.height(14.dp))
             }
+            // v3.7: ENDPOINT-mode count presets (BPB quick 100 / normal 1000 / deep)
+            if (mode == ScanMode.ENDPOINT) {
+                SectionLabel(s.endpointsCountLabel)
+                Spacer(Modifier.height(7.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    listOf(100, 500, 1000, 5000).forEach { n ->
+                        SelectChip(
+                            text = n.toString(),
+                            selected = endpoints == n,
+                            onClick = { endpoints = n },
+                        )
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+            }
             Text(s.family, style = MaterialTheme.typography.labelSmall, color = Fade)
             Spacer(Modifier.height(7.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -319,6 +353,7 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
                         sweep = result.portSweep
                         sweepPortsStr = result.sweepPorts.joinToString(",")
                         samples = result.samplesPerPrefix
+                        if (mode == ScanMode.ENDPOINT) endpoints = result.endpointsCount
                         attempts = if (mode == ScanMode.WARP) result.warpAttempts else result.tcpAttempts
                         timeoutMs = result.tcpTimeoutMs
                         concurrency = result.concurrency
@@ -400,6 +435,15 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
                     },
                 )
             }
+            if (mode == ScanMode.ENDPOINT) {
+                // v3.7: RANDOM — port 0 = each endpoint draws its own port from
+                // the canonical WARP list (BPB behavior)
+                SelectChip(
+                    text = s.randomPortLabel,
+                    selected = port == 0,
+                    onClick = { port = 0 },
+                )
+            }
             Presets.portsFor(mode).forEach { p ->
                 SelectChip(
                     text = p.toString(),
@@ -426,6 +470,14 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
                 } else {
                     s.warpSingleHint
                 },
+                style = MaterialTheme.typography.bodySmall,
+                color = Fog,
+            )
+        }
+        if (mode == ScanMode.ENDPOINT) {
+            Spacer(Modifier.height(10.dp))
+            Text(
+                s.endpointPortHint,
                 style = MaterialTheme.typography.bodySmall,
                 color = Fog,
             )
@@ -490,7 +542,16 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
         ) {
             Column {
                 Spacer(Modifier.height(8.dp))
-                LabeledSlider(s.samplesPerPrefix, samples, { samples = it }, 50..3000, valueText = samples.toString())
+                if (mode == ScanMode.ENDPOINT) {
+                    // v3.7: endpoint count replaces samples-per-prefix — one
+                    // endpoint = one probe in this mode
+                    LabeledSlider(
+                        s.endpointsCountLabel, endpoints, { endpoints = it },
+                        50..20000 step 50, valueText = endpoints.toString(),
+                    )
+                } else {
+                    LabeledSlider(s.samplesPerPrefix, samples, { samples = it }, 50..3000, valueText = samples.toString())
+                }
                 LabeledSlider(
                     if (mode == ScanMode.WARP) s.wgRetries else s.tcpAttempts,
                     attempts, { attempts = it },
@@ -501,11 +562,16 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
                 )
                 LabeledSlider(s.timeout, timeoutMs, { timeoutMs = it }, 300..6000 step 100, valueText = s.milliseconds(timeoutMs))
                 LabeledSlider(s.concurrency, concurrency, { concurrency = it }, 10..400, valueText = concurrency.toString())
-                LabeledSlider(
-                    s.tlsVerifyBudget,
-                    verifyTopN, { verifyTopN = it }, 50..2000,
-                    valueText = verifyTopN.toString(),
-                )
+                if (mode != ScanMode.ENDPOINT) {
+                    // v3.7: TLS verification never runs in endpoint mode (random
+                    // warp ports don't serve speed.cloudflare.com) — its budget
+                    // and toggle are EDGE/CUSTOM controls only.
+                    LabeledSlider(
+                        s.tlsVerifyBudget,
+                        verifyTopN, { verifyTopN = it }, 50..2000,
+                        valueText = verifyTopN.toString(),
+                    )
+                }
                 LabeledSlider(s.speedTopN, speedTopN, { speedTopN = it }, 5..300, valueText = speedTopN.toString())
                 LabeledSlider(s.speedLanes, speedConc, { speedConc = it }, 1..8, valueText = s.retryLabel(speedConc))
                 ToggleRow(
@@ -516,7 +582,11 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
                 )
                 ToggleRow(
                     title = s.speedTest,
-                    subtitle = if (mode == ScanMode.WARP) s.speedTestHintWarp else s.speedTestHintEdge,
+                    subtitle = when (mode) {
+                        ScanMode.WARP -> s.speedTestHintWarp
+                        ScanMode.ENDPOINT -> s.speedTestHintEndpoint
+                        else -> s.speedTestHintEdge
+                    },
                     checked = speedOn,
                     onChange = { speedOn = it },
                 )
@@ -548,6 +618,7 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
                     family = family,
                     port = port,
                     samplesPerPrefix = samples,
+                    endpointsCount = endpoints,
                     tcpAttempts = attempts,
                     tcpTimeoutMs = timeoutMs,
                     concurrency = concurrency,

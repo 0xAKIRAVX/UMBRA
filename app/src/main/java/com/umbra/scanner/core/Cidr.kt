@@ -119,6 +119,10 @@ class Candidate(val bytes: ByteArray) {
     val id: String get() = text
 }
 
+/** v3.7: one random ip:port endpoint to test — the ENDPOINT-mode unit of work
+ *  (the BPB-Warp-Scanner "Endpoint"). */
+data class EndpointPair(val candidate: Candidate, val port: Int)
+
 object IpGenerator {
     fun generate(
         cidrs: List<String>,
@@ -189,6 +193,84 @@ object IpGenerator {
         for (i in 6 until 12) head[i] = 0
         head[12] = v4[0]; head[13] = v4[1]; head[14] = v4[2]; head[15] = v4[3]
         return head
+    }
+
+    /**
+     * v3.7 ENDPOINT mode: BPB-Warp-Scanner endpoint generation.
+     *
+     * Each endpoint is a RANDOM `ip:port` pair drawn from the WARP pool:
+     *  - IPv4: a random host (1..254, network/broadcast skipped) inside a
+     *    random one of the [Presets.WARP_V4] /24 blocks
+     *  - IPv6: the v4-embedded twin of a random v4 (d0/d1 prefix) — the
+     *    live-verified real pattern, unlike BPB's uniform-random low 64 bits
+     *    which mostly lands on non-existent addresses
+     *  - family BOTH splits the count v4/v6 like BPB does (half/half)
+     *  - port 0 → each endpoint draws its own random port from the canonical
+     *    [Presets.WARP_PORTS_FULL] list (BPB behavior); port > 0 → pinned
+     *
+     * Endpoints are deduplicated on the `ip:port` text, never on the IP —
+     * the same IP with different ports is a different endpoint, exactly like
+     * the BPB scanner's `seen` map.
+     */
+    fun generateEndpoints(
+        family: NetFamily,
+        count: Int,
+        port: Int,
+        random: Random = Random(System.nanoTime()),
+    ): List<EndpointPair> {
+        if (count <= 0) return emptyList()
+        val v4Blocks = CidrBlock.parseAll(Presets.WARP_V4)
+        if (v4Blocks.isEmpty()) return emptyList()
+        val wantV4 = family != NetFamily.V6
+        val wantV6 = family != NetFamily.V4
+        // BPB split: half v4, half v6 when both families are requested
+        val v4Quota = when {
+            wantV4 && wantV6 -> count / 2
+            wantV4 -> count
+            else -> 0
+        }
+        val v6Quota = count - v4Quota
+        val ports = Presets.WARP_PORTS_FULL
+        val seen = HashSet<String>(count * 2)
+        val out = ArrayList<EndpointPair>(count)
+
+        fun nextPort(): Int = if (port > 0) port else ports[random.nextInt(ports.size)]
+
+        fun nextV4Bytes(): ByteArray {
+            val block = v4Blocks[random.nextInt(v4Blocks.size)]
+            val host = 1 + random.nextInt(254)
+            return block.base.add(BigInteger.valueOf(host.toLong())).toAddressBytes(32)
+        }
+
+        fun add(c: Candidate, p: Int): Boolean {
+            if (seen.add("${c.text}:$p")) {
+                out.add(EndpointPair(c, p))
+                return true
+            }
+            return false
+        }
+
+        // v4 pass
+        var guard = 0
+        val v4Guard = v4Quota * 20 + 64
+        var made4 = 0
+        while (made4 < v4Quota && guard < v4Guard) {
+            guard++
+            if (add(Candidate(nextV4Bytes()), nextPort())) made4++
+        }
+        // v6 pass (embedded twins of fresh random v4s)
+        guard = 0
+        val v6Guard = v6Quota * 20 + 64
+        var made6 = 0
+        val prefixes = listOf(Presets.WARP_V6_PREFIX_D0, Presets.WARP_V6_PREFIX_D1)
+        while (made6 < v6Quota && guard < v6Guard) {
+            guard++
+            val v4 = nextV4Bytes()
+            val prefix = prefixes[random.nextInt(prefixes.size)]
+            val bytes = v6Embedded(prefix, v4) ?: continue
+            if (add(Candidate(bytes), nextPort())) made6++
+        }
+        return out
     }
 
     fun estimate(cidrs: List<String>, family: NetFamily, samplesPerPrefix: Int): Int {

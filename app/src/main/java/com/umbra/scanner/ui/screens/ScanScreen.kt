@@ -328,8 +328,8 @@ private fun LivePanel(
 @Composable
 private fun PhaseBar(current: ScanPhase, mode: ScanMode) {
     val accent = LocalAccent.current
-    val phases = if (mode == ScanMode.WARP) {
-        listOf(
+    val phases = when (mode) {
+        ScanMode.WARP -> listOf(
             ScanPhase.GENERATING,
             ScanPhase.REGISTER,
             ScanPhase.WG,
@@ -337,8 +337,16 @@ private fun PhaseBar(current: ScanPhase, mode: ScanMode) {
             ScanPhase.SPEED,
             ScanPhase.DONE,
         )
-    } else {
-        listOf(
+        // v3.7: endpoint scan — no TLS phase (TCP-alive is the mode's own
+        // proof), so the bar runs GENERATE → TCP → RANK → SPEED → DONE.
+        ScanMode.ENDPOINT -> listOf(
+            ScanPhase.GENERATING,
+            ScanPhase.TCP,
+            ScanPhase.RANKING,
+            ScanPhase.SPEED,
+            ScanPhase.DONE,
+        )
+        else -> listOf(
             ScanPhase.GENERATING,
             ScanPhase.TCP,
             ScanPhase.PROBE,

@@ -9,12 +9,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.6.2-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
+  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.7.0-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
   <img src="https://img.shields.io/badge/platform-Android%208.0%2B-34d399?style=flat-square&labelColor=0d1420" alt="platform">
   <img src="https://img.shields.io/badge/Kotlin-2.0-7f52ff?style=flat-square&labelColor=0d1420" alt="kotlin">
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285f4?style=flat-square&labelColor=0d1420" alt="compose">
   <img src="https://img.shields.io/badge/APK-%E2%89%882.5%20MB-f15bb5?style=flat-square&labelColor=0d1420" alt="size">
-  <img src="https://img.shields.io/badge/tests-176%2F176%20green%20%C2%B7%20live--verified%20WG-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
+  <img src="https://img.shields.io/badge/tests-196%2F196%20green%20%C2%B7%20live%20endpoint%20scan-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-9b5de5?style=flat-square&labelColor=0d1420" alt="license">
 </p>
 
@@ -27,6 +27,19 @@ Your connection to Cloudflare's edge is only as good as the *specific IP* your n
 **UMBRA flips the table.** It samples the live Cloudflare and WARP address space directly from *your* device, measures what your network *actually* delivers to each candidate — latency, packet loss, TLS handshake, real download speed — ranks everything for you, and generates a VLESS config bound to the winner.
 
 No root. No Termux. No server. ~2 MB.
+
+---
+
+## What's new in v3.7.0 — the ENDPOINT scanner (IPv4 + IPv6, pure TCP)
+
+This round's direction came straight from the field: *“من اصلا اسکنر وارپ‌ها رو نمی‌خوام — اسکنر endpoint می‌خوام که IPv4 و IPv6 داشته باشه”* — the BPB-Warp-Scanner workflow, on the phone. v3.6.2 had *proven* (VPN sensor + NTP witnesses + gate verdict) that the reporting device's network silently drops every UDP packet to Cloudflare — which means a WireGuard-handshake scanner can never produce results there, no matter how correct it is. So v3.7 ships what that network actually needs:
+
+1. **A new ENDPOINT mode — now the app's default and first tile.** It does exactly what BPB-Warp-Scanner does on a server: draw **random `ip:port` endpoints** from the Cloudflare WARP pool (162.159.19x/188.114.9x/8.x /24s + the `2606:4700:d0::`/`d1::` IPv6 twins of every v4 — the live-verified embedded pattern, BPB's uniform-random /48 sampling mostly lands on addresses that don't exist), give **each endpoint its own random port** from the 55-port canonical WARP list (or pin one — 2408, 894, 443, 928…), and probe it with **pure TCP handshake latency**: N attempts per endpoint (BPB's 3/5/7 retry ladder, auto-picked from measured RTT), average latency + jitter + loss, ranked. **No WireGuard. No registration. No UDP.** It is the only mode that can produce results on a UDP-blocked network — and it's live-verified from this build: 60/120 endpoints alive in seconds, best 162.159.192.102:443 at 4 ms.
+2. **IPv4 + IPv6 first-class.** The family picker drives a true BPB-style half/half split; the completion line reports the v4/v6 aliveness split ("v6 0" on a v6-less route is now *visible*, not mysterious). IPv6 endpoints copy in proper `[2606:4700:d0::a29f:c001]:2408` bracketed form — the old copy action produced ambiguous garbage for v6.
+3. **Endpoint-count presets instead of CIDR math.** `100 / 500 / 1000 / 5000` chips + a 50–20000 slider — the BPB "quick/normal/deep" mental model, one endpoint = one probe, estimate == truth. AUTO-TUNE calibrates endpoint mode too (RTT-scaled count + retry ladder, family detection via the live v6 probe).
+4. **Mode migration with respect.** WARP (the handshake mode) stays available as the third tile for networks where UDP works; anyone whose stored default was WARP is moved once to ENDPOINT (the mode their network can actually deliver), and re-selecting WARP sticks.
+
+> **Want the BPB panel workflow on your phone — pick the best endpoint IP:port for v4 AND v6? Install v3.7.0, press the big button, done.** Same signature, installs in place over any v3.5.x/v3.6.x.
 
 ---
 
@@ -263,7 +276,7 @@ Grab the latest signed APK from the **[Releases](https://github.com/0xAKIRAVX/UM
 
 | | |
 | --- | --- |
-| Latest version | **v3.6.2** (build 20) |
+| Latest version | **v3.7.0** (build 21) |
 | Requirement | Android 8.0+ (API 26) |
 | Architecture | Universal (all ABIs) |
 | Permissions | `INTERNET`, `FOREGROUND_SERVICE`, `POST_NOTIFICATIONS` — nothing else |

@@ -80,9 +80,10 @@ class UmbraSettings(context: Context) {
     private fun loadSaved(key: String): List<ScanResult> =
         ResultCodec.fromJsonList(prefs.getString(key, null))
 
-    /** Mode of the last completed scan (p_mode is persisted on every start). */
+    /** Mode of the last completed scan (p_mode is persisted on every start).
+     *  v3.7: default is ENDPOINT (the app's new headline mode). */
     fun lastScanMode(): ScanMode =
-        ScanMode.entries.getOrElse(prefs.getInt("p_mode", 0)) { ScanMode.CF_EDGE }
+        ScanMode.entries.getOrElse(prefs.getInt("p_mode", ScanMode.ENDPOINT.ordinal)) { ScanMode.ENDPOINT }
 
     /** v3.1.1: wipes BOTH persisted buckets — the clear-board button must
      *  actually clear the board, not just the in-memory list. */
@@ -126,6 +127,7 @@ class UmbraSettings(context: Context) {
             .putInt("p_family", p.family.ordinal)
             .putInt("p_port", p.port)
             .putInt("p_samples", p.samplesPerPrefix)
+            .putInt("p_endpoints", p.endpointsCount)
             .putInt("p_attempts", p.tcpAttempts)
             .putInt("p_timeout", p.tcpTimeoutMs)
             .putInt("p_concurrency", p.concurrency)
@@ -146,17 +148,41 @@ class UmbraSettings(context: Context) {
     }
 
     fun loadParams(): ScanParams {
-        val mode = ScanMode.entries.getOrElse(prefs.getInt("p_mode", 0)) { ScanMode.CF_EDGE }
+        // v3.7: ENDPOINT is the new default mode for fresh installs, and a
+        // one-time migration moves users stranded on WARP (UDP-blocked
+        // networks — the exact failure the v3.6.2 gate diagnoses) onto the
+        // TCP-based endpoint scanner. The migration runs ONCE: re-selecting
+        // WARP afterwards sticks.
+        val storedMode = prefs.getInt("p_mode", ScanMode.ENDPOINT.ordinal)
+        var mode = ScanMode.entries.getOrElse(storedMode) { ScanMode.ENDPOINT }
+        if (mode == ScanMode.WARP && !prefs.getBoolean("p_mode_mig_v37", false)) {
+            mode = ScanMode.ENDPOINT
+            prefs.edit()
+                .putInt("p_mode", mode.ordinal)
+                .putBoolean("p_mode_mig_v37", true)
+                .putInt("p_port", 0) // RANDOM ports for the endpoint scanner
+                .apply()
+        }
         val family = NetFamily.entries.getOrElse(prefs.getInt("p_family", 0)) { NetFamily.BOTH }
         val flavor = WarpFlavor.entries.getOrElse(prefs.getInt("p_warp", 0)) { WarpFlavor.WARP }
         val custom = prefs.getString("p_cidrs", "") ?: ""
-        val port = prefs.getInt("p_port", Presets.defaultPort(mode)).coerceIn(1, 65535)
+        // v3.7: port 0 is the ENDPOINT "RANDOM port" sentinel — every other
+        // mode pins a real port and gets coerced into 1..65535.
+        val port = prefs.getInt("p_port", Presets.defaultPort(mode)).let { p ->
+            when {
+                p == 0 && mode == ScanMode.ENDPOINT -> 0
+                p == 0 -> 443
+                else -> p.coerceIn(1, 65535)
+            }
+        }
         return ScanParams(
             mode = mode,
             cidrs = if (mode == ScanMode.CUSTOM) custom.lines().filter { it.isNotBlank() } else Presets.cidrsFor(mode, family),
             family = family,
             port = port,
             samplesPerPrefix = prefs.getInt("p_samples", 96).coerceIn(10, 5000),
+            // v3.7: ENDPOINT-mode knob (BPB EndpointCount: quick 100 / normal 1000)
+            endpointsCount = prefs.getInt("p_endpoints", 500).coerceIn(10, 20_000),
             tcpAttempts = prefs.getInt("p_attempts", 3).coerceIn(1, 10),
             tcpTimeoutMs = prefs.getInt("p_timeout", 2000).coerceIn(300, 8000),
             concurrency = prefs.getInt("p_concurrency", 150).coerceIn(10, 400),

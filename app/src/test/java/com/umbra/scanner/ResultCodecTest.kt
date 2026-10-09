@@ -83,4 +83,33 @@ class ResultCodecTest {
         assertTrue(rEdge!!.alive)
         assertTrue(rWarp!!.alive)
     }
+
+    @Test
+    fun `v37 endpoint-mode row round-trips with TCP aliveness`() {
+        // ENDPOINT mode: alive = TCP-alive (no TLS phase exists); a v6
+        // endpoint on a random warp port must survive persistence intact.
+        val r = ScanResult(
+            ip = "2606:4700:d0::a29f:c001",
+            protocol = IpProtocol.IPv6,
+            port = 2408,
+            latencyMs = 88.5,
+            jitterMs = 6.25,
+            packetLoss = 0.0,
+            tcpAttempts = 3,
+            successfulAttempts = 3,
+            mode = ScanMode.ENDPOINT,
+        )
+        val back = ResultCodec.fromJson(ResultCodec.toJson(r))
+        assertNotNull(back)
+        assertEquals(ScanMode.ENDPOINT, back!!.mode)
+        assertEquals(r.ip, back.ip)
+        assertEquals(2408, back.port)
+        assertEquals(88.5, back.latencyMs!!, 0.0001)
+        assertEquals(6.25, back.jitterMs!!, 0.0001)
+        assertTrue(back.alive)
+
+        val dead = r.copy(successfulAttempts = 0, latencyMs = null)
+        val backDead = ResultCodec.fromJson(ResultCodec.toJson(dead))!!
+        assertTrue(!backDead.alive)
+    }
 }

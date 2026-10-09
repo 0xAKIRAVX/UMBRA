@@ -600,7 +600,11 @@ private fun DetailSheet(
         Spacer(Modifier.height(16.dp))
         ActionRow(Icons.Rounded.ContentCopy, s.copyIp) { onCopy(r.ip, "IP") }
         Spacer(Modifier.height(7.dp))
-        ActionRow(Icons.Rounded.ContentCopy, s.copyIpPort) { onCopy("${r.ip}:${r.port}", "Endpoint") }
+        // v3.7: IPv6 endpoints MUST be bracketed — "2606:4700:d0::1:2408" is
+        // ambiguous garbage, "[2606:4700:d0::1]:2408" is a usable endpoint.
+        ActionRow(Icons.Rounded.ContentCopy, s.copyIpPort) {
+            onCopy("${IpText.forUrl(r.ip)}:${r.port}", "Endpoint")
+        }
         Spacer(Modifier.height(7.dp))
         if (r.mode == ScanMode.WARP) {
             ActionRow(Icons.Rounded.ContentCopy, s.copyWgEndpoint) {

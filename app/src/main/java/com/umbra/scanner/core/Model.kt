@@ -17,7 +17,14 @@ enum class WarpFlavor(val label: String) {
 enum class ScanMode(val label: String, val tagline: String) {
     CF_EDGE("EDGE", "Cloudflare edge · speed.cloudflare.com"),
     WARP("WARP", "WARP / WARP+ · real WireGuard handshake + in-tunnel ping"),
-    CUSTOM("CUSTOM", "Your own CIDR list");
+    CUSTOM("CUSTOM", "Your own CIDR list"),
+    /** v3.7: BPB-Warp-Scanner-style endpoint scan — random ip:port pairs
+     *  drawn from the WARP ranges, probed with pure TCP handshake latency
+     *  + loss over N attempts. IPv4 + IPv6. No WireGuard handshake, no
+     *  registration, no UDP — works on networks where UDP WARP is blocked
+     *  (exactly the environment the v3.6.2 gate proved on the field device).
+     *  Appended at ordinal 3 so persisted p_mode ordinals never shift. */
+    ENDPOINT("ENDPOINT", "WARP ranges · random ip:port · IPv4 + IPv6 · TCP latency");
 }
 
 enum class ScanPhase(val label: String, val order: Int) {
@@ -56,6 +63,10 @@ data class ScanParams(
     val speedConcurrency: Int = 4,
     val downloadBytes: Long = 20L * 1024 * 1024,
     val warpFlavor: WarpFlavor = WarpFlavor.WARP,
+    /** v3.7 ENDPOINT only: how many random ip:port endpoints to test (the
+     *  BPB "EndpointCount" knob — quick 100 / normal 1000 / deep 10000).
+     *  Ignored by every other mode. */
+    val endpointsCount: Int = 500,
     /** WARP only: probe the full canonical port list instead of a single port. */
     val portSweep: Boolean = false,
     /** Ports to probe in sweep mode (defaults to the full WARP list). */
@@ -77,14 +88,20 @@ data class ScanParams(
     val speedSni: String get() = "speed.cloudflare.com"
 
     /** WARP endpoints never serve speed.cloudflare.com on their scan port — the
-     *  throughput check always rides 443, where every WARP IP is a normal edge. */
-    val speedPort: Int get() = if (mode == ScanMode.WARP) 443 else port
+     *  throughput check always rides 443, where every WARP IP is a normal edge.
+     *  ENDPOINT mode rides :443 too (random warp ports never serve the speed
+     *  endpoint), and a port of 0 (= RANDOM) is never a connectable port. */
+    val speedPort: Int get() = when {
+        mode == ScanMode.WARP || mode == ScanMode.ENDPOINT -> 443
+        port == 0 -> 443
+        else -> port
+    }
 
     /** EDGE/CUSTOM scans ALWAYS TLS-verify their TCP-alive candidates: on
      *  heavily-filtered networks (e.g. Iran) DPI boxes complete the TCP
      *  handshake for any destination, so TCP-alive alone means nothing. Only
      *  an IP serving a valid certificate for a real Cloudflare host is real. */
-    val needsTlsPhase: Boolean get() = tlsVerify && mode != ScanMode.WARP
+    val needsTlsPhase: Boolean get() = tlsVerify && mode != ScanMode.WARP && mode != ScanMode.ENDPOINT
     val downloadMbLabel: Int get() = (downloadBytes / (1024 * 1024)).toInt()
 
     /** Every (ip, port) pair the TCP storm will probe. */
@@ -131,6 +148,10 @@ data class ScanResult(
     val alive: Boolean
         get() = when (mode) {
             ScanMode.WARP -> successfulAttempts > 0
+            // v3.7 ENDPOINT: a completed TCP handshake IS the result this mode
+            // sells (BPB-equivalent reachability + latency) — there is no TLS
+            // phase in endpoint mode to demand a stronger proof.
+            ScanMode.ENDPOINT -> tcpAlive
             else -> tlsSuccess || httpStatus == 200 || (tlsSkipped && tcpAlive)
         }
 

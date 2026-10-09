@@ -46,6 +46,13 @@ class StringsTest {
         Triple("taglineCfEdge", EnglishStrings.taglineCfEdge, PersianStrings.taglineCfEdge),
         Triple("taglineWarp", EnglishStrings.taglineWarp, PersianStrings.taglineWarp),
         Triple("taglineCustom", EnglishStrings.taglineCustom, PersianStrings.taglineCustom),
+        // v3.7: ENDPOINT scan mode strings
+        Triple("modeEndpoint", EnglishStrings.modeEndpoint, PersianStrings.modeEndpoint),
+        Triple("taglineEndpoint", EnglishStrings.taglineEndpoint, PersianStrings.taglineEndpoint),
+        Triple("endpointsCountLabel", EnglishStrings.endpointsCountLabel, PersianStrings.endpointsCountLabel),
+        Triple("randomPortLabel", EnglishStrings.randomPortLabel, PersianStrings.randomPortLabel),
+        Triple("endpointPortHint", EnglishStrings.endpointPortHint, PersianStrings.endpointPortHint),
+        Triple("speedTestHintEndpoint", EnglishStrings.speedTestHintEndpoint, PersianStrings.speedTestHintEndpoint),
         Triple("flavor", EnglishStrings.flavor, PersianStrings.flavor),
         // v3.4: WARP+ license key field
         Triple("warpLicensePlaceholder", EnglishStrings.warpLicensePlaceholder, PersianStrings.warpLicensePlaceholder),

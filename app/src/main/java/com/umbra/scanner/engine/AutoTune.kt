@@ -55,6 +55,8 @@ object AutoTune {
         val portSweep: Boolean,
         val sweepPorts: List<Int>,
         val samplesPerPrefix: Int,
+        /** v3.7: ENDPOINT-mode knob — ignored by every other mode. */
+        val endpointsCount: Int = 500,
         val tcpAttempts: Int,
         val warpAttempts: Int,
         val tcpTimeoutMs: Int,
@@ -362,7 +364,11 @@ object AutoTune {
             mbps < 15.0 -> 10
             else -> 20
         }
-        val speedTest = true
+        // v3.7: endpoint mode ships as a pure latency scan (BPB parity) —
+        // no TLS phase exists there and the throughput pass stays opt-in.
+        val endpointMode = mode == ScanMode.ENDPOINT
+        val speedTest = !endpointMode
+        val tlsVerify = !endpointMode
         val speedConcurrency = if (c.lowRam) 2 else if (mbps != null && mbps < 2.0) 3 else 4
         notes.add(
             if (mbps != null) "link ≈ ${"%.1f".format(java.util.Locale.US, mbps)} mbps → ${downloadMb}mb sample · ${speedConcurrency}× speed lanes"
@@ -377,13 +383,37 @@ object AutoTune {
             rtt >= 100.0 -> 5
             else -> 3
         }
+        // v3.7: ENDPOINT mode — BPB-style retries apply to the TCP probes too
+        // (network.go: poor → 7, moderate → 5, good → 3), and the endpoint
+        // count scales with measured latency so a slow line still finishes.
+        var tcpAttempts = 3
+        var endpointsCount = 500
+        if (mode == ScanMode.ENDPOINT) {
+            tcpAttempts = when {
+                rtt == null -> 5
+                rtt >= 200.0 -> 7
+                rtt >= 100.0 -> 5
+                else -> 3
+            }
+            endpointsCount = when {
+                rtt == null -> 400
+                rtt >= 200.0 -> 300
+                rtt >= 100.0 -> 500
+                else -> 700
+            }
+            notes.add(
+                if (rtt != null) "rtt ${rtt.roundToInt()}ms → $tcpAttempts tcp probes per endpoint"
+                else "rtt unknown → $tcpAttempts tcp probes per endpoint"
+            )
+            notes.add("endpoint scan: random ip:port pairs across the warp ranges · v4 + v6 · pure tcp — no udp, no registration")
+        }
         if (mode == ScanMode.WARP) {
             notes.add(
                 if (rtt != null) "rtt ${rtt.roundToInt()}ms → ${warpAttempts} wireguard retries per endpoint"
                 else "rtt unknown → ${warpAttempts} wireguard retries per endpoint"
             )
             notes.add("every endpoint is proven by handshake + in-tunnel ping · results work in wireguard/v2rayng")
-        } else {
+        } else if (mode != ScanMode.ENDPOINT) {
             notes.add("every result is tls-cert-verified — dpi fake endpoints are discarded")
         }
         if (mode == ScanMode.WARP) notes.add("warp speed is measured on :443 — warp ports never serve the speed endpoint")
@@ -395,11 +425,12 @@ object AutoTune {
             portSweep = sweep,
             sweepPorts = sweepPorts,
             samplesPerPrefix = samples,
-            tcpAttempts = 3,
+            endpointsCount = endpointsCount,
+            tcpAttempts = tcpAttempts,
             warpAttempts = warpAttempts,
             tcpTimeoutMs = timeout,
             concurrency = concurrency,
-            tlsVerify = true,
+            tlsVerify = tlsVerify,
             verifyTopN = if (c.lowRam) 800 else 1200,
             speedTest = speedTest,
             speedTopN = if (c.lowRam) 20 else 40,

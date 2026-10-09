@@ -111,7 +111,7 @@ object Presets {
             NetFamily.V4 -> CF_EDGE_V4
             NetFamily.V6 -> CF_EDGE_V6
         }
-        ScanMode.WARP -> when (family) {
+        ScanMode.WARP, ScanMode.ENDPOINT -> when (family) {
             NetFamily.BOTH -> WARP_V4 + WARP_V6
             NetFamily.V4 -> WARP_V4
             NetFamily.V6 -> WARP_V6
@@ -119,13 +119,17 @@ object Presets {
         ScanMode.CUSTOM -> emptyList()
     }
 
+    /** v3.7: 0 is the ENDPOINT-mode sentinel for "draw a random port per
+     *  endpoint from the canonical WARP list" (BPB behavior). Every other
+     *  mode pins a real port. */
     fun defaultPort(mode: ScanMode): Int = when (mode) {
         ScanMode.WARP -> 2408
+        ScanMode.ENDPOINT -> 0
         else -> 443
     }
 
     fun portsFor(mode: ScanMode): List<Int> = when (mode) {
-        ScanMode.WARP -> WARP_PORTS
+        ScanMode.WARP, ScanMode.ENDPOINT -> WARP_PORTS
         else -> CF_EDGE_PORTS
     }
 }
