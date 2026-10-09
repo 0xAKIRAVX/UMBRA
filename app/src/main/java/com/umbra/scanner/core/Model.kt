@@ -10,27 +10,42 @@ enum class NetFamily(val label: String) {
     BOTH("ALL"), V4("IPv4"), V6("IPv6");
 }
 
-enum class WarpFlavor(val label: String) {
-    WARP("WARP"), WARP_PLUS("WARP+");
-}
-
+/**
+ * v3.8: the standalone WARP mode is GONE — the user asked for its removal and
+ * its job is fully absorbed by ENDPOINT. Ordinals were remapped
+ * (CF_EDGE=0, CUSTOM=1, ENDPOINT=2) and every persisted p_mode value is
+ * migrated through [UmbraSettings] (old WARP(1) and ENDPOINT(3) → ENDPOINT,
+ * old CUSTOM(2) → CUSTOM).
+ */
 enum class ScanMode(val label: String, val tagline: String) {
     CF_EDGE("EDGE", "Cloudflare edge · speed.cloudflare.com"),
-    WARP("WARP", "WARP / WARP+ · real WireGuard handshake + in-tunnel ping"),
     CUSTOM("CUSTOM", "Your own CIDR list"),
-    /** v3.7: BPB-Warp-Scanner-style endpoint scan — random ip:port pairs
-     *  drawn from the WARP ranges, probed with pure TCP handshake latency
-     *  + loss over N attempts. IPv4 + IPv6. No WireGuard handshake, no
-     *  registration, no UDP — works on networks where UDP WARP is blocked
-     *  (exactly the environment the v3.6.2 gate proved on the field device).
-     *  Appended at ordinal 3 so persisted p_mode ordinals never shift. */
-    ENDPOINT("ENDPOINT", "WARP ranges · random ip:port · IPv4 + IPv6 · TCP latency");
+    /** BPB-Warp-Scanner equivalent: random ip:port endpoints drawn from the
+     *  WARP ranges (IPv4 + IPv6), each validated by a REAL WireGuard
+     *  handshake over UDP and ranked by round-trip time. This is the only
+     *  honest definition of "endpoint works" — a TCP connect proves
+     *  nothing (v3.7's fake-endpoint lesson). */
+    ENDPOINT("ENDPOINT", "WARP ranges · random ip:port · IPv4 + IPv6 · real WireGuard handshake");
+
+    companion object {
+        /** v3.8 persistence bridge: maps a PRE-v3.8 stored p_mode ordinal
+         *  (0=CF_EDGE, 1=WARP, 2=CUSTOM, 3=ENDPOINT) onto the new enum.
+         *  Pure function — unit-tested directly. */
+        fun fromLegacyOrdinal(raw: Int): ScanMode = when (raw) {
+            0 -> CF_EDGE
+            1, 3 -> ENDPOINT
+            2 -> CUSTOM
+            else -> ENDPOINT
+        }
+    }
 }
 
 enum class ScanPhase(val label: String, val order: Int) {
     IDLE("IDLE", 0),
     GENERATING("GENERATE", 1),
-    REGISTER("WARP REG", 2),
+    // v3.8: ENDPOINT registers a WARP identity silently (it is the probe key,
+    // never a user-facing "WARP section") — relabeled from "WARP REG".
+    REGISTER("IDENTITY", 2),
     TCP("TCP STORM", 2),
     WG("WG PROBE", 3),
     PROBE("TLS PROBE", 3),
@@ -62,26 +77,18 @@ data class ScanParams(
     val speedTopN: Int = 50,
     val speedConcurrency: Int = 4,
     val downloadBytes: Long = 20L * 1024 * 1024,
-    val warpFlavor: WarpFlavor = WarpFlavor.WARP,
     /** v3.7 ENDPOINT only: how many random ip:port endpoints to test (the
      *  BPB "EndpointCount" knob — quick 100 / normal 1000 / deep 10000).
      *  Ignored by every other mode. */
     val endpointsCount: Int = 500,
-    /** WARP only: probe the full canonical port list instead of a single port. */
-    val portSweep: Boolean = false,
-    /** Ports to probe in sweep mode (defaults to the full WARP list). */
-    val sweepPorts: List<Int> = emptyList(),
-    /** WARP only: full probe rounds per endpoint (BPB-style retries: 3/5/7). */
+    /** ENDPOINT only: full WireGuard probe rounds per endpoint (BPB-style
+     *  retries by network quality: 3 / 5 / 7). */
     val warpAttempts: Int = 3,
-    /** WARP only: anti-DPI UDP noise burst before each handshake (xray `noises`). */
+    /** ENDPOINT only: anti-DPI UDP noise burst before each handshake
+     *  (xray `noises` semantics — random destinations, never the target). */
     val udpNoise: Boolean = true,
-    /** WARP only: noise packets per burst. */
+    /** ENDPOINT only: noise packets per burst. */
     val noiseCount: Int = 5,
-    /** v3.4: WARP only — WARP+ license key; blank = free WARP identity.
-     *  Applied to the registered account via the CF account API right after
-     *  registration (wgcf flow); a rejected key degrades to free WARP with an
-     *  honest log line instead of aborting the scan. */
-    val warpLicenseKey: String = "",
 ) {
     val edgeSni: String get() = "speed.cloudflare.com"
     val warpSni: String get() = "engage.cloudflareclient.com"
@@ -89,10 +96,9 @@ data class ScanParams(
 
     /** WARP endpoints never serve speed.cloudflare.com on their scan port — the
      *  throughput check always rides 443, where every WARP IP is a normal edge.
-     *  ENDPOINT mode rides :443 too (random warp ports never serve the speed
-     *  endpoint), and a port of 0 (= RANDOM) is never a connectable port. */
+     *  A port of 0 (= RANDOM) is never a connectable port. */
     val speedPort: Int get() = when {
-        mode == ScanMode.WARP || mode == ScanMode.ENDPOINT -> 443
+        mode == ScanMode.ENDPOINT -> 443
         port == 0 -> 443
         else -> port
     }
@@ -100,17 +106,15 @@ data class ScanParams(
     /** EDGE/CUSTOM scans ALWAYS TLS-verify their TCP-alive candidates: on
      *  heavily-filtered networks (e.g. Iran) DPI boxes complete the TCP
      *  handshake for any destination, so TCP-alive alone means nothing. Only
-     *  an IP serving a valid certificate for a real Cloudflare host is real. */
-    val needsTlsPhase: Boolean get() = tlsVerify && mode != ScanMode.WARP && mode != ScanMode.ENDPOINT
+     *  an IP serving a valid certificate for a real Cloudflare host is real.
+     *  v3.8: ENDPOINT needs no TLS phase — its proof is the WireGuard
+     *  handshake itself. */
+    val needsTlsPhase: Boolean get() = tlsVerify && mode != ScanMode.ENDPOINT
     val downloadMbLabel: Int get() = (downloadBytes / (1024 * 1024)).toInt()
 
-    /** Every (ip, port) pair the TCP storm will probe. */
-    val effectivePorts: List<Int>
-        get() = if (mode == ScanMode.WARP && portSweep) {
-            (if (sweepPorts.isEmpty()) Presets.WARP_PORTS_FULL else sweepPorts).distinct().sorted()
-        } else {
-            listOf(port)
-        }
+    /** Every (ip, port) pair the TCP storm will probe (v3.8: the WARP port
+     *  sweep is gone with the WARP mode — one port per scan). */
+    val effectivePorts: List<Int> get() = listOf(port)
 }
 
 @Immutable
@@ -147,11 +151,13 @@ data class ScanResult(
      */
     val alive: Boolean
         get() = when (mode) {
-            ScanMode.WARP -> successfulAttempts > 0
-            // v3.7 ENDPOINT: a completed TCP handshake IS the result this mode
-            // sells (BPB-equivalent reachability + latency) — there is no TLS
-            // phase in endpoint mode to demand a stronger proof.
-            ScanMode.ENDPOINT -> tcpAlive
+            // v3.8: an ENDPOINT is alive only when a real WireGuard handshake
+            // ANSWERED — the BPB definition. A TCP connect (the v3.7 contract)
+            // proved nothing: Cloudflare's anycast edge accepts TCP on :443
+            // regardless of WARP, so those "endpoints" never worked in
+            // WireGuard/v2rayNG configs. The handshake response is the only
+            // on-device proof that this ip:port actually speaks WARP.
+            ScanMode.ENDPOINT -> wgHandshakes > 0
             else -> tlsSuccess || httpStatus == 200 || (tlsSkipped && tcpAlive)
         }
 

@@ -80,7 +80,8 @@ class Patch311Test {
     fun `warp v4 generation matches the classic estimate`() {
         // 16 /24 blocks × 96 samples — the advertised number
         val estimate = PresetsFixtures.warpV4Count(96)
-        val gen = IpGenerator.generateWarp(
+        val gen = IpGenerator.generate(
+            com.umbra.scanner.core.Presets.WARP_V4,
             com.umbra.scanner.core.NetFamily.V4, 96, Random(11))
         assertEquals(estimate, gen.size)
     }
@@ -178,7 +179,7 @@ class Patch311Test {
                 ip = "188.114.96.1", protocol = IpProtocol.IPv4, port = 2408,
                 latencyMs = 77.5, jitterMs = 4.5, packetLoss = 0.0,
                 successfulAttempts = 2, tcpAttempts = 3, wgHandshakes = 3,
-                mode = ScanMode.WARP,
+                mode = ScanMode.ENDPOINT,
             )
             val json = Exporters.json(listOf(r), null)
             assertNotNull(JSONObject(json)) // strict parse must not throw

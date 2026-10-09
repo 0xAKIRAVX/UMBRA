@@ -323,25 +323,19 @@ private fun LivePanel(
 
 /**
  * Compact phase progress: a six-segment step bar plus the current phase
- * name. WARP scans swap the TCP/TLS segments for the real WireGuard flow.
+ * name. v3.8: ENDPOINT scans run the real WireGuard flow (generate →
+ * identity → handshake → rank → speed), EDGE/CUSTOM keep the TLS flow.
  */
 @Composable
 private fun PhaseBar(current: ScanPhase, mode: ScanMode) {
     val accent = LocalAccent.current
     val phases = when (mode) {
-        ScanMode.WARP -> listOf(
+        // v3.8: endpoint scan — identity registration + WG handshake validation
+        // (no TLS phase — the handshake IS the proof).
+        ScanMode.ENDPOINT -> listOf(
             ScanPhase.GENERATING,
             ScanPhase.REGISTER,
             ScanPhase.WG,
-            ScanPhase.RANKING,
-            ScanPhase.SPEED,
-            ScanPhase.DONE,
-        )
-        // v3.7: endpoint scan — no TLS phase (TCP-alive is the mode's own
-        // proof), so the bar runs GENERATE → TCP → RANK → SPEED → DONE.
-        ScanMode.ENDPOINT -> listOf(
-            ScanPhase.GENERATING,
-            ScanPhase.TCP,
             ScanPhase.RANKING,
             ScanPhase.SPEED,
             ScanPhase.DONE,

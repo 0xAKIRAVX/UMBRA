@@ -39,7 +39,7 @@ class ResultCodecTest {
             httpStatus = 200,
             wgHandshakes = 3,
             error = "handshake ok · no data plane",
-            mode = ScanMode.WARP,
+            mode = ScanMode.ENDPOINT,
         )
         val restored = ResultCodec.fromJson(ResultCodec.toJson(r))
         assertEquals(r, restored)
@@ -72,12 +72,12 @@ class ResultCodecTest {
             ip = "104.16.1.1", protocol = IpProtocol.IPv4, port = 443,
             tlsSuccess = true, httpStatus = 200, mode = ScanMode.CF_EDGE,
         )
-        val warp = ScanResult(
+        val endpoint = ScanResult(
             ip = "162.159.192.1", protocol = IpProtocol.IPv4, port = 2408,
-            tcpAttempts = 3, successfulAttempts = 3, wgHandshakes = 3, mode = ScanMode.WARP,
+            tcpAttempts = 3, successfulAttempts = 3, wgHandshakes = 3, mode = ScanMode.ENDPOINT,
         )
         val rEdge = ResultCodec.fromJson(ResultCodec.toJson(edge))
-        val rWarp = ResultCodec.fromJson(ResultCodec.toJson(warp))
+        val rWarp = ResultCodec.fromJson(ResultCodec.toJson(endpoint))
         assertNotNull(rEdge)
         assertNotNull(rWarp)
         assertTrue(rEdge!!.alive)
@@ -85,9 +85,10 @@ class ResultCodecTest {
     }
 
     @Test
-    fun `v37 endpoint-mode row round-trips with TCP aliveness`() {
-        // ENDPOINT mode: alive = TCP-alive (no TLS phase exists); a v6
-        // endpoint on a random warp port must survive persistence intact.
+    fun `v38 endpoint-mode row round-trips with handshake aliveness`() {
+        // v3.8: alive = a WireGuard handshake answered (NOT tcp-alive — the
+        // fake-endpoint fix); a v6 endpoint on a random warp port must
+        // survive persistence intact.
         val r = ScanResult(
             ip = "2606:4700:d0::a29f:c001",
             protocol = IpProtocol.IPv6,
@@ -97,6 +98,7 @@ class ResultCodecTest {
             packetLoss = 0.0,
             tcpAttempts = 3,
             successfulAttempts = 3,
+            wgHandshakes = 3,
             mode = ScanMode.ENDPOINT,
         )
         val back = ResultCodec.fromJson(ResultCodec.toJson(r))
@@ -108,7 +110,13 @@ class ResultCodecTest {
         assertEquals(6.25, back.jitterMs!!, 0.0001)
         assertTrue(back.alive)
 
-        val dead = r.copy(successfulAttempts = 0, latencyMs = null)
+        // v3.8: a row with ONLY tcp-alive proof is NOT alive — the exact
+        // fake-endpoint contract that shipped as the v3.7 bug
+        val tcpOnly = r.copy(wgHandshakes = 0)
+        val backTcpOnly = ResultCodec.fromJson(ResultCodec.toJson(tcpOnly))!!
+        assertTrue(!backTcpOnly.alive)
+
+        val dead = r.copy(successfulAttempts = 0, wgHandshakes = 0, latencyMs = null)
         val backDead = ResultCodec.fromJson(ResultCodec.toJson(dead))!!
         assertTrue(!backDead.alive)
     }

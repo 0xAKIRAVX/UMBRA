@@ -217,10 +217,12 @@ fun ResultsScreen(
         Spacer(Modifier.height(12.dp))
 
         // v3.1 smart pick board — بهترین‌ها برای نت شما، هر دو خانواده
+        // v3.8: ENDPOINT results are WARP endpoints — they feed the warp side
+        // of the board (the WARP mode itself is gone).
         val currentMode = (ui as? ScanUi.Done)?.summary?.params?.mode
             ?: results.firstOrNull()?.mode ?: ScanMode.CF_EDGE
-        val warpList = if (currentMode == ScanMode.WARP) results else savedWarp
-        val edgeList = if (currentMode != ScanMode.WARP) results else savedEdge
+        val warpList = if (currentMode == ScanMode.ENDPOINT) results else savedWarp
+        val edgeList = if (currentMode != ScanMode.ENDPOINT) results else savedEdge
         SmartPickBoard(
             profile = profile,
             warpResults = warpList,
@@ -472,8 +474,11 @@ private fun metaLine(r: ScanResult, warpColor: Color): AnnotatedString = buildAn
         append("  ·  :")
         append(r.port.toString())
     }
-    if (r.mode == ScanMode.WARP) {
-        // WARP rows carry the REAL proof: WG handshake + in-tunnel ping
+    if (r.mode == ScanMode.ENDPOINT) {
+        // v3.8: ENDPOINT rows carry the REAL proof — a WireGuard handshake
+        // answered (and optionally an in-tunnel ping). The tlsSuccess flag on
+        // these rows comes from the bonus :443 speed ride and is NOT the
+        // endpoint's proof, so it is never shown here.
         append("  ·  ")
         withStyle(SpanStyle(color = if (r.wgHandshakes > 0) OkMint else Fog)) { append("WG") }
         if (r.wgHandshakes > 0 && r.successfulAttempts > 0) {
@@ -487,10 +492,6 @@ private fun metaLine(r: ScanResult, warpColor: Color): AnnotatedString = buildAn
         // v3.2: TLS verify disabled — mark TCP-only results honestly
         append("  ·  ")
         withStyle(SpanStyle(color = Fog)) { append("TCP-ONLY") }
-    }
-    if (r.mode == ScanMode.WARP) {
-        append("  ·  ")
-        withStyle(SpanStyle(color = warpColor)) { append("WARP") }
     }
 }
 
@@ -538,7 +539,7 @@ private fun DetailSheet(
             overflow = TextOverflow.Ellipsis,
         )
         Spacer(Modifier.height(4.dp))
-        SectionLabel(if (r.mode == ScanMode.WARP) s.warpProfile else s.edgeProfile)
+        SectionLabel(if (r.mode == ScanMode.ENDPOINT) s.warpProfile else s.edgeProfile)
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             StatCell(s.latency, r.latencyMs?.let { "%.1f ms".format(java.util.Locale.US, it) } ?: "—", Modifier.weight(1f))
@@ -548,7 +549,7 @@ private fun DetailSheet(
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             StatCell(s.speed, r.speedMbps?.let { "%.2f Mbps".format(java.util.Locale.US, it) } ?: "—", Modifier.weight(1f))
-            if (r.mode == ScanMode.WARP) {
+            if (r.mode == ScanMode.ENDPOINT) {
                 StatCell(s.wgHs, "${r.wgHandshakes}×", Modifier.weight(1f))
                 StatCell(s.inTunnelPing, "${r.successfulAttempts}/${r.tcpAttempts}", Modifier.weight(1f))
             } else {
@@ -566,7 +567,7 @@ private fun DetailSheet(
             StatCell(s.http, r.httpStatus?.toString() ?: "—", Modifier.weight(1f))
             StatCell(s.data, "%,.1f MB".format(java.util.Locale.US, r.downloadedBytes / 1048576.0), Modifier.weight(1f))
         }
-        if (r.mode == ScanMode.WARP) {
+        if (r.mode == ScanMode.ENDPOINT) {
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 StatCell(s.score, "%.0f".format(java.util.Locale.US, SmartRanking.score(r, profile)), Modifier.weight(1f))
@@ -606,7 +607,7 @@ private fun DetailSheet(
             onCopy("${IpText.forUrl(r.ip)}:${r.port}", "Endpoint")
         }
         Spacer(Modifier.height(7.dp))
-        if (r.mode == ScanMode.WARP) {
+        if (r.mode == ScanMode.ENDPOINT) {
             ActionRow(Icons.Rounded.ContentCopy, s.copyWgEndpoint) {
                 onCopy("Endpoint = ${IpText.forUrl(r.ip)}:${r.port}", "Endpoint line")
             }

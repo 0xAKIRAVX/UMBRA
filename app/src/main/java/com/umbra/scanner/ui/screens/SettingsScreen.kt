@@ -86,8 +86,6 @@ fun SettingsScreen(app: UmbraApp) {
     val update = app.updateCenter
     val updateState by update.state.collectAsState()
     val autoUpdate by app.settings.autoUpdate.collectAsState()
-    // v3.6.2: pre-flight gate switch — "scan anyway" for WARP mode
-    val preflightGate by app.settings.preflightGate.collectAsState()
     val clipboard = LocalClipboardManager.current
     // v3.3.1: engine crash journal — read once per settings visit; CLEAR updates it
     var crashes by remember { mutableStateOf(CrashGuard.recentCrashes()) }
@@ -240,22 +238,9 @@ fun SettingsScreen(app: UmbraApp) {
 
         Spacer(Modifier.height(14.dp))
 
-        // v3.6.2: SCAN ENGINE — the pre-flight gate explained itself in the
-        // user's screenshot: after a Blocked verdict the only honest options
-        // are a different network, EDGE mode, or scanning the full duration
-        // anyway. This switch is that third option.
-        NeonCard(glow = false, modifier = Modifier.staggerIn(5)) {
-            SectionLabel(s.scanEngineSection)
-            Spacer(Modifier.height(6.dp))
-            ToggleRow(
-                title = s.preflightGate,
-                subtitle = s.preflightGateHint,
-                checked = preflightGate,
-                onChange = { app.settings.setPreflightGate(it) },
-            )
-        }
-
-        Spacer(Modifier.height(14.dp))
+        // v3.8: the SCAN ENGINE card (pre-flight gate switch) is gone with the
+        // WARP mode and its gate — the endpoint scanner never aborts early;
+        // a zero-result scan carries its own diagnosis in the Done panel.
 
         NeonCard(glow = false, modifier = Modifier.staggerIn(5)) {
             SectionLabel(s.updateChannel)

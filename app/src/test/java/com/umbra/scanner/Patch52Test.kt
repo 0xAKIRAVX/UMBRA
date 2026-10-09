@@ -54,7 +54,7 @@ class Patch52Test {
             val controller = ScanController()
             controller.debugInjectState(
                 uiState = ScanUi.Running(ScanParams(), System.currentTimeMillis()),
-                paramsValue = ScanParams(mode = ScanMode.WARP),
+                paramsValue = ScanParams(mode = ScanMode.ENDPOINT),
             )
             // the exact crash from the user's device log
             controller.engineRunner = { _, _ -> throw NoClassDefFoundError("v1.W") }

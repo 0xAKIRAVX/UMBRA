@@ -69,6 +69,8 @@ class Patch32Test {
 
     @Test
     fun `warp alive ignores tlsSkipped`() {
+        // v3.8: the contract moved to ENDPOINT mode — alive = the WireGuard
+        // handshake answered, regardless of any tls flags
         val r = ScanResult(
             ip = "162.159.192.1",
             protocol = IpProtocol.IPv4,
@@ -76,7 +78,7 @@ class Patch32Test {
             successfulAttempts = 2,
             wgHandshakes = 2,
             tlsSkipped = true,
-            mode = ScanMode.WARP,
+            mode = ScanMode.ENDPOINT,
         )
         assertTrue(r.alive)
     }

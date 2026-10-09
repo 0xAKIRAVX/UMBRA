@@ -33,7 +33,7 @@ class ResultsRestoreTest {
         ip = ip, protocol = IpProtocol.IPv4, port = 2408,
         latencyMs = 50.0, jitterMs = 4.0, packetLoss = 0.0,
         tcpAttempts = 3, successfulAttempts = 2, wgHandshakes = 3,
-        mode = ScanMode.WARP,
+        mode = ScanMode.ENDPOINT,
     )
 
     private fun edgeResult(ip: String) = ScanResult(
@@ -52,8 +52,8 @@ class ResultsRestoreTest {
 
     @Test
     fun `fresh controller hydrates warp bucket after restart`() {
-        settings.saveParams(ScanParams(mode = ScanMode.WARP))
-        settings.saveScanResults(ScanMode.WARP, listOf(warpResult("162.159.192.1"), warpResult("188.114.96.4")))
+        settings.saveParams(ScanParams(mode = ScanMode.ENDPOINT))
+        settings.saveScanResults(ScanMode.ENDPOINT, listOf(warpResult("162.159.192.1"), warpResult("188.114.96.4")))
 
         val controller = ScanController(settings) // simulates a fresh process
         assertEquals(2, controller.results.value.size)
@@ -80,8 +80,8 @@ class ResultsRestoreTest {
 
     @Test
     fun `clear results wipes both persisted buckets`() {
-        settings.saveParams(ScanParams(mode = ScanMode.WARP))
-        settings.saveScanResults(ScanMode.WARP, listOf(warpResult("162.159.192.1")))
+        settings.saveParams(ScanParams(mode = ScanMode.ENDPOINT))
+        settings.saveScanResults(ScanMode.ENDPOINT, listOf(warpResult("162.159.192.1")))
         settings.saveScanResults(ScanMode.CF_EDGE, listOf(edgeResult("104.16.1.1")))
 
         val controller = ScanController(settings)
@@ -98,8 +98,8 @@ class ResultsRestoreTest {
 
     @Test
     fun `restart after clear does not resurrect results`() {
-        settings.saveParams(ScanParams(mode = ScanMode.WARP))
-        settings.saveScanResults(ScanMode.WARP, listOf(warpResult("162.159.192.1")))
+        settings.saveParams(ScanParams(mode = ScanMode.ENDPOINT))
+        settings.saveScanResults(ScanMode.ENDPOINT, listOf(warpResult("162.159.192.1")))
         ScanController(settings).clearResults()
         assertEquals(0, ScanController(settings).results.value.size)
     }

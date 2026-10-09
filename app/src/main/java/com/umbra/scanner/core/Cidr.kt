@@ -147,43 +147,6 @@ object IpGenerator {
         return out
     }
 
-    /**
-     * WARP endpoint generation.
-     *
-     * IPv4: random sampling inside the WARP CIDR pool (as before).
-     * IPv6: real WARP v6 endpoints embed the IPv4 pool in the last 32 bits
-     * (2606:4700:d0::a29f:c001 == 162.159.192.1), so uniform sampling of the /48
-     * essentially never hits a live address. Instead each sampled IPv4 is mapped
-     * into both the d0 and d1 /96 prefixes — guaranteeing realistic candidates.
-     */
-    fun generateWarp(
-        family: NetFamily,
-        samplesPerPrefix: Int,
-        random: Random = Random(System.nanoTime()),
-    ): List<Candidate> {
-        val wantV4 = family != NetFamily.V6
-        val wantV6 = family != NetFamily.V4
-        val out = ArrayList<Candidate>(samplesPerPrefix * 6)
-        val seen = HashSet<BigInteger>(samplesPerPrefix * 8)
-
-        if (wantV4) {
-            for (c in generate(Presets.WARP_V4, NetFamily.V4, samplesPerPrefix, random)) {
-                if (seen.add(BigInteger(1, c.bytes))) out.add(c)
-            }
-        }
-        if (wantV6) {
-            val v4pool = generate(Presets.WARP_V4, NetFamily.V4, samplesPerPrefix, random)
-            for (v4 in v4pool) {
-                // 2606:4700:d0::  and  2606:4700:d1::  + embedded v4 (d0 first — DNS-verified)
-                for (prefix in listOf(Presets.WARP_V6_PREFIX_D0, Presets.WARP_V6_PREFIX_D1)) {
-                    val bytes = v6Embedded(prefix, v4.bytes) ?: continue
-                    if (seen.add(BigInteger(1, bytes))) out.add(Candidate(bytes))
-                }
-            }
-        }
-        return out
-    }
-
     /** Builds `2606:4700:d0::a29f:c001`-style bytes for a WARP v6 endpoint. */
     internal fun v6Embedded(prefix: String, v4: ByteArray): ByteArray? {
         if (v4.size != 4) return null

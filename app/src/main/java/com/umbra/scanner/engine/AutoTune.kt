@@ -8,16 +8,10 @@ import com.umbra.scanner.core.Presets
 import com.umbra.scanner.core.ScanMode
 import com.umbra.scanner.net.ExactIpHttps
 import com.umbra.scanner.net.TcpProbe
-import com.umbra.scanner.net.UdpNoiseConfig
-import com.umbra.scanner.net.WarpAccount
-import com.umbra.scanner.net.WarpProbe
-import com.umbra.scanner.net.WarpRegistration
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
@@ -29,9 +23,13 @@ import kotlin.math.roundToInt
  * Probes (all against literal IPs, DNS never involved):
  *  1. baseline RTT      — TCP :443 handshake to 1.1.1.1 / 162.159.192.1 / 104.16.1.1
  *  2. IPv6 availability — TCP :443 to 2606:4700:4700::1111 and the WARP v6 seed
- *  3. WARP port sweep   — every canonical WARP port against 2 live seed endpoints
- *  4. link capacity     — small exact-IP HTTPS download (speed.cloudflare.com SNI)
- *  5. device class      — CPU cores + low-RAM flag
+ *  3. link capacity     — small exact-IP HTTPS download (speed.cloudflare.com SNI)
+ *  4. device class      — CPU cores + low-RAM flag
+ *
+ * v3.8: the WARP-mode port sweep is gone with the mode itself. ENDPOINT tuning
+ * now follows the BPB ladder: wireguard retries 3/5/7 by network quality, the
+ * endpoint count scaled by latency, and a timeout floor of 2000 ms (a WireGuard
+ * handshake round-trip needs more headroom than a bare TCP connect).
  */
 object AutoTune {
 
@@ -39,9 +37,6 @@ object AutoTune {
     data class Calibration(
         val rttMs: Double? = null,
         val v6Ok: Boolean = false,
-        /** working WARP port → best latency over the seed endpoints (ms).
-         *  For WARP mode these come from REAL WireGuard handshakes now. */
-        val warpPortLatency: Map<Int, Double> = emptyMap(),
         val linkMbps: Double? = null,
         val cores: Int = 4,
         val lowRam: Boolean = false,
@@ -52,12 +47,11 @@ object AutoTune {
         val mode: ScanMode,
         val family: NetFamily,
         val port: Int,
-        val portSweep: Boolean,
-        val sweepPorts: List<Int>,
         val samplesPerPrefix: Int,
         /** v3.7: ENDPOINT-mode knob — ignored by every other mode. */
         val endpointsCount: Int = 500,
         val tcpAttempts: Int,
+        /** ENDPOINT only: WireGuard handshake rounds per endpoint (3/5/7). */
         val warpAttempts: Int,
         val tcpTimeoutMs: Int,
         val concurrency: Int,
@@ -103,25 +97,12 @@ object AutoTune {
         onStep("checking ipv6 route · 2 seeds :443")
         val v6 = probeV6()
 
-        val warpPorts: Map<Int, Double> = if (mode == ScanMode.WARP) {
-            onStep("registering warp identity · real wireguard sweep")
-            val account = runCatching { WarpRegistration.register() }.getOrNull()
-            if (account == null) {
-                onStep("registration failed · falling back to tcp port sweep")
-                sweepWarpPorts(rtt)
-            } else {
-                onStep("sweeping ${Presets.WARP_PORTS_FULL.size} warp ports · live handshakes")
-                sweepWarpPortsWg(account, rtt)
-            }
-        } else emptyMap()
-
         onStep("measuring link capacity · 1 mb exact-ip sample")
         val mbps = measureLink(v6)
 
         val calibration = Calibration(
             rttMs = rtt,
             v6Ok = v6,
-            warpPortLatency = warpPorts,
             linkMbps = mbps,
             cores = cores,
             lowRam = lowRam,
@@ -153,114 +134,6 @@ object AutoTune {
                 }.getOrNull()?.success == true
             }
         }.awaitAll().any { it }
-    }
-
-    /**
-     * Probes every canonical WARP port against two seed endpoints. The first
-     * round hits 162.159.192.1; ports that fail there retry against
-     * 188.114.96.1, so per-ISP port blocking is detected per port.
-     */
-    private suspend fun sweepWarpPorts(rttMs: Double?): Map<Int, Double> = coroutineScope {
-        val timeout = ((rttMs ?: 300.0) * 5.0).coerceIn(900.0, 2400.0).roundToInt()
-        val seeds = Presets.WARP_SEED_V4.mapNotNull { IpText.literalToBytes(it) }
-        val sem = Semaphore(48)
-        val first = seeds.firstOrNull() ?: return@coroutineScope emptyMap()
-
-        suspend fun probePort(port: Int, seed: ByteArray): Double? {
-            val t = runCatching {
-                withTimeoutOrNull((timeout + 400).toLong()) {
-                    TcpProbe.probe(seed, port, 1, timeout)
-                }
-            }.getOrNull()
-            return t?.latenciesMs?.minOrNull()
-        }
-
-        val best = HashMap<Int, Double>()
-        val deferred = Presets.WARP_PORTS_FULL.map { port ->
-            async(Dispatchers.IO) {
-                sem.withPermit {
-                    val lat = probePort(port, first)
-                    if (lat != null) port to lat else null
-                }
-            }
-        }
-        for (pair in deferred.awaitAll()) {
-            if (pair != null) best[pair.first] = pair.second
-        }
-
-        // retry failures against the second seed (partial per-ISP blocking)
-        val failed = Presets.WARP_PORTS_FULL.filter { it !in best }
-        if (failed.isNotEmpty() && seeds.size > 1) {
-            val second = seeds[1]
-            val retry = failed.map { port ->
-                async(Dispatchers.IO) {
-                    sem.withPermit {
-                        val lat = probePort(port, second)
-                        if (lat != null) port to lat else null
-                    }
-                }
-            }
-            for (pair in retry.awaitAll()) {
-                if (pair != null) best[pair.first] = pair.second
-            }
-        }
-        best
-    }
-
-    /**
-     * REAL WARP port sweep: one full WireGuard handshake (+ in-tunnel ping) per
-     * (port, seed) — the port list that survives is guaranteed to carry actual
-     * WARP traffic on this network, not just open TCP sockets.
-     */
-    private suspend fun sweepWarpPortsWg(account: WarpAccount, rttMs: Double?): Map<Int, Double> = coroutineScope {
-        val timeout = ((rttMs ?: 300.0) * 8.0).coerceIn(2000.0, 5000.0).roundToInt()
-        val seeds = Presets.WARP_SEED_V4.mapNotNull { IpText.literalToBytes(it) }
-        val sem = Semaphore(32)
-        val probe = WarpProbe(account, noise = UdpNoiseConfig(enabled = true, count = 5))
-        val best = HashMap<Int, Double>()
-
-        suspend fun probePort(port: Int, seed: ByteArray): Double? {
-            val stats = runCatching {
-                withTimeoutOrNull((timeout + 1000).toLong()) {
-                    probe.probe(seed, port, attempts = 1, timeoutMs = timeout, interAttemptDelayMs = 0)
-                }
-            }.getOrNull() ?: return null
-            return when {
-                stats.pings > 0 -> stats.avgPingMs ?: stats.handshakeLatenciesMs.minOrNull()
-                stats.handshakes > 0 -> stats.handshakeLatenciesMs.minOrNull()
-                else -> null
-            }
-        }
-
-        val first = seeds.firstOrNull() ?: return@coroutineScope emptyMap()
-        val deferred = Presets.WARP_PORTS_FULL.map { port ->
-            async(Dispatchers.IO) {
-                sem.withPermit {
-                    val lat = probePort(port, first)
-                    if (lat != null) port to lat else null
-                }
-            }
-        }
-        for (pair in deferred.awaitAll()) {
-            if (pair != null) best[pair.first] = pair.second
-        }
-
-        val failed = Presets.WARP_PORTS_FULL.filter { it !in best }
-        if (failed.isNotEmpty() && seeds.size > 1) {
-            val second = seeds[1]
-            val retry = failed.map { port ->
-                async(Dispatchers.IO) {
-                    sem.withPermit {
-                        val lat = probePort(port, second)
-                        if (lat != null) port to lat else null
-                    }
-                }
-            }
-            for (pair in retry.awaitAll()) {
-                if (pair != null) best[pair.first] = pair.second
-            }
-        }
-        best
     }
 
     private suspend fun measureLink(v6Ok: Boolean): Double? {
@@ -298,45 +171,25 @@ object AutoTune {
         notes.add(if (c.v6Ok) "ipv6 route live · scanning both families" else "no ipv6 route · ipv4 only")
 
         // ---- timeout ----
+        // v3.8: ENDPOINT needs a WireGuard handshake round-trip, not a bare
+        // TCP connect — keep a 2000 ms floor so slow-radio networks (EDGE
+        // class) can still complete handshakes.
         val rtt = c.rttMs
+        val endpointMode = mode == ScanMode.ENDPOINT
         val timeout = when {
             rtt == null -> 1500
             else -> (rtt * 4.0).roundToInt().coerceIn(700, 2600)
         }.let { t -> ((t + 99) / 100) * 100 } // round up to 100ms
-        notes.add(if (rtt != null) "rtt ${rtt.roundToInt()}ms → timeout ${timeout}ms" else "rtt unknown → timeout ${timeout}ms")
+            .let { t -> if (endpointMode) maxOf(t, 2000) else t }
+        notes.add(
+            (if (rtt != null) "rtt ${rtt.roundToInt()}ms" else "rtt unknown") +
+                " → timeout ${timeout}ms" + if (endpointMode) " (wg floor 2000)" else ""
+        )
 
-        // ---- ports (WARP only) ----
-        var port = Presets.defaultPort(mode)
-        var sweep = false
-        var sweepPorts: List<Int> = emptyList()
-        if (mode == ScanMode.WARP) {
-            val working = c.warpPortLatency.entries
-                .sortedWith(compareBy({ it.value }, { it.key }))
-                .map { it.key }
-            when {
-                working.isEmpty() -> {
-                    port = 443
-                    notes.add("no wireguard answer on any port → :443 sweep fallback")
-                    sweep = true
-                    sweepPorts = Presets.WARP_PORTS_FULL.take(16)
-                }
-                2408 in working -> {
-                    port = 2408
-                    sweep = working.size >= 4
-                    if (sweep) {
-                        sweepPorts = (listOf(2408) + working.filter { it != 2408 }).take(12)
-                        notes.add("port 2408 handshakes · sweeping ${sweepPorts.size} wg-verified ports")
-                    } else {
-                        notes.add("port 2408 handshakes · single-port lock")
-                    }
-                }
-                else -> {
-                    sweep = true
-                    sweepPorts = (working + 443).distinct().take(16)
-                    port = sweepPorts.first()
-                    notes.add("2408 silent → sweep ${sweepPorts.size} wg-verified ports (${sweepPorts.take(4).joinToString("/")}${if (sweepPorts.size > 4) "…" else ""})")
-                }
-            }
+        // ---- ports ----
+        val port = Presets.defaultPort(mode)
+        if (endpointMode) {
+            notes.add("random port per endpoint from the ${Presets.warpPortsCount()} canonical warp ports")
         }
 
         // ---- concurrency (cpu + ram + link aware) ----
@@ -348,13 +201,7 @@ object AutoTune {
         )
 
         // ---- sampling ----
-        // TLS verification (EDGE/CUSTOM) and the WG handshake storm (WARP) are
-        // the real filters, so candidate counts stay moderate for wall-time.
-        val samples = when {
-            sweep -> if (c.lowRam) 64 else 96
-            mode == ScanMode.WARP -> if (c.lowRam) 150 else 250
-            else -> if (c.lowRam) 64 else 96
-        }
+        val samples = if (c.lowRam) 64 else 96
 
         // ---- speed test ----
         val mbps = c.linkMbps
@@ -366,7 +213,6 @@ object AutoTune {
         }
         // v3.7: endpoint mode ships as a pure latency scan (BPB parity) —
         // no TLS phase exists there and the throughput pass stays opt-in.
-        val endpointMode = mode == ScanMode.ENDPOINT
         val speedTest = !endpointMode
         val tlsVerify = !endpointMode
         val speedConcurrency = if (c.lowRam) 2 else if (mbps != null && mbps < 2.0) 3 else 4
@@ -375,26 +221,20 @@ object AutoTune {
             else "link unknown → ${downloadMb}mb sample"
         )
 
-        // ---- WARP retries (BPB-style 3/5/7 by network quality) ----
-        val warpAttempts = when {
-            mode != ScanMode.WARP -> 3
+        // ---- attempts ----
+        // BPB ladder (network.go: poor → 7, moderate → 5, good → 3). For
+        // ENDPOINT these are WireGuard handshake rounds per endpoint; for
+        // EDGE/CUSTOM they are plain TCP attempts.
+        val attempts = when {
             rtt == null -> 5
             rtt >= 200.0 -> 7
             rtt >= 100.0 -> 5
             else -> 3
         }
-        // v3.7: ENDPOINT mode — BPB-style retries apply to the TCP probes too
-        // (network.go: poor → 7, moderate → 5, good → 3), and the endpoint
-        // count scales with measured latency so a slow line still finishes.
-        var tcpAttempts = 3
+        val tcpAttempts = attempts
+        val warpAttempts = attempts
         var endpointsCount = 500
-        if (mode == ScanMode.ENDPOINT) {
-            tcpAttempts = when {
-                rtt == null -> 5
-                rtt >= 200.0 -> 7
-                rtt >= 100.0 -> 5
-                else -> 3
-            }
+        if (endpointMode) {
             endpointsCount = when {
                 rtt == null -> 400
                 rtt >= 200.0 -> 300
@@ -402,28 +242,21 @@ object AutoTune {
                 else -> 700
             }
             notes.add(
-                if (rtt != null) "rtt ${rtt.roundToInt()}ms → $tcpAttempts tcp probes per endpoint"
-                else "rtt unknown → $tcpAttempts tcp probes per endpoint"
+                (if (rtt != null) "rtt ${rtt.roundToInt()}ms" else "rtt unknown") +
+                    " → $warpAttempts wireguard retries per endpoint"
             )
-            notes.add("endpoint scan: random ip:port pairs across the warp ranges · v4 + v6 · pure tcp — no udp, no registration")
-        }
-        if (mode == ScanMode.WARP) {
             notes.add(
-                if (rtt != null) "rtt ${rtt.roundToInt()}ms → ${warpAttempts} wireguard retries per endpoint"
-                else "rtt unknown → ${warpAttempts} wireguard retries per endpoint"
+                "every endpoint is proven by a real wireguard handshake — tcp-alive " +
+                    "endpoints are never reported (they do not work in wireguard)"
             )
-            notes.add("every endpoint is proven by handshake + in-tunnel ping · results work in wireguard/v2rayng")
-        } else if (mode != ScanMode.ENDPOINT) {
+        } else {
             notes.add("every result is tls-cert-verified — dpi fake endpoints are discarded")
         }
-        if (mode == ScanMode.WARP) notes.add("warp speed is measured on :443 — warp ports never serve the speed endpoint")
 
         return TuneResult(
             mode = mode,
             family = family,
             port = port,
-            portSweep = sweep,
-            sweepPorts = sweepPorts,
             samplesPerPrefix = samples,
             endpointsCount = endpointsCount,
             tcpAttempts = tcpAttempts,

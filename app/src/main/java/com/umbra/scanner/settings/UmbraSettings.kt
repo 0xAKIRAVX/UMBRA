@@ -7,7 +7,6 @@ import com.umbra.scanner.core.ResultCodec
 import com.umbra.scanner.core.ScanMode
 import com.umbra.scanner.core.ScanParams
 import com.umbra.scanner.core.ScanResult
-import com.umbra.scanner.core.WarpFlavor
 import com.umbra.scanner.i18n.AppLanguage
 import com.umbra.scanner.net.NetQuality
 import com.umbra.scanner.net.NetworkProfile
@@ -40,16 +39,6 @@ class UmbraSettings(context: Context) {
     val dismissedUpdateTag = MutableStateFlow(prefs.getString("dismissed_update_tag", null))
     val lastUpdateCheck = MutableStateFlow(prefs.getLong("last_update_check", 0L))
 
-    /** v3.6.2: WARP pre-flight gate ("scan anyway" switch). Default ON —
-     *  disabled only after a Blocked verdict, when the user explicitly
-     *  wants the full-duration scan instead of the early honest abort. */
-    val preflightGate = MutableStateFlow(prefs.getBoolean("preflight_gate", true))
-
-    fun setPreflightGate(v: Boolean) {
-        preflightGate.value = v
-        prefs.edit().putBoolean("preflight_gate", v).apply()
-    }
-
     // ── v3.1.1: POST_NOTIFICATIONS is asked exactly once, not on every scan ──
     val notifAsked = MutableStateFlow(prefs.getBoolean("notif_asked", false))
 
@@ -69,8 +58,10 @@ class UmbraSettings(context: Context) {
         prefs.edit().putString("net_profile_v1", NetQuality.profileToJson(p)).apply()
     }
 
-    // ── netsense: last verified results per bucket (WARP / CF-EDGE) so the
-    //    smart-pick board can recommend BOTH families at once ──
+    // ── netsense: last verified results per bucket (WARP endpoints / CF-EDGE)
+    //    so the smart-pick board can recommend BOTH families at once.
+    //    v3.8: the "warp" bucket is fed by ENDPOINT scans (they ARE warp
+    //    endpoints — handshake-validated); the WARP mode itself is gone. ──
     private val _savedWarpResults = MutableStateFlow(loadSaved("saved_warp_v1"))
     val savedWarpResults = _savedWarpResults.asStateFlow()
 
@@ -81,9 +72,18 @@ class UmbraSettings(context: Context) {
         ResultCodec.fromJsonList(prefs.getString(key, null))
 
     /** Mode of the last completed scan (p_mode is persisted on every start).
-     *  v3.7: default is ENDPOINT (the app's new headline mode). */
-    fun lastScanMode(): ScanMode =
-        ScanMode.entries.getOrElse(prefs.getInt("p_mode", ScanMode.ENDPOINT.ordinal)) { ScanMode.ENDPOINT }
+     *  v3.8: ENDPOINT is the default and the WARP mode is gone; a PRE-v3.8
+     *  stored ordinal is bridged through [ScanMode.fromLegacyOrdinal] until
+     *  the one-time migration in [loadParams] rewrites it into the new
+     *  ordinal space. */
+    fun lastScanMode(): ScanMode {
+        val raw = prefs.getInt("p_mode", ScanMode.ENDPOINT.ordinal)
+        return if (prefs.getBoolean("p_mode_mig_v38", false)) {
+            ScanMode.entries.getOrElse(raw) { ScanMode.ENDPOINT }
+        } else {
+            ScanMode.fromLegacyOrdinal(raw)
+        }
+    }
 
     /** v3.1.1: wipes BOTH persisted buckets — the clear-board button must
      *  actually clear the board, not just the in-memory list. */
@@ -96,7 +96,9 @@ class UmbraSettings(context: Context) {
     fun saveScanResults(mode: ScanMode, results: List<ScanResult>) {
         val capped = results.take(60)
         when (mode) {
-            ScanMode.WARP -> {
+            // v3.8: ENDPOINT rows are WARP endpoints (handshake-validated) —
+            // they feed the warp bucket of the smart-pick board.
+            ScanMode.ENDPOINT -> {
                 _savedWarpResults.value = capped
                 prefs.edit().putString("saved_warp_v1", ResultCodec.toJsonList(capped)).apply()
             }
@@ -136,35 +138,30 @@ class UmbraSettings(context: Context) {
             .putBoolean("p_speed", p.speedTest)
             .putInt("p_speedN", p.speedTopN)
             .putInt("p_dlmb", p.downloadMbLabel)
-            .putInt("p_warp", p.warpFlavor.ordinal)
-            .putBoolean("p_sweep", p.portSweep)
-            .putString("p_sweepports", p.sweepPorts.joinToString(","))
             .putInt("p_speedconc", p.speedConcurrency)
             .putInt("p_warptries", p.warpAttempts)
             .putBoolean("p_noise", p.udpNoise)
             .putInt("p_noisecnt", p.noiseCount)
-            .putString("p_license", p.warpLicenseKey)
+            .putBoolean("p_mode_mig_v38", true)
             .apply()
     }
 
     fun loadParams(): ScanParams {
-        // v3.7: ENDPOINT is the new default mode for fresh installs, and a
-        // one-time migration moves users stranded on WARP (UDP-blocked
-        // networks — the exact failure the v3.6.2 gate diagnoses) onto the
-        // TCP-based endpoint scanner. The migration runs ONCE: re-selecting
-        // WARP afterwards sticks.
-        val storedMode = prefs.getInt("p_mode", ScanMode.ENDPOINT.ordinal)
-        var mode = ScanMode.entries.getOrElse(storedMode) { ScanMode.ENDPOINT }
-        if (mode == ScanMode.WARP && !prefs.getBoolean("p_mode_mig_v37", false)) {
-            mode = ScanMode.ENDPOINT
+        // v3.8: the WARP mode is REMOVED and the enum ordinals were remapped
+        // (CF_EDGE=0, CUSTOM=1, ENDPOINT=2). A PRE-v3.8 stored p_mode ordinal
+        // (1=WARP, 2=CUSTOM, 3=ENDPOINT) is bridged once through
+        // fromLegacyOrdinal and rewritten; from then on the stored value is
+        // already in the new ordinal space. Users coming from WARP (the mode
+        // that never worked on their network) land on the ENDPOINT scanner.
+        var mode = lastScanMode()
+        if (!prefs.getBoolean("p_mode_mig_v38", false)) {
+            mode = ScanMode.fromLegacyOrdinal(prefs.getInt("p_mode", ScanMode.ENDPOINT.ordinal))
             prefs.edit()
                 .putInt("p_mode", mode.ordinal)
-                .putBoolean("p_mode_mig_v37", true)
-                .putInt("p_port", 0) // RANDOM ports for the endpoint scanner
+                .putBoolean("p_mode_mig_v38", true)
                 .apply()
         }
         val family = NetFamily.entries.getOrElse(prefs.getInt("p_family", 0)) { NetFamily.BOTH }
-        val flavor = WarpFlavor.entries.getOrElse(prefs.getInt("p_warp", 0)) { WarpFlavor.WARP }
         val custom = prefs.getString("p_cidrs", "") ?: ""
         // v3.7: port 0 is the ENDPOINT "RANDOM port" sentinel — every other
         // mode pins a real port and gets coerced into 1..65535.
@@ -192,17 +189,9 @@ class UmbraSettings(context: Context) {
             speedTopN = prefs.getInt("p_speedN", 50).coerceIn(5, 300),
             speedConcurrency = prefs.getInt("p_speedconc", 4).coerceIn(1, 8),
             downloadBytes = (prefs.getInt("p_dlmb", 20).coerceIn(1, 100)).toLong() * 1024 * 1024,
-            warpFlavor = flavor,
-            portSweep = prefs.getBoolean("p_sweep", false) && mode == ScanMode.WARP,
-            sweepPorts = (prefs.getString("p_sweepports", "") ?: "")
-                .split(',').mapNotNull { it.trim().toIntOrNull() }
-                .filter { it in 1..65535 },
             warpAttempts = prefs.getInt("p_warptries", 3).coerceIn(1, 7),
             udpNoise = prefs.getBoolean("p_noise", true),
             noiseCount = prefs.getInt("p_noisecnt", 5).coerceIn(1, 50),
-            // v3.4: WARP+ license key (blank = free warp) — trimmed so a
-            // whitespace-only paste never counts as "a key was given"
-            warpLicenseKey = (prefs.getString("p_license", "") ?: "").trim(),
         )
     }
 

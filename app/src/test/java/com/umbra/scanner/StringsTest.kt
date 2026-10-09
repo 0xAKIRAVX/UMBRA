@@ -44,19 +44,15 @@ class StringsTest {
         Triple("configureNewScan", EnglishStrings.configureNewScan, PersianStrings.configureNewScan),
         Triple("mode", EnglishStrings.mode, PersianStrings.mode),
         Triple("taglineCfEdge", EnglishStrings.taglineCfEdge, PersianStrings.taglineCfEdge),
-        Triple("taglineWarp", EnglishStrings.taglineWarp, PersianStrings.taglineWarp),
         Triple("taglineCustom", EnglishStrings.taglineCustom, PersianStrings.taglineCustom),
         // v3.7: ENDPOINT scan mode strings
         Triple("modeEndpoint", EnglishStrings.modeEndpoint, PersianStrings.modeEndpoint),
         Triple("taglineEndpoint", EnglishStrings.taglineEndpoint, PersianStrings.taglineEndpoint),
+        Triple("endpointValidationHint", EnglishStrings.endpointValidationHint, PersianStrings.endpointValidationHint),
         Triple("endpointsCountLabel", EnglishStrings.endpointsCountLabel, PersianStrings.endpointsCountLabel),
         Triple("randomPortLabel", EnglishStrings.randomPortLabel, PersianStrings.randomPortLabel),
         Triple("endpointPortHint", EnglishStrings.endpointPortHint, PersianStrings.endpointPortHint),
         Triple("speedTestHintEndpoint", EnglishStrings.speedTestHintEndpoint, PersianStrings.speedTestHintEndpoint),
-        Triple("flavor", EnglishStrings.flavor, PersianStrings.flavor),
-        // v3.4: WARP+ license key field
-        Triple("warpLicensePlaceholder", EnglishStrings.warpLicensePlaceholder, PersianStrings.warpLicensePlaceholder),
-        Triple("warpLicenseHint", EnglishStrings.warpLicenseHint, PersianStrings.warpLicenseHint),
         Triple("family", EnglishStrings.family, PersianStrings.family),
         Triple("cidrList", EnglishStrings.cidrList, PersianStrings.cidrList),
         Triple("addCfSet", EnglishStrings.addCfSet, PersianStrings.addCfSet),
@@ -70,7 +66,6 @@ class StringsTest {
         Triple("port", EnglishStrings.port, PersianStrings.port),
         Triple("udpNoise", EnglishStrings.udpNoise, PersianStrings.udpNoise),
         Triple("udpNoiseHint", EnglishStrings.udpNoiseHint, PersianStrings.udpNoiseHint),
-        Triple("warpSingleHint", EnglishStrings.warpSingleHint, PersianStrings.warpSingleHint),
         Triple("engine", EnglishStrings.engine, PersianStrings.engine),
         Triple("advancedEngine", EnglishStrings.advancedEngine, PersianStrings.advancedEngine),
         Triple("hideAdvanced", EnglishStrings.hideAdvanced, PersianStrings.hideAdvanced),
@@ -85,7 +80,6 @@ class StringsTest {
         Triple("tlsVerify", EnglishStrings.tlsVerify, PersianStrings.tlsVerify),
         Triple("tlsVerifyHint", EnglishStrings.tlsVerifyHint, PersianStrings.tlsVerifyHint),
         Triple("speedTest", EnglishStrings.speedTest, PersianStrings.speedTest),
-        Triple("speedTestHintWarp", EnglishStrings.speedTestHintWarp, PersianStrings.speedTestHintWarp),
         Triple("speedTestHintEdge", EnglishStrings.speedTestHintEdge, PersianStrings.speedTestHintEdge),
         Triple("downloadSize", EnglishStrings.downloadSize, PersianStrings.downloadSize),
         Triple("initiateDeepScan", EnglishStrings.initiateDeepScan, PersianStrings.initiateDeepScan),
@@ -150,9 +144,6 @@ class StringsTest {
         Triple("updateChannel", EnglishStrings.updateChannel, PersianStrings.updateChannel),
         Triple("autoCheck", EnglishStrings.autoCheck, PersianStrings.autoCheck),
         Triple("autoCheckHint", EnglishStrings.autoCheckHint, PersianStrings.autoCheckHint),
-        Triple("scanEngineSection", EnglishStrings.scanEngineSection, PersianStrings.scanEngineSection),
-        Triple("preflightGate", EnglishStrings.preflightGate, PersianStrings.preflightGate),
-        Triple("preflightGateHint", EnglishStrings.preflightGateHint, PersianStrings.preflightGateHint),
         Triple("contactingGithub", EnglishStrings.contactingGithub, PersianStrings.contactingGithub),
         Triple("githubUnreachable", EnglishStrings.githubUnreachable, PersianStrings.githubUnreachable),
         Triple("updateIdle", EnglishStrings.updateIdle, PersianStrings.updateIdle),
@@ -233,7 +224,7 @@ class StringsTest {
 
     @Test
     fun `parameterized strings render their arguments`() {
-        check("SWEEP ×12" == EnglishStrings.sweepLabel(12)) { "en sweep label broke" }
+        check("≈ 504 ENDPOINTS · 1 WIREGUARD PROBE EACH" == EnglishStrings.endpointsEstimate(504)) { "en endpoints estimate broke" }
         check("×3" == EnglishStrings.retryLabel(3))
         check("REVEAL 150 MORE · 9 HIDDEN" == EnglishStrings.revealMore(9))
         check("≈ 2400 PROBES · 14 PREFIXES" == EnglishStrings.probesEstimate(2400, 14))
@@ -244,7 +235,7 @@ class StringsTest {
         check("GET v3.0.0" == EnglishStrings.getVersion("3.0.0"))
         check("CLEAR RESULT BOARD (12)" == EnglishStrings.clearResultBoard(12))
         check("unlocks 90 / 120 / 144 Hz — display: 120 Hz" == EnglishStrings.maxRefreshHint("120"))
-        check("جارو ×12" == PersianStrings.sweepLabel(12))
+        check("≈ 504 اندپوینت · هر کدام یک پروب WireGuard" == PersianStrings.endpointsEstimate(504))
         check("۱۵۰ مورد بیشتر · 9 مخفی" == PersianStrings.revealMore(9))
         check("آخرین خطا · x" == PersianStrings.lastError("x"))
         // v3.1 netsense parameters

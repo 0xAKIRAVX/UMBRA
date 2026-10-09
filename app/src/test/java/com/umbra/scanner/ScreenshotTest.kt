@@ -89,7 +89,7 @@ class ScreenshotTest {
             tcpAttempts = 3, successfulAttempts = 3,
             tlsSuccess = true, tlsHandshakeMs = 31.2, httpStatus = 200,
             wgHandshakes = 3,
-            mode = ScanMode.WARP,
+            mode = ScanMode.ENDPOINT,
         ),
         ScanResult(
             ip = "2606:4700:d0::a29f:c001", protocol = IpProtocol.IPv6, port = 2408,
@@ -98,7 +98,7 @@ class ScreenshotTest {
             tcpAttempts = 3, successfulAttempts = 3,
             tlsSuccess = true, tlsHandshakeMs = 35.9, httpStatus = 200,
             wgHandshakes = 3,
-            mode = ScanMode.WARP,
+            mode = ScanMode.ENDPOINT,
         ),
         ScanResult(
             ip = "104.17.214.49", protocol = IpProtocol.IPv4, port = 8443,
@@ -114,7 +114,7 @@ class ScreenshotTest {
             tcpAttempts = 3, successfulAttempts = 3,
             tlsSuccess = true, tlsHandshakeMs = 48.4, httpStatus = null,
             wgHandshakes = 3,
-            mode = ScanMode.WARP,
+            mode = ScanMode.ENDPOINT,
         ),
     )
 
@@ -128,14 +128,15 @@ class ScreenshotTest {
 
     @Test
     fun `02 scan running live`() {
-        val params = ScanParams(mode = ScanMode.WARP, port = 2408, portSweep = true)
+        // v3.8: the endpoint scan in full flight — WG handshake validation
+        val params = ScanParams(mode = ScanMode.ENDPOINT, port = 0)
         app.controller.debugInjectState(
             uiState = ScanUi.Running(params, System.currentTimeMillis()),
             statsValue = ScanStats(
-                phase = ScanPhase.TCP,
-                candidates = 4080,
-                tested = 2563,
-                alive = 611,
+                phase = ScanPhase.WG,
+                candidates = 504,
+                tested = 331,
+                alive = 96,
                 tlsOk = 0,
                 speedTested = 0,
                 active = 150,
@@ -143,11 +144,12 @@ class ScreenshotTest {
                 ratePerSec = 60.6,
                 etaSec = 25.0,
             ),
-            topValue = sampleResults().take(3),
+            topValue = sampleResults().filter { it.wgHandshakes > 0 }.take(3),
             logValue = listOf(
-                "scan session started · mode WARP · 3 attempts × 2000 ms",
-                "sweep 68 ports × 60 endpoints = 4080 probes",
-                "tcp storm · 150 lanes open",
+                "scan session started · mode ENDPOINT · 500 random ip:port endpoints + 4 seeds",
+                "generated 504 endpoints · v4 252 · v6 252 · 4 live-verified seeds + 500 random",
+                "warp identity ready · handshake validation live",
+                "wg probe storm · 150 lanes open",
             ),
         )
         compose.mainClock.autoAdvance = false

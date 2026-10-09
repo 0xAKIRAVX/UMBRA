@@ -22,7 +22,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,9 +33,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
+import com.umbra.scanner.i18n.AppLanguage
 import com.umbra.scanner.i18n.LocalStrings
 import com.umbra.scanner.ui.UmbraRoot
 import com.umbra.scanner.ui.components.OrbitGlobe
@@ -57,9 +62,24 @@ class MainActivity : ComponentActivity() {
             isAppearanceLightNavigationBars = false
         }
         setContent {
-            UmbraTheme(settings = app.settings) {
-                UmbraRoot(app = app)
-                BootSplash(version = "v" + app.updateCenter.currentVersion)
+            // v3.8 (visual bug fix): the app ships a full Persian translation
+            // but the layout stayed LTR in فارسی — Persian text left-aligned in
+            // an LTR frame looks broken. Persian users now get a proper RTL
+            // mirror (nav order, paddings, chevrons) exactly like v2rayNG and
+            // Hiddify do in FA. Latin technical tokens (IPs, ports, WG) are
+            // unaffected — the bidi algorithm keeps LTR runs readable.
+            val language by app.settings.language.collectAsState()
+            CompositionLocalProvider(
+                LocalLayoutDirection provides if (language == AppLanguage.PERSIAN) {
+                    LayoutDirection.Rtl
+                } else {
+                    LayoutDirection.Ltr
+                }
+            ) {
+                UmbraTheme(settings = app.settings) {
+                    UmbraRoot(app = app)
+                    BootSplash(version = "v" + app.updateCenter.currentVersion)
+                }
             }
         }
         scheduleUpdateCheck()

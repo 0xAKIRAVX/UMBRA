@@ -43,6 +43,11 @@ data class WarpProbeStats(
     /** BPB-style average latency of successful pings. */
     val avgPingMs: Double? get() = pingLatenciesMs.takeIf { it.isNotEmpty() }?.average()
 
+    /** v3.8: average handshake round-trip — the ENDPOINT mode's ranking
+     *  metric when the (bonus) in-tunnel ping never answered. A completed
+     *  handshake alone already proves the endpoint speaks WireGuard. */
+    val avgHandshakeMs: Double? get() = handshakeLatenciesMs.takeIf { it.isNotEmpty() }?.average()
+
     val jitterMs: Double?
         get() {
             val lat = pingLatenciesMs

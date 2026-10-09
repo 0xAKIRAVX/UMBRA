@@ -13,6 +13,15 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/**
+ * v3.8 — core contracts of the WARP endpoint machinery (all of it now in the
+ * service of ENDPOINT mode; the standalone WARP mode is gone):
+ *
+ *  - v6 endpoint embedding (d0/d1 prefixes carry the v4 pool in the last 32 bits)
+ *  - the canonical WARP port list
+ *  - speed always riding :443
+ *  - the BPB 3/5/7 wireguard-retry ladder in auto-tune
+ */
 class WarpScanTest {
 
     // ── WARP v6 endpoint embedding ──────────────────────────────────
@@ -42,48 +51,19 @@ class WarpScanTest {
     }
 
     @Test
-    fun `generateWarp produces v4 and embedded v6 only`() {
-        val candidates = IpGenerator.generateWarp(NetFamily.BOTH, 40)
-        assertTrue(candidates.isNotEmpty())
-        assertTrue(candidates.any { it.protocol == IpProtocol.IPv4 })
-        val v6 = candidates.filter { it.protocol == IpProtocol.IPv6 }
-        assertTrue(v6.isNotEmpty())
-        // every v6 candidate must carry a real embedded v4 pattern, never a
-        // uniformly random /48 address (which is what the old bug produced)
-        v6.forEach { c ->
+    fun `endpoint v6 pool follows the embedded d0-d1 pattern`() {
+        val pairs = IpGenerator.generateEndpoints(NetFamily.V6, 200, 0, kotlin.random.Random(21))
+        assertTrue(pairs.isNotEmpty())
+        pairs.forEach { p ->
+            val t = p.candidate.text
             assertTrue(
-                "candidate ${c.text} must match d0/d1 embedded pattern",
-                c.text.startsWith("2606:4700:d0::") || c.text.startsWith("2606:4700:d1::")
+                "candidate $t must match d0/d1 embedded pattern",
+                t.startsWith("2606:4700:d0:") || t.startsWith("2606:4700:d1:")
             )
-            // the embedded v4 (last 32 bits) must be inside a WARP v4 prefix
-            val lastTwo = c.text.substringAfterLast("::")
-            val groups = lastTwo.split(':')
-            assertEquals(2, groups.size)
-            val v4text = groups.flatMap { g ->
-                val h = g.toInt(16)
-                listOf((h shr 8) and 0xFF, h and 0xFF)
-            }.joinToString(".")
-            val v4bytes = IpText.literalToBytes(v4text)
-            assertNotNull("embedded v4 $v4text must parse", v4bytes)
-            val value = java.math.BigInteger(1, v4bytes!!)
-            val inside = Presets.WARP_V4.any { cidr ->
-                val b = com.umbra.scanner.core.CidrBlock.parse(cidr)!!
-                value >= b.base && value < b.base.add(b.size)
-            }
-            assertTrue("embedded v4 $v4text must be inside a warp cidr", inside)
         }
     }
 
-    @Test
-    fun `generateWarp respects family filter`() {
-        val v4only = IpGenerator.generateWarp(NetFamily.V4, 20)
-        assertTrue(v4only.all { it.protocol == IpProtocol.IPv4 })
-        val v6only = IpGenerator.generateWarp(NetFamily.V6, 20)
-        assertTrue(v6only.isNotEmpty())
-        assertTrue(v6only.all { it.protocol == IpProtocol.IPv6 })
-    }
-
-    // ── port sweep plumbing ─────────────────────────────────────────
+    // ── port list ───────────────────────────────────────────────────
 
     @Test
     fun `warp ports full is sane`() {
@@ -95,137 +75,87 @@ class WarpScanTest {
     }
 
     @Test
-    fun `effective ports respects sweep and family`() {
-        val sweep = ScanParams(mode = ScanMode.WARP, port = 2408, portSweep = true)
-        assertEquals(Presets.WARP_PORTS_FULL, sweep.effectivePorts)
-        val sweepCustom = sweep.copy(sweepPorts = listOf(894, 443))
-        assertEquals(listOf(443, 894), sweepCustom.effectivePorts)
-        val single = ScanParams(mode = ScanMode.WARP, port = 894, portSweep = false)
-        assertEquals(listOf(894), single.effectivePorts)
-        val edge = ScanParams(mode = ScanMode.CF_EDGE, port = 443, portSweep = true)
-        assertEquals(listOf(443), edge.effectivePorts)
+    fun `endpoint speed always rides 443`() {
+        val endpoint = ScanParams(mode = ScanMode.ENDPOINT, port = 2408)
+        assertEquals(443, endpoint.speedPort)
+        val endpointRandom = ScanParams(mode = ScanMode.ENDPOINT, port = 0)
+        assertEquals(443, endpointRandom.speedPort)
+        val edge = ScanParams(mode = ScanMode.CF_EDGE, port = 2053)
+        assertEquals(2053, edge.speedPort)
     }
 
     @Test
-    fun `warp speed always rides 443`() {
-        val warp = ScanParams(mode = ScanMode.WARP, port = 2408)
-        assertEquals(443, warp.speedPort)
-        val edge = ScanParams(mode = ScanMode.CF_EDGE, port = 2053)
-        assertEquals(2053, edge.speedPort)
+    fun `endpoint mode never runs a tls phase`() {
+        val endpoint = ScanParams(mode = ScanMode.ENDPOINT, tlsVerify = true)
+        assertTrue(!endpoint.needsTlsPhase)
+        val edge = ScanParams(mode = ScanMode.CF_EDGE, tlsVerify = true)
+        assertTrue(edge.needsTlsPhase)
+    }
+
+    @Test
+    fun `legacy mode ordinals migrate to the new enum`() {
+        // v3.8: old persisted p_mode values (0=CF_EDGE, 1=WARP, 2=CUSTOM, 3=ENDPOINT)
+        assertEquals(ScanMode.CF_EDGE, ScanMode.fromLegacyOrdinal(0))
+        assertEquals(ScanMode.ENDPOINT, ScanMode.fromLegacyOrdinal(1))   // old WARP
+        assertEquals(ScanMode.CUSTOM, ScanMode.fromLegacyOrdinal(2))
+        assertEquals(ScanMode.ENDPOINT, ScanMode.fromLegacyOrdinal(3))
+        assertEquals(ScanMode.ENDPOINT, ScanMode.fromLegacyOrdinal(99))  // garbage → default
+        // new-space ordinals are stable
+        assertEquals(0, ScanMode.CF_EDGE.ordinal)
+        assertEquals(1, ScanMode.CUSTOM.ordinal)
+        assertEquals(2, ScanMode.ENDPOINT.ordinal)
     }
 
     // ── auto-tune decisions (pure function) ─────────────────────────
 
     @Test
-    fun `tune locks 2408 when open`() {
-        val r = AutoTune.decide(
-            AutoTune.Calibration(
-                rttMs = 120.0,
-                v6Ok = false,
-                warpPortLatency = mapOf(2408 to 45.0, 894 to 50.0, 443 to 47.0, 928 to 52.0),
-                linkMbps = 12.0,
-                cores = 8,
-                lowRam = false,
-            ),
-            ScanMode.WARP,
+    fun `tune endpoint mode scales retries and count with rtt`() {
+        fun endpointTune(rtt: Double?): AutoTune.TuneResult = AutoTune.decide(
+            AutoTune.Calibration(rttMs = rtt, v6Ok = false, cores = 8, lowRam = false),
+            ScanMode.ENDPOINT,
         )
-        assertEquals(NetFamily.V4, r.family)
-        assertEquals(2408, r.port)
-        assertEquals(true, r.portSweep) // 4 working ports → sweep with 2408 first
-        assertTrue(r.sweepPorts.first() == 2408)
-        assertTrue(r.tcpTimeoutMs in 500..700) // 4×120 → coerced to 700
-        assertEquals(3, r.tcpAttempts)
-        assertTrue(r.concurrency in 96..320)
-        assertTrue(r.downloadMb == 10) // 12mbps → 10mb
+        val good = endpointTune(45.0)
+        assertEquals(3, good.warpAttempts)      // good network → BPB ladder bottom
+        assertEquals(3, good.tcpAttempts)       // the ladder mirrors the tcp side
+        assertEquals(2000, good.tcpTimeoutMs)   // wg handshake floor
+        assertEquals(0, good.port)              // RANDOM ports
+        assertEquals(700, good.endpointsCount)
+        assertEquals(false, good.speedTest)     // latency-first (BPB parity)
+        assertEquals(false, good.tlsVerify)
+
+        val poor = endpointTune(250.0)
+        assertEquals(7, poor.warpAttempts)      // poor network → ladder top
+        assertEquals(300, poor.endpointsCount)
+        assertEquals(2000, poor.tcpTimeoutMs)
+
+        val unknown = endpointTune(null)
+        assertEquals(5, unknown.warpAttempts)
+        assertEquals(400, unknown.endpointsCount)
     }
 
     @Test
-    fun `tune sweeps when 2408 blocked`() {
+    fun `tune notes promise handshake validation`() {
         val r = AutoTune.decide(
-            AutoTune.Calibration(
-                rttMs = 210.0,
-                v6Ok = true,
-                warpPortLatency = mapOf(894 to 90.0, 928 to 92.0),
-                linkMbps = 1.4,
-                cores = 4,
-                lowRam = false,
-            ),
-            ScanMode.WARP,
+            AutoTune.Calibration(rttMs = 100.0, v6Ok = false, cores = 8, lowRam = false),
+            ScanMode.ENDPOINT,
         )
-        assertEquals(NetFamily.BOTH, r.family)
-        assertTrue(r.portSweep)
-        assertTrue(2408 !in r.sweepPorts)
-        assertEquals(894, r.port)
-        assertTrue(443 in r.sweepPorts) // 443 added as safety
-        assertTrue(r.concurrency <= 128) // slow link caps concurrency
-        assertEquals(5, r.downloadMb) // <3mbps → 5mb
+        assertTrue(r.notes.isNotEmpty())
+        assertTrue(r.notes.any { it.contains("wireguard retries") })
+        assertTrue(r.notes.any { it.contains("never reported") })
+        assertTrue(r.notes.any { it.contains("random port") })
     }
 
     @Test
-    fun `tune falls back to 443 when everything is blocked`() {
+    fun `tune edge mode picks family and timeout from rtt`() {
         val r = AutoTune.decide(
-            AutoTune.Calibration(
-                rttMs = 380.0,
-                v6Ok = false,
-                warpPortLatency = emptyMap(),
-                linkMbps = null,
-                cores = 4,
-                lowRam = true,
-            ),
-            ScanMode.WARP,
-        )
-        assertEquals(443, r.port)
-        // nothing answered a real handshake → sweep the full port list anyway
-        assertEquals(true, r.portSweep)
-        assertTrue(r.sweepPorts.isNotEmpty())
-        assertTrue(r.concurrency in 48..160)
-        assertEquals(10, r.downloadMb) // unknown link → 10mb
-        assertTrue(r.tcpTimeoutMs >= 1500) // 4×380 → 1520 → 1600
-        // poor rtt → maximum wireguard retries
-        assertEquals(7, r.warpAttempts)
-    }
-
-    @Test
-    fun `tune edge mode ignores ports but still times out from rtt`() {
-        val r = AutoTune.decide(
-            AutoTune.Calibration(
-                rttMs = 45.0,
-                v6Ok = true,
-                warpPortLatency = emptyMap(),
-                linkMbps = 90.0,
-                cores = 8,
-                lowRam = false,
-            ),
+            AutoTune.Calibration(rttMs = 45.0, v6Ok = true, linkMbps = 90.0, cores = 8, lowRam = false),
             ScanMode.CF_EDGE,
         )
         assertEquals(443, r.port)
-        assertEquals(false, r.portSweep)
         assertEquals(NetFamily.BOTH, r.family)
         assertEquals(20, r.downloadMb) // fast link → 20mb
-        assertTrue(r.tcpTimeoutMs in 700..800) // 4×45=180 → 200? no: coerceIn(700..) → 700
-    }
-
-    @Test
-    fun `tune notes explain every choice`() {
-        val r = AutoTune.decide(
-            AutoTune.Calibration(rttMs = 100.0, v6Ok = false, cores = 8, lowRam = false),
-            ScanMode.WARP,
-        )
-        assertTrue(r.notes.isNotEmpty())
-        assertTrue(r.notes.any { it.contains(":443 sweep fallback") })
-        assertTrue(r.notes.any { it.contains("wireguard retries") })
-        assertTrue(r.notes.any { it.contains("handshake") })
-    }
-
-    @Test
-    fun `warp retries scale with network quality`() {
-        fun tries(rtt: Double?) = AutoTune.decide(
-            AutoTune.Calibration(rttMs = rtt, v6Ok = false, cores = 8, lowRam = false),
-            ScanMode.WARP,
-        ).warpAttempts
-        assertEquals(3, tries(45.0))   // good network
-        assertEquals(5, tries(120.0))  // moderate
-        assertEquals(7, tries(250.0))  // poor
-        assertEquals(5, tries(null))   // unknown → middle
+        assertEquals(3, r.tcpAttempts)
+        assertTrue(r.tcpTimeoutMs < 2000) // no wg floor in edge mode
+        assertTrue(r.tlsVerify)
     }
 }

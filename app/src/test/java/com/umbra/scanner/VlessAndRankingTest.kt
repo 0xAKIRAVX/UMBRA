@@ -130,7 +130,7 @@ class RankingTest {
             tcpAttempts = 3,
             successfulAttempts = 2,
             wgHandshakes = 3,
-            mode = com.umbra.scanner.core.ScanMode.WARP,
+            mode = com.umbra.scanner.core.ScanMode.ENDPOINT,
         )
         assertTrue(warp.alive)
         assertTrue(Ranking.scoreOf(warp) > 0.0)

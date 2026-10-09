@@ -12,6 +12,7 @@ import com.umbra.scanner.core.ScanPhase
 import com.umbra.scanner.core.ScanResult
 import com.umbra.scanner.net.ExactIpHttps
 import com.umbra.scanner.net.TcpProbe
+import com.umbra.scanner.net.UdpEvidence
 import com.umbra.scanner.net.UdpNoiseConfig
 import com.umbra.scanner.net.WarpAccount
 import com.umbra.scanner.net.WarpProbe
@@ -65,12 +66,20 @@ internal fun classifyWarpProbe(
  * UMBRA scan engine.
  * Phase 1  generate   — random candidates per CIDR (never full enumeration of big blocks);
  *                       ENDPOINT: BPB-style random ip:port pairs from the WARP ranges
- * Phase 2  register   — WARP mode only: fresh account from api.cloudflareclient.com
- *                       (ENDPOINT never registers — it is a pure TCP latency scan)
- * Phase 3  probe storm — WARP: full WireGuard handshake + in-tunnel ICMP ping (UDP);
- *                        ENDPOINT: TCP handshake latency + jitter + loss on random ip:port pairs;
+ *                       (+ a handful of census-verified seed endpoints)
+ * Phase 2  register   — ENDPOINT only: a SILENT WARP identity from
+ *                       api.cloudflareclient.com. The identity is the handshake
+ *                       KEY — internal plumbing, never a user-facing "WARP
+ *                       section" (v3.8 removed that section entirely).
+ * Phase 3  probe storm — ENDPOINT: a REAL WireGuard handshake per ip:port pair
+ *                        over UDP (+ in-tunnel ping), ranked by RTT — the
+ *                        BPB-Warp-Scanner method. A TCP connect proves nothing
+ *                        on Cloudflare anycast (the v3.7 "fake endpoints"
+ *                        lesson: every CF edge answers TCP :443 whether or
+ *                        not it serves WARP on that port);
  *                        EDGE/CUSTOM: TCP handshake latency + jitter + loss
- * Phase 4  speed      — exact-IP HTTPS download (SNI/Host = speed.cloudflare.com)
+ * Phase 4  verify     — EDGE/CUSTOM: TLS cert verification (the DPI-fake filter)
+ * Phase 5  speed      — exact-IP HTTPS download (SNI/Host = speed.cloudflare.com)
  *
  * Fully cooperative-cancellable: runInterruptible sockets abort on stop().
  */
@@ -82,10 +91,10 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
          *  the actual probing valve). */
         private const val LAUNCH_WINDOW = 2048
 
-        /** v3.6: pairs ceiling for scans whose port list was REWRITTEN by the
-         *  pre-flight gate (a 16-port adaptation on default sampling would
-         *  otherwise queue a ~17-minute storm on an already degraded network). */
-        private const val ADAPTED_PROBE_CAP = 24_000
+        /** v3.3 guard: extreme settings (deep endpoint count × retries) could
+         *  silently queue a multi-hour UDP storm that looks exactly like a
+         *  hang. */
+        private const val PROBE_CAP = 120_000
     }
 
     /** v3.6: per-scan tally of WHY warp probes failed — a zero-result scan
@@ -93,35 +102,42 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
      *  ×388") instead of looking silently broken. */
     private val warpFailures = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
+    /** v3.8 seam: independent UDP-egress evidence for the zero-result
+     *  diagnosis. Tests inject outcomes without sockets; production gathers
+     *  real NTP witnesses (see UdpEvidence). */
+    internal var evidenceGatherer: suspend (Int) -> UdpEvidence.Evidence? =
+        { t -> runCatching { UdpEvidence.gather(t) }.getOrNull() }
+
     suspend fun run(params: ScanParams, sink: ScanSink) = coroutineScope {
         _sink = sink
         warpFailures.clear()
         sink.onPhase(ScanPhase.GENERATING)
-        // v3.6.2: var — the pre-flight gate's IPv6 adaptation can regenerate
-        // the pool on a proven family (see Outcome.AdaptFamily).
-        // v3.7: ENDPOINT mode generates random ip:port PAIRS instead of a
-        // candidate×port cartesian product (BPB-Warp-Scanner behavior).
+        // v3.8: ENDPOINT mode generates random ip:port PAIRS (BPB behavior),
+        // prepended with a handful of census-verified seed endpoints so a
+        // healthy network sees validated results within the first seconds.
         var endpointPairs: List<EndpointPair>? = null
-        var candidates = if (params.mode == ScanMode.WARP) {
-            // WARP endpoints: v4 pool + v4-embedded v6 (d0/d1) — uniform /48
-            // sampling can never hit the real 2606:4700:d0::a29f:xxxx pattern.
-            IpGenerator.generateWarp(params.family, params.samplesPerPrefix, random)
-        } else if (params.mode == ScanMode.ENDPOINT) {
-            endpointPairs = IpGenerator.generateEndpoints(
+        val candidates = if (params.mode == ScanMode.ENDPOINT) {
+            val drawn = IpGenerator.generateEndpoints(
                 params.family, params.endpointsCount, params.port, random,
             )
+            val seeds = Presets.WARP_SEED_ENDPOINTS.mapNotNull { (ip, p) ->
+                IpText.literalToBytes(ip)?.let { EndpointPair(Candidate(it), p) }
+            }
+            endpointPairs = seeds + drawn
             emptyList()
         } else {
             IpGenerator.generate(params.cidrs, params.family, params.samplesPerPrefix, random)
         }
-        var ports = params.effectivePorts
+        val ports = params.effectivePorts
         var pairCount = endpointPairs?.size ?: candidates.size * ports.size
         sink.onGenerated(pairCount)
         if (endpointPairs != null) {
             val v4 = endpointPairs.count { it.candidate.protocol == IpProtocol.IPv4 }
             val v6 = endpointPairs.size - v4
             sink.onLog(
-                "generated ${endpointPairs.size} endpoints · v4 $v4 · v6 $v6" +
+                "generated ${endpointPairs.size} endpoints · v4 $v4 · v6 $v6 · " +
+                    "${Presets.WARP_SEED_ENDPOINTS.size} live-verified seeds + " +
+                    "${endpointPairs.size - Presets.WARP_SEED_ENDPOINTS.size} random" +
                     (if (params.port > 0) " · port ${params.port}" else " · random port each · ×${Presets.warpPortsCount()}")
             )
             if (endpointPairs.isEmpty()) {
@@ -131,8 +147,7 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
             }
         } else {
             sink.onLog(
-                "generated ${candidates.size} candidates × ${ports.size} port(s) = $pairCount probes" +
-                    if (ports.size > 1) " · sweep" else " · port ${params.port}"
+                "generated ${candidates.size} candidates × ${ports.size} port(s) = $pairCount probes · port ${params.port}"
             )
             if (candidates.isEmpty() || ports.isEmpty()) {
                 sink.onLog("no valid candidates — check CIDR list / port selection")
@@ -141,111 +156,45 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
             }
         }
 
-        // ---- WARP identity: one registration per scan (BPB warp.go flow) ----
+        // ---- v3.8: ENDPOINT identity — one SILENT registration per scan ----
+        // The WireGuard handshake needs a registered key (WARP responders drop
+        // unknown keys without any reply — live-verified v3.6.1). This is
+        // internal machinery: the account registers/reuses itself, the user
+        // never sees a "WARP" section. Failure is honest and terminal — a
+        // TCP-only fallback would produce exactly the fake endpoints v3.7
+        // was reported for ("هیچ کدوم از اندپویت‌ها کار نمیکنن").
         var account: WarpAccount? = null
-        if (params.mode == ScanMode.WARP) {
+        if (params.mode == ScanMode.ENDPOINT) {
             sink.onPhase(ScanPhase.REGISTER)
-            val licenseKey = params.warpLicenseKey.trim()
-            sink.onLog(
-                "registering WARP identity · api.cloudflareclient.com" +
-                    if (licenseKey.isNotEmpty()) " · warp+ key" else ""
-            )
+            sink.onLog("warp identity · api.cloudflareclient.com (silent · reused 15 min · disk fallback)")
             account = try {
-                val acc = registrationProvider(licenseKey.ifBlank { null })
-                sink.onLog(
-                    "warp identity ready · v6 ${acc.v6} · wg handshake mode (reserved=0, live-verified)" +
-                        // v3.4: the WARP+ outcome is stated plainly — a placebo
-                        // toggle is worse than no toggle.
-                        when {
-                            licenseKey.isEmpty() -> ""
-                            acc.licenseApplied -> " · warp+ license applied"
-                            else -> " · warp+ license NOT applied (key rejected or api blocked) — free warp tier"
-                        }
-                )
-                acc
+                registrationProvider(null)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                sink.onLog("registration failed — ${e.message ?: "cloudflare unreachable"}")
+                sink.onLog("identity failed — ${e.message ?: "cloudflare unreachable"}")
                 null
             }
             if (account == null) {
-                sink.onLog("real validation needs a registered identity — scan aborted " +
-                    "(results from a TCP-only scan would not work in WireGuard anyway)")
+                sink.onLog(
+                    "cannot validate endpoints without a warp identity — registration api " +
+                        "unreachable and no stored identity · a tcp-only scan would produce " +
+                        "endpoints that never work in wireguard (the v3.7 bug) · scan aborted"
+                )
                 sink.onPhase(ScanPhase.DONE)
                 return@coroutineScope
             }
+            sink.onLog("warp identity ready · handshake validation live")
         }
 
-        // ---- v3.6: pre-flight gate (WARP only) ----
-        // Prove the path + identity + port in seconds BEFORE the storm; a
-        // blocked network or stale identity aborts/adapts immediately instead
-        // of burning the full scan duration and reporting "0 verified". See
-        // WarpGate.kt for the decision tree.
-        var adaptedByGate = false
-        // v3.6.1: the gate could not prove the identity (API blocked + no
-        // answer anywhere) — a zero-result scan then gets the identity-expiry
-        // hint appended to its diagnosis line.
-        var gateUnverifiable = false
-        if (params.mode == ScanMode.WARP && account != null) {
-            // v3.6.2: "scan anyway" — the gate can be disabled after a
-            // Blocked verdict; the scan then runs to completion and the
-            // zero-result tally line explains itself.
-            if (!runCatching { WarpGate.gateEnabled() }.getOrDefault(true)) {
-                sink.onLog("pre-flight gate disabled — scanning anyway (a blocked verdict will take the full scan)")
-            } else {
-            val gateTimeout = maxOf(2500, params.tcpTimeoutMs)
-            when (val gate = WarpGate.check(account!!, params.port, gateTimeout) { sink.onLog(it) }) {
-                is WarpGate.Outcome.Ok -> {
-                    account = gate.account
-                    sink.onLog(gate.note)
-                }
-                is WarpGate.Outcome.Adapt -> {
-                    account = gate.account
-                    ports = gate.ports
-                    adaptedByGate = true
-                    pairCount = candidates.size * ports.size
-                    sink.onGenerated(pairCount)
-                    sink.onLog(gate.note)
-                }
-                is WarpGate.Outcome.AdaptFamily -> {
-                    // v3.6.2: v4 WARP is filtered but the gate PROVED v6
-                    // answers — regenerate the candidate pool on v6 instead
-                    // of scanning a mostly-dead v4 storm.
-                    account = gate.account
-                    candidates = IpGenerator.generateWarp(gate.family, params.samplesPerPrefix, random)
-                    adaptedByGate = true
-                    pairCount = candidates.size * ports.size
-                    sink.onGenerated(pairCount)
-                    sink.onLog("${gate.note} · ${candidates.size} ipv6 candidates × ${ports.size} port(s)")
-                }
-                is WarpGate.Outcome.Blocked -> {
-                    sink.onLog(gate.note)
-                    sink.onPhase(ScanPhase.DONE)
-                    return@coroutineScope
-                }
-                is WarpGate.Outcome.Unverifiable -> {
-                    account = gate.account
-                    gateUnverifiable = true
-                    sink.onLog(gate.note)
-                }
-            }
-            }
-        }
-
-        // v3.3 guard: extreme settings (sweep × huge samples) could silently
-        // queue hundreds of thousands of multi-second UDP probes — an
-        // overnight "scan" that looks exactly like a hang. Cap the workload
-        // at a sane ceiling, keep the verified ordering, and say so in the log.
-        // (v3.6: runs AFTER the gate so an adapted port list is budgeted with
-        // the tighter ADAPTED_PROBE_CAP — a 16-port adaptation must not queue
-        // a ~17-minute storm on an already degraded network.)
-        val PROBE_CAP = if (adaptedByGate) ADAPTED_PROBE_CAP else 120_000
+        // v3.3 guard: extreme settings (deep endpoint counts × retries) could
+        // silently queue a multi-hour UDP storm. Cap the workload at a sane
+        // ceiling and say so in the log.
         var trimmedByCap = false
         val effectiveCandidates: List<Candidate> = if (pairCount > PROBE_CAP) {
             trimmedByCap = true
             if (endpointPairs != null) {
-                // v3.7: endpoint pairs are trimmed directly — each pair is its own probe
+                // endpoint pairs are trimmed directly — each pair is its own probe
                 endpointPairs = endpointPairs.shuffled(random).take(PROBE_CAP)
                 pairCount = endpointPairs.size
                 emptyList()
@@ -267,9 +216,9 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
         }
         sink.onGenerated(pairCount)
 
-        // ---- probe storm: every (candidate, port) pair ----
-        val isWarp = params.mode == ScanMode.WARP && account != null
-        sink.onPhase(if (isWarp) ScanPhase.WG else ScanPhase.TCP)
+        // ---- probe storm: WG handshakes (ENDPOINT) or TCP (EDGE/CUSTOM) ----
+        val isWg = params.mode == ScanMode.ENDPOINT && account != null
+        sink.onPhase(if (isWg) ScanPhase.WG else ScanPhase.TCP)
         val active = AtomicInteger(0)
         val stormSem = Semaphore(params.concurrency.coerceIn(4, 500))
         val stormCh = Channel<ScanResult>(Channel.UNLIMITED)
@@ -283,7 +232,7 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
         // answered. The launch window below keeps live jobs ≈ 2048; completed
         // jobs are compacted out of the list so the references stay bounded.
         val launchWindow = Semaphore(LAUNCH_WINDOW)
-        // v3.7: one spawn path shared by cartesian scans (candidate × ports)
+        // one spawn path shared by cartesian scans (candidate × ports)
         // and BPB-style endpoint scans (pre-generated ip:port pairs).
         val spawn: suspend (Candidate, Int) -> Unit = { cand, p ->
             launchWindow.acquire()
@@ -301,15 +250,11 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
                             // pressure) cancelled the WHOLE coroutine scope and the
                             // scan died with "engine failure". Now a failed probe
                             // returns a dead-endpoint result and the storm rolls on.
-                            if (isWarp) {
-                                // sweeping hits many ports per IP — keep the loss
-                                // statistics honest without tripling wall time
-                                val attempts = if (ports.size > 1) params.warpAttempts.coerceAtMost(2) else params.warpAttempts
-                                stormCh.send(runCatching { probeWarp(account!!, cand, p, attempts, params) }
+                            if (isWg) {
+                                stormCh.send(runCatching { probeWarp(account!!, cand, p, params) }
                                     .getOrElse { deadProbe(cand, p, params, it) })
                             } else {
-                                val attempts = if (ports.size > 1 && params.tcpAttempts > 3) 3 else params.tcpAttempts
-                                stormCh.send(runCatching { probeTcp(cand, p, attempts, params) }
+                                stormCh.send(runCatching { probeTcp(cand, p, params) }
                                     .getOrElse { deadProbe(cand, p, params, it) })
                             }
                         } finally {
@@ -334,40 +279,29 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
         jobs.joinAll()
         stormCh.close()
         stormCollector.join()
-        val tcpAlive = sink.snapshot().count { it.tcpAlive }
-        if (isWarp) {
-            val verified = sink.snapshot().count { it.alive }
-            var line = "wg probe storm done · $verified verified of $pairCount (handshake + in-tunnel ping)"
-            // v3.6: a zero-result WARP scan now says WHY — the top probe
-            // failure classes are tallied live during the storm.
-            if (verified == 0 && warpFailures.isNotEmpty()) {
-                val reasons = warpFailures.entries.sortedByDescending { it.value }
-                    .take(3).joinToString(" · ") { "${it.key} ×${it.value}" }
-                line += " — $reasons"
-            }
-            // v3.6.1: a zero-result scan on an unverifiable identity points at
-            // the identity itself — live-verified: WARP responders drop
-            // unknown keys SILENTLY, so "all handshake timeout" is exactly
-            // what an expired identity looks like from the outside.
-            if (verified == 0 && gateUnverifiable) {
-                line += " · stored identity may be expired — warp drops unknown keys " +
-                    "without any reply; retry where the registration api is reachable"
-            }
-            sink.onLog(line)
-        } else if (params.mode == ScanMode.ENDPOINT) {
-            // v3.7: endpoint-mode completion line — v4/v6 split tells a
-            // family-filtered network story at a glance ("v6 0" on a v6-less
-            // route is expected, not a bug).
+        if (isWg) {
+            // v3.8: the ENDPOINT completion line — v4/v6 split + handshake
+            // totals tell the story at a glance, and a ZERO-result scan
+            // diagnoses itself (probe failure classes + independent UDP
+            // witnesses + VPN sensor) instead of looking silently broken.
             val snap = sink.snapshot()
             val alive4 = snap.count { it.alive && it.protocol == IpProtocol.IPv4 }
             val alive6 = snap.count { it.alive && it.protocol == IpProtocol.IPv6 }
-            var line = "endpoint storm done · ${alive4 + alive6} alive of $pairCount (v4 $alive4 · v6 $alive6)"
+            val handshakes = snap.sumOf { it.wgHandshakes }
+            val pings = snap.sumOf { it.successfulAttempts }
+            var line = "endpoint scan done · ${alive4 + alive6} validated of $pairCount " +
+                "(v4 $alive4 · v6 $alive6 · handshakes $handshakes · in-tunnel pings $pings)"
             if (alive4 + alive6 == 0) {
-                line += " — every TCP connect failed: try a pinned port, a longer " +
-                    "timeout, or check whether an active VPN is intercepting traffic"
+                if (warpFailures.isNotEmpty()) {
+                    val reasons = warpFailures.entries.sortedByDescending { it.value }
+                        .take(3).joinToString(" · ") { "${it.key} ×${it.value}" }
+                    line += " — $reasons"
+                }
+                line += evidenceDiagnosis(maxOf(1200, params.tcpTimeoutMs))
             }
             sink.onLog(line)
         } else {
+            val tcpAlive = sink.snapshot().count { it.tcpAlive }
             sink.onLog("tcp storm done · $tcpAlive tcp-alive of $pairCount → tls verification next")
         }
 
@@ -411,8 +345,10 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
         }
 
         // ---- exact-IP HTTPS speed test ----
-        // WARP mode always measures on :443 — every WARP IP is also a normal CF
-        // edge there, while speed.cloudflare.com is never served on the WARP ports.
+        // ENDPOINT mode always measures on :443 — every WARP IP is also a
+        // normal CF edge there, while speed.cloudflare.com is never served on
+        // the WARP ports. (Opt-in for endpoint mode; it is a bonus edge
+        // measurement, not the validation itself.)
         if (params.speedTest) {
             sink.onPhase(ScanPhase.RANKING)
             val pool = sink.snapshot().filter { it.alive }
@@ -423,7 +359,7 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
                 val speedPort = params.speedPort
                 sink.onLog(
                     "speed testing ${pool.size} endpoints · ${params.downloadMbLabel} MB via ${params.speedSni}" +
-                        if (params.mode == ScanMode.WARP || params.mode == ScanMode.ENDPOINT) " on :443" else " on :$speedPort"
+                        if (params.mode == ScanMode.ENDPOINT) " on :443 (edge bonus)" else " on :$speedPort"
                 )
                 mapInParallel(pool, params.speedConcurrency.coerceIn(1, 16)) { r ->
                     val bytes = IpText.literalToBytes(r.ip) ?: return@mapInParallel null
@@ -443,11 +379,11 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
                         tlsSuccess = d.tlsOk || r.tlsSuccess,
                         tlsHandshakeMs = d.handshakeMs ?: r.tlsHandshakeMs,
                         httpStatus = d.httpStatus,
-                        // v3.1 fix: WARP/ENDPOINT endpoints ride the speed test on a
+                        // v3.1 fix: ENDPOINT endpoints ride the speed test on a
                         // DIFFERENT port (:443) than the one they were proven on —
                         // a failed bonus measurement must never taint an endpoint
                         // that already passed its own mode's alive proof.
-                        error = if (mbps == null && params.mode != ScanMode.WARP && params.mode != ScanMode.ENDPOINT) {
+                        error = if (mbps == null && params.mode != ScanMode.ENDPOINT) {
                             d.error ?: "no measurable throughput"
                         } else null,
                     )
@@ -459,15 +395,29 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
         // the identity this scan used — a restarted process that reuses the
         // disk identity then continues ABOVE the server's stored mark instead
         // of silently replaying (the "warp finds nothing after restart" bug).
-        if (params.mode == ScanMode.WARP && account != null) {
+        if (params.mode == ScanMode.ENDPOINT && account != null) {
             runCatching { WarpRegistration.persistTimestampMark() }
         }
 
         sink.onPhase(ScanPhase.DONE)
     }
 
+    /**
+     * v3.8: zero-result ENDPOINT diagnosis — independent NTP witnesses
+     * separate "no UDP at all" (VPN / ISP) from "Cloudflare filtered" from
+     * "WARP-specific filtering"; an active system VPN hint rides along. Runs
+     * ONLY on a zero-result scan, never on healthy ones.
+     */
+    private suspend fun evidenceDiagnosis(timeoutMs: Int): String {
+        val parts = ArrayList<String>(2)
+        val evidence = runCatching { evidenceGatherer(timeoutMs) }.getOrNull()
+        if (evidence != null) parts.add(UdpEvidence.describe(evidence))
+        VpnSensor.hint()?.let { parts.add(it.trim()) }
+        return if (parts.isEmpty()) "" else parts.joinToString(" · ", prefix = " · ")
+    }
+
     /** v3.6: registration seam — production registers via the real Cloudflare
-     * API; tests inject an identity so engine-level gate flows run offline. */
+     * API; tests inject an identity so engine-level flows run offline. */
     internal var registrationProvider: suspend (licenseKey: String?) -> WarpAccount =
         { key -> WarpRegistration.register(key) }
 
@@ -522,8 +472,8 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
         mode = params.mode,
     )
 
-    private suspend fun probeTcp(cand: Candidate, port: Int, attempts: Int, params: ScanParams): ScanResult {
-        val t = TcpProbe.probe(cand.bytes, port, attempts, params.tcpTimeoutMs)
+    private suspend fun probeTcp(cand: Candidate, port: Int, params: ScanParams): ScanResult {
+        val t = TcpProbe.probe(cand.bytes, port, params.tcpAttempts, params.tcpTimeoutMs)
         val lat = t.latenciesMs
         val total = lat.size + t.failures
         val loss = if (total == 0) 1.0 else t.failures.toDouble() / total
@@ -543,15 +493,16 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
     }
 
     /**
-     * REAL WARP validation: noise → WireGuard handshake → ICMP echo inside the
-     * tunnel. An endpoint is alive only when data actually flows — the same
-     * guarantee BPB-Warp-Scanner gives (its HTTP test rides a real xray tunnel).
+     * REAL WARP endpoint validation (v3.8: THE endpoint probe): anti-DPI noise
+     * burst → full WireGuard handshake → ICMP echo INSIDE the tunnel. A
+     * handshake response alone proves the endpoint speaks WARP on this exact
+     * port over UDP (alive); the in-tunnel ping is the bonus data-plane proof.
+     * Latency = average ping RTT, falling back to average handshake RTT.
      */
     private suspend fun probeWarp(
         account: WarpAccount,
         cand: Candidate,
         port: Int,
-        attempts: Int,
         params: ScanParams,
     ): ScanResult {
         val probe = WarpProbe(
@@ -561,7 +512,7 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
         val t = probe.probe(
             cand.bytes,
             port,
-            attempts = attempts.coerceIn(1, 7),
+            attempts = params.warpAttempts.coerceIn(1, 7),
             timeoutMs = params.tcpTimeoutMs.coerceAtLeast(2000),
             interAttemptDelayMs = 200,
         )
@@ -571,7 +522,7 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
             ip = cand.text,
             protocol = cand.protocol,
             port = port,
-            latencyMs = t.avgPingMs,
+            latencyMs = t.avgPingMs ?: t.avgHandshakeMs,
             jitterMs = t.jitterMs,
             packetLoss = t.loss,
             tcpAttempts = t.attempts,

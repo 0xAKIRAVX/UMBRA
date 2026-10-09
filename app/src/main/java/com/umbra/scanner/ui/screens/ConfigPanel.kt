@@ -43,25 +43,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.shape.RoundedCornerShape
 import com.umbra.scanner.UmbraApp
 import com.umbra.scanner.core.IpGenerator
 import com.umbra.scanner.core.NetFamily
 import com.umbra.scanner.core.Presets
 import com.umbra.scanner.core.ScanMode
 import com.umbra.scanner.core.ScanParams
-import com.umbra.scanner.core.WarpFlavor
 import com.umbra.scanner.engine.AutoTune
 import com.umbra.scanner.i18n.LocalStrings
 import com.umbra.scanner.ui.components.GradientButton
 import com.umbra.scanner.ui.components.LabeledSlider
 import com.umbra.scanner.ui.components.NeonCard
 import com.umbra.scanner.ui.components.OutlineButton
-import com.umbra.scanner.ui.components.PanelShape
 import com.umbra.scanner.ui.components.SectionLabel
 import com.umbra.scanner.ui.components.SelectChip
 import com.umbra.scanner.ui.components.Segmented
@@ -75,6 +74,7 @@ import com.umbra.scanner.ui.theme.LocalAccent
 import com.umbra.scanner.ui.theme.Mist
 import com.umbra.scanner.ui.theme.MonoStyle
 import com.umbra.scanner.ui.theme.MonoStyleSmall
+import com.umbra.scanner.ui.theme.OkMint
 import com.umbra.scanner.ui.theme.SlateLine
 import kotlinx.coroutines.launch
 
@@ -87,10 +87,12 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
-    // v3.7: UI mode order — ENDPOINT first (the app's headline mode), then
-    // the classic trio. ScanMode's enum ordinals stay untouched (they are
-    // persisted); this list only drives the segmented control.
-    val uiModes = listOf(ScanMode.ENDPOINT, ScanMode.CF_EDGE, ScanMode.WARP, ScanMode.CUSTOM)
+    // v3.8: UI mode order — ENDPOINT first (the app's headline mode), then the
+    // classic pair. The standalone WARP mode is GONE (user request); its
+    // validation machinery lives INSIDE endpoint mode now. ScanMode's enum
+    // ordinals are persisted via the v3.8 migration; this list only drives
+    // the segmented control.
+    val uiModes = listOf(ScanMode.ENDPOINT, ScanMode.CF_EDGE, ScanMode.CUSTOM)
     var modeIdx by rememberSaveable {
         mutableIntStateOf(uiModes.indexOf(saved.mode).let { if (it < 0) 0 else it })
     }
@@ -98,22 +100,17 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
     var port by rememberSaveable { mutableIntStateOf(saved.port) }
     // v3.7: ENDPOINT-mode knob — how many random ip:port endpoints to test
     var endpoints by rememberSaveable { mutableIntStateOf(saved.endpointsCount) }
-    var sweep by rememberSaveable { mutableStateOf(saved.portSweep) }
-    var sweepPortsStr by rememberSaveable { mutableStateOf(saved.sweepPorts.joinToString(",")) }
-    var warpPlus by rememberSaveable { mutableStateOf(saved.warpFlavor == WarpFlavor.WARP_PLUS) }
-    // v3.4: WARP+ license key — persisted so it survives restarts; blank = free WARP
-    var warpLicense by rememberSaveable { mutableStateOf(saved.warpLicenseKey) }
     var udpNoise by rememberSaveable { mutableStateOf(saved.udpNoise) }
     var customCidrs by rememberSaveable {
         mutableStateOf(saved.cidrs.filter { it.contains('/') }.joinToString("\n"))
     }
     var samples by rememberSaveable { mutableIntStateOf(saved.samplesPerPrefix) }
     // v3.4 fix: the retries slider now starts from the value the mode actually
-    // uses — a WARP session restored warpAttempts=7 (set by auto-tune) but the
-    // slider showed tcpAttempts=3 and every relaunched scan silently ran ×3.
+    // uses — an ENDPOINT session restored warpAttempts=7 (set by auto-tune) but
+    // the slider showed tcpAttempts=3 and every relaunched scan silently ran ×3.
     var attempts by rememberSaveable {
         mutableIntStateOf(
-            if (saved.mode == ScanMode.WARP) saved.warpAttempts else saved.tcpAttempts
+            if (saved.mode == ScanMode.ENDPOINT) saved.warpAttempts else saved.tcpAttempts
         )
     }
     var timeoutMs by rememberSaveable { mutableIntStateOf(saved.tcpTimeoutMs) }
@@ -138,49 +135,31 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
     } else {
         Presets.cidrsFor(mode, family)
     }
-    val sweepPorts = sweepPortsStr.split(',').mapNotNull { it.trim().toIntOrNull() }.distinct()
-    val sweepEnabled = mode == ScanMode.WARP && sweep
-    val portFactor = if (sweepEnabled) {
-        (if (sweepPorts.isEmpty()) Presets.WARP_PORTS_FULL else sweepPorts).size
-    } else 1
 
-    val estimate = remember(mode, cidrs, family, samples, sweepEnabled, sweepPortsStr, endpoints) {
-        // v3.2 fix: WARP used to hand-roll `blocks × samples`, ignoring the
-        // small-block enumeration cap (254/24) — with the slider above 256 the
-        // displayed probe count was overstated up to 12x. Use the same capped
-        // estimator the generator actually honors.
-        val base = if (mode == ScanMode.WARP) {
-            val v4 = IpGenerator.estimate(Presets.WARP_V4, NetFamily.V4, samples)
-            when (family) {
-                NetFamily.V4 -> v4
-                NetFamily.V6 -> v4 * 2
-                else -> v4 * 3
-            }
-        } else if (mode == ScanMode.ENDPOINT) {
-            // v3.7: one endpoint = one probe — the count IS the estimate
-            endpoints
+    val estimate = remember(mode, cidrs, family, samples, endpoints) {
+        if (mode == ScanMode.ENDPOINT) {
+            // v3.8: one endpoint = one WG probe — the count IS the estimate
+            // (plus the live-verified seeds the engine prepends)
+            endpoints + Presets.WARP_SEED_ENDPOINTS.size
         } else {
             IpGenerator.estimate(cidrs, family, samples)
         }
-        base * portFactor
     }
 
     NeonCard(modifier = Modifier.staggerIn(1)) {
         Text(s.mode, style = MaterialTheme.typography.labelSmall, color = Fade)
         Spacer(Modifier.height(7.dp))
         Segmented(
-            options = listOf(s.modeEndpoint, s.modeCfEdge, s.modeWarp, s.modeCustom),
+            options = listOf(s.modeEndpoint, s.modeCfEdge, s.modeCustom),
             selected = modeIdx,
             onSelect = { i ->
                 modeIdx = i
                 val m = uiModes[i]
                 port = Presets.defaultPort(m)
-                if (m != ScanMode.WARP) sweep = false
-                // v3.4 fix: the WARP engine clamps retries to 7 — an EDGE slider
-                // value of 8..10 carried into WARP mode would put the slider out
-                // of its own range. Clamp at the mode boundary, not silently in
-                // the engine.
-                if (m == ScanMode.WARP) attempts = attempts.coerceAtMost(7)
+                // v3.4 fix: the endpoint probe path clamps wg retries to 1..7 —
+                // an EDGE slider value of 8..10 carried into endpoint mode would
+                // put the slider out of its own range.
+                if (m == ScanMode.ENDPOINT) attempts = attempts.coerceAtMost(7)
                 // v3.7: endpoint mode opens as a pure BPB-style latency scan —
                 // no TLS phase (random warp ports don't serve speed.cloudflare.com)
                 // and no throughput pass unless the user turns it on.
@@ -194,7 +173,6 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
         Text(
             when (mode) {
                 ScanMode.CF_EDGE -> s.taglineCfEdge
-                ScanMode.WARP -> s.taglineWarp
                 ScanMode.CUSTOM -> s.taglineCustom
                 ScanMode.ENDPOINT -> s.taglineEndpoint
             },
@@ -203,6 +181,18 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        if (mode == ScanMode.ENDPOINT) {
+            Spacer(Modifier.height(6.dp))
+            // v3.8: the trust line — endpoints are handshake-validated, never
+            // tcp-only (the exact complaint behind this release).
+            Text(
+                s.endpointValidationHint,
+                style = MaterialTheme.typography.bodySmall,
+                color = OkMint,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
 
         Spacer(Modifier.height(14.dp))
         if (mode == ScanMode.CUSTOM) {
@@ -246,44 +236,6 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
             }
             Spacer(Modifier.height(14.dp))
         } else {
-            if (mode == ScanMode.WARP) {
-                SectionLabel(s.flavor)
-                Spacer(Modifier.height(7.dp))
-                Segmented(
-                    options = listOf(s.modeWarp, s.warpPlus),
-                    selected = if (warpPlus) 1 else 0,
-                    onSelect = { warpPlus = it == 1 },
-                )
-                // v3.4: WARP+ is now REAL — the key is applied to the registered
-                // account (wgcf PUT /reg/{id}/account) right after registration.
-                // Empty key = plain free WARP, stated honestly.
-                if (warpPlus) {
-                    Spacer(Modifier.height(10.dp))
-                    OutlinedTextField(
-                        value = warpLicense,
-                        onValueChange = { warpLicense = it.trim() },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        placeholder = { Text(s.warpLicensePlaceholder, style = MonoStyleSmall, color = Fade) },
-                        textStyle = MonoStyleSmall.copy(color = Mist),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = accent.primary.copy(alpha = 0.8f),
-                            unfocusedBorderColor = SlateLine,
-                            cursorColor = accent.primary,
-                        ),
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        s.warpLicenseHint,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Fog,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Spacer(Modifier.height(14.dp))
-            }
             // v3.7: ENDPOINT-mode count presets (BPB quick 100 / normal 1000 / deep)
             if (mode == ScanMode.ENDPOINT) {
                 SectionLabel(s.endpointsCountLabel)
@@ -350,11 +302,9 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
                         val result = AutoTune.calibrate(context, mode) { step -> tuneStep = step }
                         familyIdx = result.family.ordinal
                         port = result.port
-                        sweep = result.portSweep
-                        sweepPortsStr = result.sweepPorts.joinToString(",")
                         samples = result.samplesPerPrefix
                         if (mode == ScanMode.ENDPOINT) endpoints = result.endpointsCount
-                        attempts = if (mode == ScanMode.WARP) result.warpAttempts else result.tcpAttempts
+                        attempts = if (mode == ScanMode.ENDPOINT) result.warpAttempts else result.tcpAttempts
                         timeoutMs = result.tcpTimeoutMs
                         concurrency = result.concurrency
                         tlsOn = result.tlsVerify
@@ -425,16 +375,6 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(7.dp),
             verticalArrangement = Arrangement.spacedBy(7.dp),
         ) {
-            if (mode == ScanMode.WARP) {
-                SelectChip(
-                    text = s.sweepLabel(if (sweepPorts.isEmpty()) Presets.warpPortsCount() else sweepPorts.size),
-                    selected = sweep,
-                    onClick = {
-                        sweep = !sweep
-                        if (!sweep) sweepPortsStr = ""
-                    },
-                )
-            }
             if (mode == ScanMode.ENDPOINT) {
                 // v3.7: RANDOM — port 0 = each endpoint draws its own port from
                 // the canonical WARP list (BPB behavior)
@@ -447,15 +387,14 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
             Presets.portsFor(mode).forEach { p ->
                 SelectChip(
                     text = p.toString(),
-                    selected = !sweep && port == p,
+                    selected = port == p,
                     onClick = {
                         port = p
-                        sweep = false
                     },
                 )
             }
         }
-        if (mode == ScanMode.WARP) {
+        if (mode == ScanMode.ENDPOINT) {
             Spacer(Modifier.height(10.dp))
             ToggleRow(
                 title = s.udpNoise,
@@ -464,18 +403,6 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
                 onChange = { udpNoise = it },
             )
             Spacer(Modifier.height(8.dp))
-            Text(
-                if (sweepEnabled) {
-                    s.warpSweepHint(if (sweepPorts.isEmpty()) Presets.warpPortsCount() else sweepPorts.size)
-                } else {
-                    s.warpSingleHint
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = Fog,
-            )
-        }
-        if (mode == ScanMode.ENDPOINT) {
-            Spacer(Modifier.height(10.dp))
             Text(
                 s.endpointPortHint,
                 style = MaterialTheme.typography.bodySmall,
@@ -493,7 +420,8 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
             Icon(Icons.Rounded.Public, null, tint = accent.primary.copy(alpha = 0.7f))
             Spacer(Modifier.padding(start = 8.dp))
             Text(
-                s.probesEstimate(estimate, cidrs.size) + if (portFactor > 1) s.portsFactor(portFactor) else "",
+                if (mode == ScanMode.ENDPOINT) s.endpointsEstimate(estimate)
+                else s.probesEstimate(estimate, cidrs.size),
                 style = MonoStyle.copy(fontSize = 12.sp),
                 color = Fog,
                 maxLines = 1,
@@ -553,19 +481,19 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
                     LabeledSlider(s.samplesPerPrefix, samples, { samples = it }, 50..3000, valueText = samples.toString())
                 }
                 LabeledSlider(
-                    if (mode == ScanMode.WARP) s.wgRetries else s.tcpAttempts,
+                    if (mode == ScanMode.ENDPOINT) s.wgRetries else s.tcpAttempts,
                     attempts, { attempts = it },
-                    // v3.4 fix: the WARP probe path clamps retries to 1..7 — the
-                    // slider used to offer 8..10 in WARP mode, silently capped.
-                    if (mode == ScanMode.WARP) 1..7 else 1..10,
+                    // v3.4 fix: the endpoint probe path clamps wg retries to
+                    // 1..7 — the slider used to offer 8..10 there, silently capped.
+                    if (mode == ScanMode.ENDPOINT) 1..7 else 1..10,
                     valueText = s.retryLabel(attempts),
                 )
                 LabeledSlider(s.timeout, timeoutMs, { timeoutMs = it }, 300..6000 step 100, valueText = s.milliseconds(timeoutMs))
                 LabeledSlider(s.concurrency, concurrency, { concurrency = it }, 10..400, valueText = concurrency.toString())
                 if (mode != ScanMode.ENDPOINT) {
-                    // v3.7: TLS verification never runs in endpoint mode (random
-                    // warp ports don't serve speed.cloudflare.com) — its budget
-                    // and toggle are EDGE/CUSTOM controls only.
+                    // v3.7: TLS verification never runs in endpoint mode (the
+                    // WireGuard handshake is its proof) — its budget and toggle
+                    // are EDGE/CUSTOM controls only.
                     LabeledSlider(
                         s.tlsVerifyBudget,
                         verifyTopN, { verifyTopN = it }, 50..2000,
@@ -583,7 +511,6 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
                 ToggleRow(
                     title = s.speedTest,
                     subtitle = when (mode) {
-                        ScanMode.WARP -> s.speedTestHintWarp
                         ScanMode.ENDPOINT -> s.speedTestHintEndpoint
                         else -> s.speedTestHintEdge
                     },
@@ -628,15 +555,9 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
                     speedTopN = speedTopN,
                     speedConcurrency = speedConc,
                     downloadBytes = dlMb.toLong() * 1024 * 1024,
-                    warpFlavor = if (warpPlus) WarpFlavor.WARP_PLUS else WarpFlavor.WARP,
-                    portSweep = sweepEnabled,
-                    sweepPorts = if (sweepEnabled) sweepPorts else emptyList(),
                     warpAttempts = attempts,
                     udpNoise = udpNoise,
                     noiseCount = 5,
-                    // v3.4: only a WARP+ selection carries the key — plain WARP
-                    // must never quietly apply a previously-pasted key.
-                    warpLicenseKey = if (warpPlus && mode == ScanMode.WARP) warpLicense.trim() else "",
                 )
                 onStart(params)
             },

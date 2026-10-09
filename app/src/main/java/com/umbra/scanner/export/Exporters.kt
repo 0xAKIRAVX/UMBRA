@@ -51,7 +51,7 @@ object Exporters {
         sb.append("╚════════════════════════════════════════════════════════╝\n")
         sb.append("exported    : ").append(stamp()).append('\n')
         params?.let {
-            sb.append("mode        : ").append(it.mode.name).append(" (").append(it.warpFlavor.label).append(")\n")
+            sb.append("mode        : ").append(it.mode.name).append('\n')
             sb.append("port        : ").append(it.port).append('\n')
             sb.append("family      : ").append(it.family.label).append('\n')
             sb.append("attempts    : ").append(it.tcpAttempts).append(" × ").append(it.tcpTimeoutMs).append(" ms\n")
@@ -82,7 +82,6 @@ object Exporters {
         params?.let {
             sb.append(",\n  \"params\": {\n")
             sb.append("    \"mode\": \"").append(it.mode.name).append("\",\n")
-            sb.append("    \"warpFlavor\": \"").append(it.warpFlavor.name).append("\",\n")
             sb.append("    \"port\": ").append(it.port).append(",\n")
             sb.append("    \"family\": \"").append(it.family.name).append("\",\n")
             sb.append("    \"tcpAttempts\": ").append(it.tcpAttempts).append(",\n")

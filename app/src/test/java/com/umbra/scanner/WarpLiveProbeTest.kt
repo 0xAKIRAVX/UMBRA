@@ -57,15 +57,27 @@ class WarpLiveProbeTest {
 
     @Test
     fun `warp gate verifies the path pre-flight`() {
+        // v3.8: the gate object is gone with the WARP mode — this live test now
+        // proves the equivalent fact directly: the seeds the ENDPOINT scan
+        // prepends all answer handshakes on an open network.
         assumeTrue(System.getenv("UMBRA_LIVE_TEST") == "1")
         val account: WarpAccount = runBlocking { WarpRegistration.register() }
-        val logs = ArrayList<String>()
-        val out = runBlocking {
-            com.umbra.scanner.engine.WarpGate.check(account, 2408, 4000) { logs.add(it) }
+        val probe = WarpProbe(account, noise = UdpNoiseConfig(enabled = false))
+        var answered = 0
+        for (target in com.umbra.scanner.core.Presets.WARP_SEED_ENDPOINTS) {
+            val ip = IpText.literalToBytes(target.first)!!
+            val stats = runBlocking {
+                probe.probe(ip, target.second, attempts = 2, timeoutMs = 4000,
+                    interAttemptDelayMs = 250)
+            }
+            println("SEED ${target.first}:${target.second} -> " +
+                "handshake=${stats.handshakes} ping=${stats.pings} err=${stats.lastError}")
+            if (stats.handshakes > 0 || stats.cookieReplies > 0) answered++
         }
-        logs.forEach { println("GATE: $it") }
-        println("GATE OUTCOME: $out")
-        assertTrue("expected Ok on an open network, got $out", out is com.umbra.scanner.engine.WarpGate.Outcome.Ok)
+        assertTrue(
+            "expected at least one prepended seed to answer on an open network ($answered did)",
+            answered > 0
+        )
     }
 
     /**

@@ -66,9 +66,11 @@ class ScanController(private val settings: UmbraSettings? = null) {
         // precisely so they survive a restart — but the results tab showed
         // "NO SCAN DATA YET" on every fresh process until a new scan finished.
         // Hydrate the board from the persisted bucket of the last scan's mode.
+        // v3.8: ENDPOINT rows live in the warp bucket (they ARE warp
+        // endpoints); EDGE/CUSTOM in the edge bucket.
         if (settings != null) {
             val saved = when (settings.lastScanMode()) {
-                ScanMode.WARP -> settings.savedWarpResults.value
+                ScanMode.ENDPOINT -> settings.savedWarpResults.value
                 else -> settings.savedEdgeResults.value
             }
             if (saved.isNotEmpty()) {
@@ -167,13 +169,12 @@ class ScanController(private val settings: UmbraSettings? = null) {
         scope = engineScope
         appendLog(
             "scan session started · mode ${p.mode.name}" +
-                if (p.mode == ScanMode.WARP) {
-                    " · wireguard validation · ${p.warpAttempts} tries × ${p.tcpTimeoutMs} ms" +
-                        if (p.udpNoise) " · udp noise ×${p.noiseCount}" else ""
-                } else if (p.mode == ScanMode.ENDPOINT) {
-                    " · ${p.endpointsCount} random ip:port endpoints · tcp latency ×${p.tcpAttempts} · " +
+                if (p.mode == ScanMode.ENDPOINT) {
+                    " · ${p.endpointsCount} random ip:port endpoints + ${com.umbra.scanner.core.Presets.WARP_SEED_ENDPOINTS.size} seeds" +
+                        " · wireguard handshake ×${p.warpAttempts} · " +
                         (if (p.port > 0) "port ${p.port}" else "random ports") +
-                        " · ${p.family.label.lowercase()}"
+                        " · ${p.family.label.lowercase()}" +
+                        if (p.udpNoise) " · udp noise ×${p.noiseCount}" else ""
                 } else {
                     " · ${p.tcpAttempts} attempts × ${p.tcpTimeoutMs} ms"
                 }
@@ -381,13 +382,12 @@ class ScanController(private val settings: UmbraSettings? = null) {
         // live top-5 board — only VERIFIED phases feed it (v3.1 fix: during the
         // EDGE tcp storm "alive" merely means tcp-connect, which DPI middleboxes
         // fake-accept; showing those as "top endpoints" was misleading)
-        // v3.7: ENDPOINT mode is the exception — a completed TCP handshake IS
-        // that mode's own definition of alive (no TLS phase follows), so the
-        // board streams live during its TCP storm.
+        // v3.8: ENDPOINT probes run in the WG phase — a row only becomes alive
+        // after a real handshake answered, so the board streams live and every
+        // shown endpoint is already usable.
         val scanMode = params?.mode
         if (currentPhase == ScanPhase.WG ||
-            (scanMode == ScanMode.ENDPOINT && currentPhase == ScanPhase.TCP) ||
-            (scanMode != ScanMode.WARP &&
+            (scanMode != ScanMode.ENDPOINT &&
                 (currentPhase == ScanPhase.PROBE || currentPhase == ScanPhase.RANKING))
         ) {
             val snap = synchronized(lock) { resultMap.values.filter { it.alive } }

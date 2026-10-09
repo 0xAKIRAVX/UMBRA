@@ -3,6 +3,7 @@ package com.umbra.scanner
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.umbra.scanner.core.IpProtocol
+import com.umbra.scanner.core.Presets
 import com.umbra.scanner.core.ScanMode
 import com.umbra.scanner.core.ScanParams
 import com.umbra.scanner.core.ScanResult
@@ -123,8 +124,10 @@ class Patch40Test {
     // ---------------------------------------------------- params + persistence
 
     @Test
-    fun `scan params default to an empty warp license key`() {
-        assertTrue(ScanParams().warpLicenseKey.isEmpty())
+    fun `scan params default to the endpoint scanner with random ports`() {
+        // v3.8: WARP-mode params are gone; defaults are endpoint-first
+        assertEquals(ScanMode.ENDPOINT, ScanParams(mode = ScanMode.ENDPOINT).mode)
+        assertEquals(0, Presets.defaultPort(ScanMode.ENDPOINT))
     }
 
     private lateinit var settings: UmbraSettings
@@ -137,10 +140,13 @@ class Patch40Test {
     }
 
     @Test
-    fun `warp license key survives a save-load round-trip`() {
-        settings.saveParams(ScanParams(mode = ScanMode.WARP, warpLicenseKey = " ABCD-1234-EFGH-5678 "))
-        // leading/trailing whitespace is trimmed — a blank paste is "no key"
-        assertEquals("ABCD-1234-EFGH-5678", settings.loadParams().warpLicenseKey)
+    fun `endpoint params survive a save-load round-trip`() {
+        // v3.8: warp retries + noise are the endpoint knobs now
+        settings.saveParams(ScanParams(mode = ScanMode.ENDPOINT, warpAttempts = 5, udpNoise = false))
+        val loaded = settings.loadParams()
+        assertEquals(ScanMode.ENDPOINT, loaded.mode)
+        assertEquals(5, loaded.warpAttempts)
+        assertEquals(false, loaded.udpNoise)
     }
 
     // --------------------------------------------- dead-drop result hardening
@@ -155,7 +161,7 @@ class Patch40Test {
         ip = ip, protocol = IpProtocol.IPv4, port = 2408,
         latencyMs = 42.0, jitterMs = 3.0, packetLoss = 0.0,
         tcpAttempts = 3, successfulAttempts = 2, wgHandshakes = 2,
-        mode = ScanMode.WARP,
+        mode = ScanMode.ENDPOINT,
     )
 
     @Test

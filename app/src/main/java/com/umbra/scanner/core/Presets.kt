@@ -81,23 +81,25 @@ object Presets {
      *  still answers on :894/:928 — kept as the port-diversity third seed),
      *  while 188.114.96.1 and 162.159.192.42 verified live on :2408. Anycast
      *  lands different countries on different Cloudflare PoPs, so no seed is
-     *  authoritative — the v3.6.1 gate additionally probes a MINI-STORM of
-     *  random pool endpoints and never concludes "blocked" from seeds alone. */
+     *  authoritative — they are only a guaranteed-good head start for the
+     *  ENDPOINT scan, never a verdict about the network. */
     val WARP_SEED_V4: List<String> = listOf(
         "188.114.96.1",
         "162.159.192.42",
         "162.159.192.1",
     )
 
-    /** v3.6.2: IPv6 WARP seeds — the d0-embedded twins of the v4 seeds.
-     *  Iranian mobile carriers frequently filter the v4 WARP ranges while
-     *  leaving v6 untouched (v6 filtering is far rarer), so "every v4 probe
-     *  silent" is NOT proof the network can't carry WARP — the gate now
-     *  probes these before concluding anything. Generated from the v4 list
-     *  so the two never drift apart. */
-    val WARP_SEED_V6: List<ByteArray> = WARP_SEED_V4.mapNotNull { v4 ->
-        IpText.literalToBytes(v4)?.let { IpGenerator.v6Embedded(WARP_V6_PREFIX_D0, it) }
-    }
+    /** v3.8: known-good seed ENDPOINTS (ip:port) prepended to every ENDPOINT
+     *  scan's random pool — live-census-verified pairs from the v3.6.1 round.
+     *  They guarantee a healthy network sees at least a few validated results
+     *  within the first seconds (user trust), and never harm an unhealthy one
+     *  (a dead seed is just another failing probe). */
+    val WARP_SEED_ENDPOINTS: List<Pair<String, Int>> = listOf(
+        "188.114.96.1" to 2408,
+        "162.159.192.42" to 2408,
+        "162.159.192.1" to 894,
+        "162.159.192.1" to 928,
+    )
 
     /** WARP IPv6 endpoints embed the IPv4 pool: 2606:4700:d0::a29f:c001 == 162.159.192.1 */
     const val WARP_V6_PREFIX_D0 = "2606:4700:d0::"
@@ -111,7 +113,7 @@ object Presets {
             NetFamily.V4 -> CF_EDGE_V4
             NetFamily.V6 -> CF_EDGE_V6
         }
-        ScanMode.WARP, ScanMode.ENDPOINT -> when (family) {
+        ScanMode.ENDPOINT -> when (family) {
             NetFamily.BOTH -> WARP_V4 + WARP_V6
             NetFamily.V4 -> WARP_V4
             NetFamily.V6 -> WARP_V6
@@ -123,13 +125,12 @@ object Presets {
      *  endpoint from the canonical WARP list" (BPB behavior). Every other
      *  mode pins a real port. */
     fun defaultPort(mode: ScanMode): Int = when (mode) {
-        ScanMode.WARP -> 2408
         ScanMode.ENDPOINT -> 0
         else -> 443
     }
 
     fun portsFor(mode: ScanMode): List<Int> = when (mode) {
-        ScanMode.WARP, ScanMode.ENDPOINT -> WARP_PORTS
+        ScanMode.ENDPOINT -> WARP_PORTS
         else -> CF_EDGE_PORTS
     }
 }

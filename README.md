@@ -9,12 +9,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.7.0-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
+  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.8.0-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
   <img src="https://img.shields.io/badge/platform-Android%208.0%2B-34d399?style=flat-square&labelColor=0d1420" alt="platform">
   <img src="https://img.shields.io/badge/Kotlin-2.0-7f52ff?style=flat-square&labelColor=0d1420" alt="kotlin">
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285f4?style=flat-square&labelColor=0d1420" alt="compose">
   <img src="https://img.shields.io/badge/APK-%E2%89%882.5%20MB-f15bb5?style=flat-square&labelColor=0d1420" alt="size">
-  <img src="https://img.shields.io/badge/tests-196%2F196%20green%20%C2%B7%20live%20endpoint%20scan-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
+  <img src="https://img.shields.io/badge/tests-168%2F168%20green%20%C2%B7%20live%20WG--validated%20endpoints-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-9b5de5?style=flat-square&labelColor=0d1420" alt="license">
 </p>
 
@@ -30,7 +30,22 @@ No root. No Termux. No server. ~2 MB.
 
 ---
 
-## What's new in v3.7.0 — the ENDPOINT scanner (IPv4 + IPv6, pure TCP)
+## What's new in v3.8.0 — real endpoint validation (the anti-fake release)
+
+The field report was blunt: *“بخش وارپ رو کامل حذف کن — بخش اندپوینت مشکل داره، هیچ کدوم از اندپوینت‌هایی که میده کار نمیکنن، انگار فیک هستن”* — remove the WARP section entirely, the endpoints it hands out don't work, they seem fake. The report was **right**, and the root cause was v3.7's own definition of "alive":
+
+1. **A TCP connect was never proof of an endpoint.** Cloudflare's anycast edge accepts TCP on :443 from *every* edge IP — whether or not that address serves WARP on that port. v3.7's "pure TCP" endpoint scan reported exactly those TCP-alive addresses, and when you pasted `ip:port` into WireGuard / v2rayNG / Hiddify, nothing answered. v3.8 validates every endpoint the way BPB-Warp-Scanner does: **a real Noise_IKpsk2 WireGuard handshake over UDP, from a silently-registered identity, to that exact ip:port.** Only endpoints whose handshake is *answered* (plus the in-tunnel ICMP ping that follows) are reported. Live-verified from this build: **27/120 random endpoints handshake-validated, best 188.114.96.1:2408 at 6 ms, in-tunnel pings included.**
+2. **The WARP section is gone — completely.** The mode tile, the WARP/WARP+ flavor switch, the license-key field, the port sweep, the pre-flight gate and its settings card: all removed. What remains of "WARP" is internal plumbing you never see: the endpoint scan registers/reuses an identity silently (15-minute in-process TTL + disk fallback + pinned-IP SNI-routed registration on filtered networks), because a WireGuard handshake needs a registered key — WARP responders drop unknown keys with zero replies (live-verified with a ghost key).
+3. **Zero-result scans diagnose themselves.** If no endpoint answers, the Done panel names the world you're in: the probe-failure tally (*handshake timeout ×N*), the independent NTP-witness verdict (no UDP at all / Cloudflare filtered / WARP-ranges-filtered — each with a different remedy), and whether a system VPN is swallowing your UDP. No silent empty boards, ever.
+4. **4 census-verified seed endpoints ride at the head of every scan** (188.114.96.1:2408 and friends) — a healthy network shows validated endpoints within the first seconds, an unhealthy one treats them as ordinary failing probes. IPv4 + IPv6 both supported (half/half split, d0/d1 embedded-v6 twins); auto-tune picks the BPB 3/5/7 handshake-retry ladder and a 2000 ms WG timeout floor for you.
+5. **Visual fixes for the Persian UI.** The app ships a full فارسی translation but the layout stayed LTR — Persian text sat left-aligned in a mirrored-looking frame. The whole UI now mirrors properly in RTL (nav order, paddings, chevrons), exactly like v2rayNG/Hiddify do in FA; Latin technical tokens (IPs, ports, WG) stay perfectly readable via bidi.
+6. **Migration with respect (again).** Stored mode ordinals are bridged once: WARP-mode users land on the new ENDPOINT scanner (the mode that now actually validates), CUSTOM stays CUSTOM, ENDPOINT stays ENDPOINT — the same persisted settings otherwise.
+
+> **Endpoints that actually work in WireGuard / v2rayNG / Hiddify — not TCP-alive fake ones. Install v3.8.0, press the big button, copy the winner.** Same signature, installs in place over any v3.5.x/v3.6.x/v3.7.x.
+
+---
+
+## What's new in v3.7.0 — the ENDPOINT scanner (superseded by v3.8.0: TCP-only validation proved fakeable)
 
 This round's direction came straight from the field: *“من اصلا اسکنر وارپ‌ها رو نمی‌خوام — اسکنر endpoint می‌خوام که IPv4 و IPv6 داشته باشه”* — the BPB-Warp-Scanner workflow, on the phone. v3.6.2 had *proven* (VPN sensor + NTP witnesses + gate verdict) that the reporting device's network silently drops every UDP packet to Cloudflare — which means a WireGuard-handshake scanner can never produce results there, no matter how correct it is. So v3.7 ships what that network actually needs:
 

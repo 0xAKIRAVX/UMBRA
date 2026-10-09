@@ -16,13 +16,16 @@ import kotlin.random.Random
 
 /**
  * v3.7 ENDPOINT mode — the BPB-Warp-Scanner-style endpoint scanner:
- * random ip:port pairs over the WARP ranges, IPv4 + IPv6, pure TCP
- * latency/loss probing. These tests pin the mode's CONTRACTS:
+ * random ip:port pairs over the WARP ranges, IPv4 + IPv6.
+ * v3.8: validation is a REAL WireGuard handshake (BPB method) — a bare
+ * TCP connect proved nothing (every CF anycast edge answers TCP :443),
+ * which is exactly why v3.7 endpoints never worked in user configs.
+ * These tests pin the mode's CONTRACTS:
  *
  *  - generation: count honored, BPB family split, ip:port dedup,
  *    canonical-port pool, v4 pool membership, v6 embedded pattern
- *  - model: TCP-alive IS alive (no TLS phase exists in this mode),
- *    speed rides :443, ordinal stability for persisted prefs
+ *  - model: a handshake answer IS alive (tcp-alive alone is NOT),
+ *    speed rides :443, legacy ordinal migration
  *  - codec + ranking keep working for ENDPOINT rows
  */
 class EndpointModeTest {
@@ -30,11 +33,15 @@ class EndpointModeTest {
     // ── enum / persistence safety ──────────────────────────────────
 
     @Test
-    fun `endpoint mode is appended at ordinal 3 so persisted ordinals never shift`() {
-        check(ScanMode.ENDPOINT.ordinal == 3) { "ENDPOINT must be ordinal 3" }
+    fun `v38 ordinals are stable and the legacy bridge is total`() {
         check(ScanMode.CF_EDGE.ordinal == 0)
-        check(ScanMode.WARP.ordinal == 1)
-        check(ScanMode.CUSTOM.ordinal == 2)
+        check(ScanMode.CUSTOM.ordinal == 1)
+        check(ScanMode.ENDPOINT.ordinal == 2)
+        // pre-v3.8 stored p_mode: 0=CF_EDGE, 1=WARP, 2=CUSTOM, 3=ENDPOINT
+        check(ScanMode.fromLegacyOrdinal(1) == ScanMode.ENDPOINT) { "old WARP lands on ENDPOINT" }
+        check(ScanMode.fromLegacyOrdinal(2) == ScanMode.CUSTOM) { "old CUSTOM stays CUSTOM" }
+        check(ScanMode.fromLegacyOrdinal(3) == ScanMode.ENDPOINT)
+        check(ScanMode.entries.size == 3) { "the WARP mode is gone" }
     }
 
     // ── presets ────────────────────────────────────────────────────
@@ -147,28 +154,32 @@ class EndpointModeTest {
     // ── model semantics ────────────────────────────────────────────
 
     @Test
-    fun `endpoint result is alive exactly when TCP answered at least once`() {
-        val dead = ScanResult(
+    fun `endpoint result is alive exactly when the wireguard handshake answered`() {
+        // v3.8: the fake-endpoint fix — TCP-alive alone must NOT be alive.
+        val tcpOnly = ScanResult(
             ip = "162.159.192.5", protocol = IpProtocol.IPv4, port = 894,
-            tcpAttempts = 3, successfulAttempts = 0,
-            error = "TCP timeout", mode = ScanMode.ENDPOINT,
+            tcpAttempts = 3, successfulAttempts = 3, latencyMs = 45.0,
+            error = null, mode = ScanMode.ENDPOINT,
         )
-        check(!dead.alive)
-        check(!dead.tcpAlive)
+        check(!tcpOnly.alive) { "a TCP connect must never mark an endpoint alive" }
+        check(tcpOnly.tcpAlive) { "tcp-alive flag itself still works" }
 
-        val alive = dead.copy(successfulAttempts = 2, latencyMs = 45.0, error = null)
-        check(alive.alive) { "TCP-alive endpoint must be alive in ENDPOINT mode" }
+        val validated = tcpOnly.copy(wgHandshakes = 2, successfulAttempts = 2)
+        check(validated.alive) { "a handshake answer IS alive" }
+
+        val handshakeDead = tcpOnly.copy(wgHandshakes = 0, successfulAttempts = 0)
+        check(!handshakeDead.alive)
     }
 
     @Test
     fun `endpoint mode never runs the TLS phase and always speeds on 443`() {
         val p = ScanParams(mode = ScanMode.ENDPOINT, tlsVerify = true, port = 0)
-        check(!p.needsTlsPhase) { "ENDPOINT must not TLS-verify (warp ports don't serve the speed host)" }
+        check(!p.needsTlsPhase) { "the WG handshake is ENDPOINT's proof — no TLS phase" }
         check(p.speedPort == 443) { "port 0 (RANDOM) must never become the speed port" }
         check(p.endpointsCount == 500) { "default endpoint count" }
 
         val pinned = ScanParams(mode = ScanMode.ENDPOINT, port = 2408)
-        check(pinned.speedPort == 443) { "endpoint mode always speeds on :443 like WARP mode" }
+        check(pinned.speedPort == 443) { "endpoint mode always speeds on :443 (edge bonus)" }
     }
 
     @Test
@@ -180,7 +191,7 @@ class EndpointModeTest {
         )
         val aliveNow = base.copy(
             latencyMs = 51.0, jitterMs = 3.0, packetLoss = 0.0,
-            tcpAttempts = 3, successfulAttempts = 3, error = null,
+            tcpAttempts = 3, successfulAttempts = 2, wgHandshakes = 2, error = null,
         )
         val merged = base.merge(aliveNow)
         check(merged.alive)
@@ -190,14 +201,15 @@ class EndpointModeTest {
     // ── ranking + codec ────────────────────────────────────────────
 
     @Test
-    fun `ranking scores and sorts endpoint results by TCP aliveness`() {
+    fun `ranking scores and sorts validated endpoint results`() {
         val good = ScanResult(
             ip = "162.159.193.10", protocol = IpProtocol.IPv4, port = 894,
             latencyMs = 40.0, jitterMs = 2.0, packetLoss = 0.0,
-            tcpAttempts = 3, successfulAttempts = 3, mode = ScanMode.ENDPOINT,
+            tcpAttempts = 3, successfulAttempts = 3, wgHandshakes = 3,
+            mode = ScanMode.ENDPOINT,
         )
         val far = good.copy(ip = "188.114.99.77", latencyMs = 140.0)
-        val dead = good.copy(ip = "8.6.112.9", latencyMs = null, successfulAttempts = 0)
+        val dead = good.copy(ip = "8.6.112.9", latencyMs = null, successfulAttempts = 0, wgHandshakes = 0)
         check(Ranking.scoreOf(good) > Ranking.scoreOf(far))
         check(Ranking.scoreOf(dead) == 0.0)
         // the app filters to alive rows BEFORE ranking (ScanController.finalize)
