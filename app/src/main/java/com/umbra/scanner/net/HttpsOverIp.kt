@@ -61,6 +61,68 @@ object ExactIpHttps {
     )
 
     /**
+     * v3.6.1: generic JSON POST over the exact-IP TLS session — used by the
+     * WARP registration fallback. When the api.cloudflareclient.com DOMAIN is
+     * blocked (DNS poisoning / SNI-less filtering) but raw TCP to Cloudflare
+     * still flows, the registration is retried against a set of pinned
+     * Cloudflare IPs: the CF edge routes by SNI, so any serving edge IP with
+     * SNI/Host = api.cloudflareclient.com reaches the very same origin API,
+     * and the certificate still validates for the real hostname (verified
+     * live against 104.16.192.82 / 104.16.24.84 / 162.159.192.x / 188.114.96.1).
+     * Returns the response body only for a 2xx status; null otherwise.
+     */
+    fun postJson(
+        ip: ByteArray,
+        port: Int,
+        sni: String,
+        path: String,
+        payload: String,
+        userAgent: String,
+        connectTimeoutMs: Int,
+        readTimeoutMs: Int,
+    ): String? {
+        when (val session = openTls(ip, port, sni, connectTimeoutMs, readTimeoutMs)) {
+            is TlsSession.Fail -> return null
+            is TlsSession.Ok -> {
+                val ssl = session.socket
+                try {
+                    val out = BufferedOutputStream(ssl.outputStream, 8192)
+                    val body = payload.toByteArray(Charsets.UTF_8)
+                    val req = buildString {
+                        append("POST ").append(path)
+                        append(" HTTP/1.1\r\nHost: ").append(sni)
+                        append("\r\nUser-Agent: ").append(userAgent)
+                        append("\r\nAccept: */*\r\nContent-Type: application/json")
+                        append("\r\nContent-Length: ").append(body.size)
+                        append("\r\nConnection: close\r\n\r\n")
+                    }
+                    out.write(req.toByteArray(Charsets.ISO_8859_1))
+                    out.write(body)
+                    out.flush()
+
+                    val input = BufferedInputStream(ssl.inputStream, 16 * 1024)
+                    val status = readStatusLine(input) ?: return null
+                    if (status !in 200..299) return null
+                    skipHeaders(input)
+                    val buf = ByteArray(16 * 1024)
+                    val sb = StringBuilder()
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        sb.append(String(buf, 0, n, Charsets.UTF_8))
+                        if (sb.length > 4 * 1024 * 1024) break // sanity cap
+                    }
+                    return sb.toString()
+                } catch (e: Exception) {
+                    return null
+                } finally {
+                    runCatching { ssl.close() }
+                }
+            }
+        }
+    }
+
+    /**
      * Upload measurement: POSTs [bytes] of data to speed.cloudflare.com's /__up
      * sink over the exact-IP TLS session. The write phase is timed; the server
      * answers 200 once the body is fully consumed. Throughput is approximate

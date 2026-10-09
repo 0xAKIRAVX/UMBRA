@@ -89,8 +89,76 @@ data class WarpAccount(
 
 object WarpRegistration {
 
-    private const val API_BASE = "https://api.cloudflareclient.com/v0a4005/reg"
+    private const val API_HOST = "api.cloudflareclient.com"
+    private const val API_PATH = "/v0a4005/reg"
     private const val USER_AGENT = "insomnia/8.6.1"
+
+    /**
+     * v3.6.1 — pinned Cloudflare IPs for the registration fallback. When the
+     * api.cloudflareclient.com DOMAIN is unreachable (DNS poisoning, SNI-less
+     * filtering) the POST is retried against these literals: the CF edge
+     * routes by SNI, so any serving edge IP with SNI/Host = the API hostname
+     * reaches the SAME origin, and the certificate still validates for the
+     * real hostname. All four verified live (2026-10-10):
+     * 104.16.192.82 / 104.16.24.84 are the domain's real addresses;
+     * 162.159.192.1 / 188.114.96.1 are WARP-range IPs that serve the API on
+     * :443 alongside their WireGuard service.
+     */
+    private val PINNED_API_IPS = listOf("104.16.192.82", "104.16.24.84", "162.159.192.1", "188.114.96.1")
+
+    /**
+     * Registration transport seam — production posts to the domain first and
+     * falls back to the pinned SNI-routed IPs; tests inject offline behavior.
+     * Throws (never returns null) — the reason rides the exception message.
+     */
+    internal var apiPoster: suspend (payload: String) -> String =
+        { payload -> postRegistration(payload) }
+
+    private suspend fun postRegistration(payload: String): String = withContext(Dispatchers.IO) {
+        // 1. the domain, as always
+        val domainError = runCatching {
+            val conn = URL("https://$API_HOST$API_PATH").openConnection() as HttpURLConnection
+            try {
+                conn.requestMethod = "POST"
+                conn.doOutput = true
+                conn.setRequestProperty("User-Agent", USER_AGENT)
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.connectTimeout = 10_000
+                conn.readTimeout = 15_000
+                conn.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
+                val code = conn.responseCode
+                if (code !in 200..299) {
+                    // a real HTTP answer from the origin — pinned IPs would hit
+                    // the SAME origin and get the SAME code; do not fallback.
+                    throw java.io.IOException("registration HTTP $code")
+                }
+                conn.inputStream.bufferedReader().use { it.readText() }
+            } finally {
+                conn.disconnect()
+            }
+        }
+        domainError.getOrNull()?.let { return@withContext it }
+
+        // 2. domain unreachable at the transport level → pinned SNI-routed IPs.
+        //    (An HTTP-level rejection above never reaches this branch.)
+        val cause = domainError.exceptionOrNull()
+        for (ip in PINNED_API_IPS) {
+            val body = runCatching {
+                val bytes = com.umbra.scanner.core.IpText.literalToBytes(ip)
+                    ?: throw java.io.IOException("bad pinned ip literal $ip")
+                ExactIpHttps.postJson(
+                    bytes, 443, API_HOST, API_PATH, payload, USER_AGENT,
+                    connectTimeoutMs = 4_000, readTimeoutMs = 12_000,
+                )
+            }.getOrNull()
+            if (body != null) return@withContext body
+        }
+        throw java.io.IOException(
+            "registration api unreachable — domain failed " +
+                "(${cause?.javaClass?.simpleName ?: "unknown"}) and every pinned ip failed " +
+                "(dns poisoned or cloudflare tcp blocked on this network)",
+        )
+    }
 
     /**
      * Identity cache (15 min TTL) — v3.1 fix: auto-tune + the scan itself used
@@ -237,7 +305,7 @@ object WarpRegistration {
             val id = account.accountId ?: return@withContext false
             val token = account.authToken ?: return@withContext false
             runCatching {
-                val conn = URL("$API_BASE/$id/account").openConnection() as HttpURLConnection
+                val conn = URL("https://$API_HOST$API_PATH/$id/account").openConnection() as HttpURLConnection
                 try {
                     conn.requestMethod = "PUT"
                     conn.doOutput = true
@@ -285,27 +353,15 @@ object WarpRegistration {
                     val (priv, pub) = newIdentity()
                     val pubB64 = Base64.encodeToString(pub, Base64.NO_WRAP)
                     val payload = buildPayload(pubB64, tosTimestamp())
-                    val conn = URL(API_BASE).openConnection() as HttpURLConnection
-                    try {
-                        conn.requestMethod = "POST"
-                        conn.doOutput = true
-                        conn.setRequestProperty("User-Agent", USER_AGENT)
-                        conn.setRequestProperty("Content-Type", "application/json")
-                        conn.connectTimeout = 10_000
-                        conn.readTimeout = 15_000
-                        conn.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
-                        val code = conn.responseCode
-                        if (code !in 200..299) throw java.io.IOException("registration HTTP $code")
-                        val body = conn.inputStream.bufferedReader().use { it.readText() }
-                        val fresh = parseResponse(body, priv, pub)
-                            ?: throw java.io.IOException("unparsable registration payload")
-                        account = fresh
-                        cachedAccount = fresh
-                        cachedAtMs = System.currentTimeMillis()
-                        persist(fresh)
-                    } finally {
-                        conn.disconnect()
-                    }
+                    // v3.6.1: domain first, pinned SNI-routed IPs when the
+                    // domain is DNS-poisoned/filtered — see postRegistration.
+                    val body = apiPoster(payload)
+                    val fresh2 = parseResponse(body, priv, pub)
+                        ?: throw java.io.IOException("unparsable registration payload")
+                    account = fresh2
+                    cachedAccount = fresh2
+                    cachedAtMs = System.currentTimeMillis()
+                    persist(fresh2)
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {

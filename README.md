@@ -9,12 +9,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.6.0-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
+  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.6.1-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
   <img src="https://img.shields.io/badge/platform-Android%208.0%2B-34d399?style=flat-square&labelColor=0d1420" alt="platform">
   <img src="https://img.shields.io/badge/Kotlin-2.0-7f52ff?style=flat-square&labelColor=0d1420" alt="kotlin">
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285f4?style=flat-square&labelColor=0d1420" alt="compose">
   <img src="https://img.shields.io/badge/APK-%E2%89%882.5%20MB-f15bb5?style=flat-square&labelColor=0d1420" alt="size">
-  <img src="https://img.shields.io/badge/tests-151%2F151%20green%20%C2%B7%20live--verified%20WG-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
+  <img src="https://img.shields.io/badge/tests-162%2F162%20green%20%C2%B7%20live--verified%20WG-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-9b5de5?style=flat-square&labelColor=0d1420" alt="license">
 </p>
 
@@ -27,6 +27,18 @@ Your connection to Cloudflare's edge is only as good as the *specific IP* your n
 **UMBRA flips the table.** It samples the live Cloudflare and WARP address space directly from *your* device, measures what your network *actually* delivers to each candidate — latency, packet loss, TLS handshake, real download speed — ranks everything for you, and generates a VLESS config bound to the winner.
 
 No root. No Termux. No server. ~2 MB.
+
+---
+
+## What's new in v3.6.1 — the failure classes that look like "it doesn't work at all"
+
+The report this round: *“اسکنر وارپ‌ها اصلاً کار نمی‌کنن”* (the WARP scanners don't work at all). No crash, no log — so this round every fix is driven by **live experiments against production Cloudflare**, each of which reproduced a total-silent-failure class on its own:
+
+1. **Seeds go stale and anycast is per-country — the gate could false-abort a healthy network.** Live census: `162.159.192.1:2408` (the old first seed) went silent from our vantage while still answering on `:894/:928`; `188.114.96.1` flaps minute-to-minute; most `8.x` prefixes were dark all day. Anycast lands every country on a *different* Cloudflare PoP — a seed that works in one country can be dead in another. v3.6.0's gate concluded *"warp unreachable on this network"* from seed silence **alone** — on a network where the seeds are stale but thousands of pool IPs answer, that abort killed a perfectly fine scan. The gate now runs a **mini-storm of 32 random pool endpoints** (seeded from the real scan pool, 2 per prefix) between the seed check and any verdict: any random endpoint answering → path proven, storm proceeds. *"Blocked"* now requires silence across seeds **and** random endpoints **and** a fresh identity **and** every canonical port — and the seed list itself was refreshed from the live census. This was the bug that made v3.6.0 look *more* broken than v3.6.0's own fixes deserved on unlucky networks.
+2. **Dead identities are silent — verified with a ghost key.** We registered a real identity, then probed production endpoints with a *never-registered* key: **zero replies on every endpoint** (WireGuard's anti-enumeration). A purged/expired identity therefore looks *exactly* like a dead network — and on networks where the registration API is blocked, the persisted disk identity is the only one available, so the scan runs the full duration, finds nothing, and shows no error. v3.6.1 makes the fresh-identity round also run against the random pool (a fresh key that answers where the stored one was silent = the identity was dead, and it self-heals by swapping it in), and when the API is unreachable and nothing answers, the verdict and the zero-result scan line now say plainly: *the stored identity may be expired — WARP drops unknown keys silently; retry where the registration API is reachable*.
+3. **Registration now survives DNS poisoning — pinned-IP, SNI-routed.** `api.cloudflareclient.com` resolving to a dead IP (DNS poisoning / filtered resolvers) used to kill fresh registrations, forcing the app onto the aging disk identity. Verified live: Cloudflare's edge routes by SNI, so **any** serving CF IP with SNI/Host `api.cloudflareclient.com` reaches the same origin API with a valid certificate — the registration now falls back to pinned IPs (`104.16.192.82`, `104.16.24.84`, `162.159.192.1`, `188.114.96.1`) when the domain is unreachable. The pinned route was live-tested end-to-end: an identity registered through a pinned IP completed a real WireGuard handshake (A/B against a domain-route identity on the same endpoints).
+
+> **WARP scan aborts quickly with "warp unreachable", or runs fine but finds nothing, or registration fails on your network?** Install v3.6.1 — same signature, installs in place over any v3.5.x/v3.6.0.
 
 ---
 
@@ -237,7 +249,7 @@ Grab the latest signed APK from the **[Releases](https://github.com/0xAKIRAVX/UM
 
 | | |
 | --- | --- |
-| Latest version | **v3.6.0** (build 18) |
+| Latest version | **v3.6.1** (build 19) |
 | Requirement | Android 8.0+ (API 26) |
 | Architecture | Universal (all ABIs) |
 | Permissions | `INTERNET`, `FOREGROUND_SERVICE`, `POST_NOTIFICATIONS` — nothing else |

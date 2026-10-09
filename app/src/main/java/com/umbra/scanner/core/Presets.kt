@@ -75,11 +75,18 @@ object Presets {
         8742, 8854, 8886, 443,
     ).sorted()
 
-    /** Seed WARP endpoint IPs used for calibration (DNS-verified live pool). */
+    /** Seed WARP endpoint IPs used for calibration (DNS-verified live pool).
+     *  v3.6.1 refresh (live census 2026-10-10): the old first seed
+     *  162.159.192.1 stopped answering WG on :2408 from several PoPs (it
+     *  still answers on :894/:928 — kept as the port-diversity third seed),
+     *  while 188.114.96.1 and 162.159.192.42 verified live on :2408. Anycast
+     *  lands different countries on different Cloudflare PoPs, so no seed is
+     *  authoritative — the v3.6.1 gate additionally probes a MINI-STORM of
+     *  random pool endpoints and never concludes "blocked" from seeds alone. */
     val WARP_SEED_V4: List<String> = listOf(
-        "162.159.192.1",
-        "162.159.193.10",
         "188.114.96.1",
+        "162.159.192.42",
+        "162.159.192.1",
     )
 
     /** WARP IPv6 endpoints embed the IPv4 pool: 2606:4700:d0::a29f:c001 == 162.159.192.1 */

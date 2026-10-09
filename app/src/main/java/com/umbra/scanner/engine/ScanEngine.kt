@@ -153,6 +153,10 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
         // of burning the full scan duration and reporting "0 verified". See
         // WarpGate.kt for the decision tree.
         var adaptedByGate = false
+        // v3.6.1: the gate could not prove the identity (API blocked + no
+        // answer anywhere) — a zero-result scan then gets the identity-expiry
+        // hint appended to its diagnosis line.
+        var gateUnverifiable = false
         if (params.mode == ScanMode.WARP && account != null) {
             val gateTimeout = maxOf(2500, params.tcpTimeoutMs)
             when (val gate = WarpGate.check(account!!, params.port, gateTimeout) { sink.onLog(it) }) {
@@ -175,6 +179,7 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
                 }
                 is WarpGate.Outcome.Unverifiable -> {
                     account = gate.account
+                    gateUnverifiable = true
                     sink.onLog(gate.note)
                 }
             }
@@ -272,6 +277,14 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
                 val reasons = warpFailures.entries.sortedByDescending { it.value }
                     .take(3).joinToString(" · ") { "${it.key} ×${it.value}" }
                 line += " — $reasons"
+            }
+            // v3.6.1: a zero-result scan on an unverifiable identity points at
+            // the identity itself — live-verified: WARP responders drop
+            // unknown keys SILENTLY, so "all handshake timeout" is exactly
+            // what an expired identity looks like from the outside.
+            if (verified == 0 && gateUnverifiable) {
+                line += " · stored identity may be expired — warp drops unknown keys " +
+                    "without any reply; retry where the registration api is reachable"
             }
             sink.onLog(line)
         } else {
