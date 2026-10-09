@@ -9,12 +9,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.4.0-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
+  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.5.0-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
   <img src="https://img.shields.io/badge/platform-Android%208.0%2B-34d399?style=flat-square&labelColor=0d1420" alt="platform">
   <img src="https://img.shields.io/badge/Kotlin-2.0-7f52ff?style=flat-square&labelColor=0d1420" alt="kotlin">
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285f4?style=flat-square&labelColor=0d1420" alt="compose">
   <img src="https://img.shields.io/badge/APK-%E2%89%882.5%20MB-f15bb5?style=flat-square&labelColor=0d1420" alt="size">
-  <img src="https://img.shields.io/badge/tests-128%2F128%20green-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
+  <img src="https://img.shields.io/badge/tests-129%2F129%20green%20%C2%B7%20live--verified%20WG-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-9b5de5?style=flat-square&labelColor=0d1420" alt="license">
 </p>
 
@@ -27,6 +27,20 @@ Your connection to Cloudflare's edge is only as good as the *specific IP* your n
 **UMBRA flips the table.** It samples the live Cloudflare and WARP address space directly from *your* device, measures what your network *actually* delivers to each candidate — latency, packet loss, TLS handshake, real download speed — ranks everything for you, and generates a VLESS config bound to the winner.
 
 No root. No Termux. No server. ~2 MB.
+
+---
+
+## What's new in v3.5.0 — the WARP-scan-is-finally-real release
+
+The bug report was simple: *“وارپ مشکل داره، اسکن درست انجام نمی‌شه”* (WARP has a problem — the scan doesn't work correctly). It was right, and the root cause took live packet-level testing to find:
+
+1. **Every WARP handshake since v3.3 was silently dropped by Cloudflare.** The probe wrote the account's `client_id` into the WireGuard reserved bytes (bytes 1..3 of every packet header) — a borrowed “Xray trick” that could never be verified while UDP was blocked in the dev sandbox. When the sandbox finally allowed UDP egress, a byte-for-byte differential test against production WARP endpoints proved the opposite: **Cloudflare's servers drop any packet whose little-endian type word is not exactly 1/2/4** — non-zero reserved bytes mean the packet is discarded before the handshake even starts. Every probe timed out; the scan “ran” but could never produce a verified endpoint. The fix is the standard wireguard-go / wgcf behavior: reserved bytes are zero on all outgoing packets. The fixed build was then verified **live, end-to-end**: a full Noise_IKpsk2 handshake + an ICMP echo request *inside* the encrypted tunnel, answered with a 7 ms ping reply from `188.114.96.1:2408`.
+2. **The anti-DPI noise burst was sabotaging the probe.** Five random garbage packets were sent to the *probe target itself* right before the handshake. WARP endpoints co-host QUIC/MASQUE listeners on the same port — garbage with a high first byte looks like a QUIC long header and gets answered with a 16-byte version-negotiation packet, which was then consumed in place of the handshake response (“bad response length 16”). The noise now follows xray's real `noises` semantics — random public destinations on its own unconnected socket — while the connected WireGuard socket stays pristine.
+3. **Probe waits are pollution-proof.** The handshake and in-tunnel-ping waits now skip stray datagrams (wrong size / wrong type byte) and keep waiting within the timeout budget instead of failing on the first junk packet.
+4. **TAI64N handshake timestamps are strictly monotonic.** WireGuard responders reject initiations whose timestamp is not newer than the last accepted one for the same key. NanoTime-derived nanoseconds can jump backwards against the wall clock at second boundaries, quietly replay-protecting away some retry attempts; the timestamp generator now guarantees a strictly increasing sequence process-wide (aliasing bug included in the regression tests).
+5. **Full differential test suite against a live-verified reference.** The Python reference implementation used for the packet-level diagnosis was itself validated against production WARP and now regenerates the byte-for-byte Kotlin test vectors (initiation, response, session keys, transport request/reply) — the app speaks exactly the same bytes as the reference that was proven on the real network.
+
+> **WARP scans producing zero results on v3.3–v3.4?** That was this bug, not your network. Install v3.5.0 — same signature, installs in place.
 
 ---
 
@@ -184,7 +198,7 @@ Grab the latest signed APK from the **[Releases](https://github.com/0xAKIRAVX/UM
 
 | | |
 | --- | --- |
-| Latest version | **v3.4.0** (build 14) |
+| Latest version | **v3.5.0** (build 15) |
 | Requirement | Android 8.0+ (API 26) |
 | Architecture | Universal (all ABIs) |
 | Permissions | `INTERNET`, `FOREGROUND_SERVICE`, `POST_NOTIFICATIONS` — nothing else |

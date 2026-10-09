@@ -133,7 +133,6 @@ class WgProtocolTest {
             senderIndex = hs.getInt("sender_index"),
             ephemeralPriv = hex(hs.getString("eph_priv")),
             timestamp = hex(hs.getString("timestamp")),
-            reserved = hex(hs.getString("reserved")),
         )
         assertEquals(148, packet.size)
         assertArrayEquals(hex(hs.getString("init_packet")), packet)
@@ -157,7 +156,6 @@ class WgProtocolTest {
             senderIndex = hs.getInt("sender_index"),
             ephemeralPriv = hex(hs.getString("eph_priv")),
             timestamp = hex(hs.getString("timestamp")),
-            reserved = hex(hs.getString("reserved")),
         )
         val (session, _) = WgProtocol.consumeResponse(pending, initPriv, hex(hs.getString("response_packet")))
         assertNotNull(session)
@@ -189,7 +187,6 @@ class WgProtocolTest {
             senderIndex = hs.getInt("sender_index"),
             ephemeralPriv = hex(hs.getString("eph_priv")),
             timestamp = hex(hs.getString("timestamp")),
-            reserved = hex(hs.getString("reserved")),
         )
         val resp = hex(hs.getString("response_packet"))
         resp[8] = (resp[8].toInt() xor 0x01).toByte() // corrupt receiver index
@@ -199,9 +196,12 @@ class WgProtocolTest {
     }
 
     @Test
-    fun `warp reserved bytes ride in packet bytes 1 to 3`() {
+    fun `outgoing reserved bytes stay zero - production WARP drops non-zero`() {
+        // v3.5 fix regression test: live testing against production Cloudflare
+        // WARP endpoints proved that client_id bytes in the reserved field make
+        // the server silently DROP the packet (the LE-u32 type word must read
+        // exactly 1/2/4). Every outgoing packet must keep bytes 1..3 zero.
         val hs = vectors().getJSONObject("handshake")
-        val reserved = hex(hs.getString("reserved"))
         val (packet, _) = WgProtocol.buildInitiation(
             staticPriv = hex(hs.getString("init_static_priv")),
             staticPub = hex(hs.getString("init_static_pub")),
@@ -209,12 +209,11 @@ class WgProtocolTest {
             senderIndex = hs.getInt("sender_index"),
             ephemeralPriv = hex(hs.getString("eph_priv")),
             timestamp = hex(hs.getString("timestamp")),
-            reserved = reserved,
         )
-        // type byte stays 1, the 3 WARP client_id bytes follow immediately
         assertEquals(1, packet[0].toInt())
-        for (i in 0..2) assertEquals(reserved[i], packet[1 + i])
-        // and the transport packets carry them too
+        for (i in 1..3) assertEquals("reserved byte $i must be zero", 0, packet[i].toInt())
+
+        // transport packets carry zeros too
         val initPriv = hex(hs.getString("init_static_priv"))
         val (_, pending) = WgProtocol.buildInitiation(
             staticPriv = initPriv,
@@ -223,7 +222,6 @@ class WgProtocolTest {
             senderIndex = hs.getInt("sender_index"),
             ephemeralPriv = hex(hs.getString("eph_priv")),
             timestamp = hex(hs.getString("timestamp")),
-            reserved = reserved,
         )
         val (session, _) = WgProtocol.consumeResponse(
             pending, initPriv, hex(hs.getString("response_packet")))
@@ -233,7 +231,8 @@ class WgProtocolTest {
             byteArrayOf(172.toByte(), 16, 0, 2), byteArrayOf(1, 1, 1, 1),
             tr.getInt("ident"), tr.getInt("seq"))
         val tp = session!!.buildTransport(inner)
-        for (i in 0..2) assertEquals(reserved[i], tp[1 + i])
+        assertEquals(4, tp[0].toInt())
+        for (i in 1..3) assertEquals("reserved byte $i must be zero", 0, tp[i].toInt())
     }
 
     @Test
@@ -246,6 +245,30 @@ class WgProtocolTest {
         assertTrue("timestamp $secsBase too far from now", delta <= 2)
         val nanos = WgProtocol.beInt(ts, 8)
         assertEquals("nanos must be whitened (low 24 bits zero)", 0, nanos and 0xFFFFFF)
+    }
+
+    @Test
+    fun `tai64n is strictly monotonic across rapid consecutive calls`() {
+        // v3.5: the responder drops initiations whose timestamp is not > the
+        // last accepted one for the static key. Back-to-back probe attempts
+        // must therefore never see a timestamp that repeats or jumps backwards.
+        var prev = WgProtocol.tai64nNow()
+        repeat(500) {
+            val next = WgProtocol.tai64nNow()
+            assertTrue("timestamp must strictly increase",
+                compareTs(next, prev) > 0)
+            prev = next
+        }
+        // monotonicity holds even under a fake backwards wall-clock jump
+        assertTrue(compareTs(prev, WgProtocol.tai64nNow()) < 0)
+    }
+
+    private fun compareTs(a: ByteArray, b: ByteArray): Int {
+        for (i in 0 until 12) {
+            val d = (a[i].toInt() and 0xFF) - (b[i].toInt() and 0xFF)
+            if (d != 0) return d
+        }
+        return 0
     }
 
     // ── ICMP ─────────────────────────────────────────────────────

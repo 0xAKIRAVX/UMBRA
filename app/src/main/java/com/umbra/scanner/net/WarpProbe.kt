@@ -73,9 +73,6 @@ class WarpProbe(
     private val pingTarget: ByteArray = byteArrayOf(1, 1, 1, 1),
 ) {
 
-    /** WARP client_id (reserved bytes) — required by Cloudflare's data plane. */
-    private val reserved: ByteArray = WgProtocol.warpReserved(account.reserved)
-
     /**
      * Probes one endpoint [attempts] times with [timeoutMs] per datagram wait.
      * Cooperatively cancellable (runInterruptible sockets). Each call builds its
@@ -123,10 +120,23 @@ class WarpProbe(
                 lastError = "udp ${e.javaClass.simpleName}",
             )
         }
+        // v3.5 fix (noise pollution): the anti-DPI noise burst used to be sent
+        // to the PROBE TARGET itself. WARP endpoints co-host other services on
+        // the same UDP port (QUIC/MASQUE) — random garbage with a high first
+        // byte looks like a QUIC long header and gets answered with a 16-byte
+        // version-negotiation packet that then gets consumed in place of the
+        // handshake response ("bad response length 16" — every probe "failed"
+        // even though the handshake itself was fixed). xray's `noises` semantics
+        // are RANDOM DESTINATIONS, never the target: the noise now rides its own
+        // unconnected socket (ICMP errors never surface on unconnected sockets)
+        // while the connected WG socket stays pristine.
+        val noiseSocket = if (noise.enabled) {
+            try { DatagramSocket() } catch (_: Exception) { null }
+        } else null
         try {
             repeat(attempts.coerceAtLeast(1)) { attempt ->
                 val outcome = try {
-                    probeOnce(socket, target, src, timeoutMs, random)
+                    probeOnce(socket, noiseSocket, target, src, timeoutMs, random)
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -156,6 +166,7 @@ class WarpProbe(
             }
         } finally {
             runCatching { socket.close() }
+            runCatching { noiseSocket?.close() }
         }
 
         return WarpProbeStats(
@@ -178,6 +189,7 @@ class WarpProbe(
 
     private suspend fun probeOnce(
         socket: DatagramSocket,
+        noiseSocket: DatagramSocket?,
         target: InetSocketAddress,
         tunnelSrc: ByteArray,
         timeoutMs: Int,
@@ -185,18 +197,23 @@ class WarpProbe(
     ): ProbeOutcome {
         val buf = ByteArray(2048)
 
-        // 1. UDP noise burst (anti-DPI) — xray `noises` equivalent.
-        // v3.3 fix: noise sends to a port nobody answers can trigger ICMP
-        // port-unreachable, and on a CONNECTED datagram socket the kernel
-        // surfaces that as PortUnreachableException on the very next send.
-        // The old unguarded send() was the #1 reason WARP scans collapsed.
-        if (noise.enabled) {
+        // 1. UDP noise burst (anti-DPI) — xray `noises` semantics: sent to
+        // RANDOM destinations, never to the probe target (v3.5 fix — see
+        // probe()). Every send is fire-and-forget by definition.
+        if (noise.enabled && noiseSocket != null) {
             repeat(noise.count.coerceIn(1, 50)) {
                 val n = noise.minPacket + random.nextInt(
                     (noise.maxPacket - noise.minPacket).coerceAtLeast(1))
                 val pkt = ByteArray(n).also { random.nextBytes(it) }
-                if (!sendSafe(socket, pkt, target)) {
-                    return ProbeOutcome.Failed("udp send refused")
+                try {
+                    val dest = randomNoiseDestination(random)
+                    runInterruptible(Dispatchers.IO) {
+                        noiseSocket.send(DatagramPacket(pkt, pkt.size, dest))
+                    }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    // noise is best-effort; a failed noise send is not a probe error
                 }
                 delay(noise.minDelayMs + random.nextInt(
                     (noise.maxDelayMs - noise.minDelayMs).coerceAtLeast(1)).toLong())
@@ -209,32 +226,47 @@ class WarpProbe(
         val (initPacket, pending) = WgProtocol.buildInitiation(
             account.privateKey, account.publicKey, account.responderPublicKey,
             senderIndex, ephPriv,
-            reserved = reserved,
         )
 
         val t0 = System.nanoTime()
         if (!sendSafe(socket, initPacket, target)) {
             return ProbeOutcome.Failed("udp send refused")
         }
-        val respPacket = DatagramPacket(buf, buf.size)
-        try {
-            runInterruptible(Dispatchers.IO) { socket.receive(respPacket) }
-        } catch (e: SocketTimeoutException) {
-            return ProbeOutcome.Failed("handshake timeout")
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            return ProbeOutcome.Failed("udp ${e.javaClass.simpleName}")
+        // v3.5: wait for the response, SKIPPING stray datagrams. WARP ports
+        // co-host QUIC/MASQUE listeners; junk replies (e.g. 16-byte version
+        // negotiation) must be discarded while the wait budget continues —
+        // a single receive() used to eat the whole budget on the first junk.
+        var resp: ByteArray? = null
+        val hsDeadlineNs = System.nanoTime() + timeoutMs * 1_000_000L
+        while (resp == null) {
+            val remainingMs = (hsDeadlineNs - System.nanoTime()) / 1_000_000L
+            if (remainingMs <= 0) return ProbeOutcome.Failed("handshake timeout")
+            socket.soTimeout = remainingMs.toInt().coerceAtLeast(1)
+            val respPacket = DatagramPacket(buf, buf.size)
+            try {
+                runInterruptible(Dispatchers.IO) { socket.receive(respPacket) }
+            } catch (e: SocketTimeoutException) {
+                return ProbeOutcome.Failed("handshake timeout")
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                return ProbeOutcome.Failed("udp ${e.javaClass.simpleName}")
+            }
+            val len = respPacket.length
+            if (len == WgProtocol.RESPONSE_SIZE || len == WgProtocol.COOKIE_REPLY_SIZE) {
+                resp = buf.copyOf(len)
+            }
+            // anything else: junk from a co-hosted service — skip and keep waiting
         }
         val hsMs = (System.nanoTime() - t0) / 1e6
-        val resp = buf.copyOf(respPacket.length)
+        val respBytes = resp!!
 
         // 3. consume the response
-        val (session, err) = WgProtocol.consumeResponse(pending, account.privateKey, resp)
+        val (session, err) = WgProtocol.consumeResponse(pending, account.privateKey, respBytes)
         if (session == null) {
             // type 3 cookie reply still proves a live WARP endpoint (under load)
-            return if (resp.size == WgProtocol.COOKIE_REPLY_SIZE &&
-                WgProtocol.leInt(resp, 0) == WgProtocol.MSG_COOKIE_REPLY
+            return if (respBytes.size == WgProtocol.COOKIE_REPLY_SIZE &&
+                respBytes[0].toInt() == WgProtocol.MSG_COOKIE_REPLY
             ) {
                 ProbeOutcome.CookieReply()
             } else {
@@ -250,18 +282,31 @@ class WarpProbe(
         if (!sendSafe(socket, transport, target)) {
             return ProbeOutcome.HandshakeOnly(hsMs, "ping send refused")
         }
-        val dataPacket = DatagramPacket(buf, buf.size)
-        try {
-            runInterruptible(Dispatchers.IO) { socket.receive(dataPacket) }
-        } catch (e: SocketTimeoutException) {
-            return ProbeOutcome.HandshakeOnly(hsMs, "ping timeout")
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            return ProbeOutcome.HandshakeOnly(hsMs, "udp ${e.javaClass.simpleName}")
+        // v3.5: same skip-stray loop for the data plane wait — only a transport
+        // packet (type byte 4) from the endpoint carries our echo reply.
+        val pingDeadlineNs = System.nanoTime() + timeoutMs * 1_000_000L
+        var dataBytes: ByteArray? = null
+        while (dataBytes == null) {
+            val remainingMs = (pingDeadlineNs - System.nanoTime()) / 1_000_000L
+            if (remainingMs <= 0) return ProbeOutcome.HandshakeOnly(hsMs, "ping timeout")
+            socket.soTimeout = remainingMs.toInt().coerceAtLeast(1)
+            val dataPacket = DatagramPacket(buf, buf.size)
+            try {
+                runInterruptible(Dispatchers.IO) { socket.receive(dataPacket) }
+            } catch (e: SocketTimeoutException) {
+                return ProbeOutcome.HandshakeOnly(hsMs, "ping timeout")
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                return ProbeOutcome.HandshakeOnly(hsMs, "udp ${e.javaClass.simpleName}")
+            }
+            if (dataPacket.length >= 32 && buf[0].toInt() == WgProtocol.MSG_TRANSPORT) {
+                dataBytes = buf.copyOf(dataPacket.length)
+            }
+            // else: stray junk — skip, keep waiting
         }
         val pingMs = (System.nanoTime() - t1) / 1e6
-        val innerReply = session.openTransport(buf.copyOf(dataPacket.length))
+        val innerReply = session.openTransport(dataBytes!!)
             ?: return ProbeOutcome.HandshakeOnly(hsMs, "bad transport reply")
 
         return if (WgProtocol.parseEchoReply(innerReply, ident, 1)) {
@@ -292,6 +337,24 @@ class WarpProbe(
     } catch (_: Exception) {
         false
     }
+
+    /** Random public unicast destination for the anti-DPI noise burst —
+     * never a private/loopback/link-local block, never (meaningfully) the
+     * probe target. Noise is fire-and-forget; nothing is ever received here. */
+    private fun randomNoiseDestination(random: Random): InetSocketAddress {
+        var first = random.nextInt(1, 224)
+        while (first in NOISE_EXCLUDED_OCTETS) first = random.nextInt(1, 224)
+        val ip = byteArrayOf(
+            first.toByte(),
+            random.nextInt(256).toByte(),
+            random.nextInt(256).toByte(),
+            random.nextInt(256).toByte(),
+        )
+        val port = 1024 + random.nextInt(64_512)
+        return InetSocketAddress(InetAddress.getByAddress(ip), port)
+    }
+
+    private val NOISE_EXCLUDED_OCTETS = setOf(10, 127, 169, 172, 192)
 
     private fun parseV4(text: String): ByteArray? {
         val parts = text.trim().split('.')

@@ -17,11 +17,17 @@ import java.util.concurrent.atomic.AtomicLong
  *   response:   [type 4][sender 4][receiver 4][ephemeral 32][empty 16][mac1 16][mac2 16]
  *   transport:  [type 4][receiver 4][counter 8][aead(payload)]
  *
- * WARP extension (verified against Xray-core proxy/wireguard/bind.go Send()):
- * Cloudflare's data plane reads the 3-byte WireGuard "reserved" field (bytes
- * 1..3 of EVERY packet, handshake included) as the account's client_id. A
- * packet without it cannot be associated with the registered identity and is
- * silently dropped — this was the root cause of "fake" scan results.
+ * WARP client_id and the WireGuard reserved bytes (v3.5 EMPIRICAL FIX):
+ * the earlier build wrote the account's client_id into bytes 1..3 of every
+ * packet (an "Xray parity" claim that could never be verified while UDP was
+ * blocked in the dev sandbox). Live testing against production WARP endpoints
+ * (2026-10) proved the OPPOSITE: Cloudflare's servers drop any packet whose
+ * LE-u32 type word is not exactly 1/2/4 — i.e. non-zero reserved bytes get the
+ * packet silently discarded, which made EVERY WARP handshake time out and
+ * made the WARP scan produce nothing. wireguard-go semantics apply: reserved
+ * bytes are ZERO on all outgoing packets (wgcf / stock WireGuard clients work
+ * exactly this way against WARP). The account's client_id is kept on
+ * WarpAccount for identity purposes only — it is never written into packets.
  */
 object WgProtocol {
 
@@ -77,7 +83,16 @@ object WgProtocol {
 
     // ----------------------------------------------------------- TAI64N ----
 
-    /** TAI64N now — 12 bytes BE: (0x400000000000000a + unixSecs) || (nanos & ~0xFFFFFF). */
+    private val lastTimestamp = java.util.concurrent.atomic.AtomicReference<ByteArray?>(null)
+
+    /** TAI64N now — 12 bytes BE: (0x400000000000000a + unixSecs) || (nanos & ~0xFFFFFF).
+     * v3.5: process-wide MONOTONIC. WireGuard responders reject initiations
+     * whose timestamp is <= the last accepted one for the same static key
+     * (anti-replay). nanoTime-derived nanos can jump backwards against the
+     * wall clock at second boundaries, so consecutive probe attempts could
+     * present a "stale" timestamp and be silently dropped. A strictly
+     * increasing sequence fixes multi-attempt probing for good. */
+    @Synchronized
     fun tai64nNow(): ByteArray {
         val nanoTime = System.nanoTime()
         val unixSecs = System.currentTimeMillis() / 1000L
@@ -85,7 +100,43 @@ object WgProtocol {
         val out = ByteArray(12)
         putBeLong(out, 0, 0x400000000000000AL + unixSecs)
         putBeInt(out, 8, nanos)
+        val last = lastTimestamp.get()
+        if (last != null && compareTimestamps(out, last) <= 0) {
+            // bump a COPY — callers keep the returned array; mutating the
+            // stored one would retroactively change timestamps already handed
+            // out (aliasing bug caught by the monotonic regression test).
+            val bumped = last.copyOf()
+            bumpTimestamp(bumped)
+            lastTimestamp.set(bumped)
+            return bumped
+        }
+        lastTimestamp.set(out)
         return out
+    }
+
+    private fun compareTimestamps(a: ByteArray, b: ByteArray): Int {
+        for (i in 0 until 12) {
+            val d = (a[i].toInt() and 0xFF) - (b[i].toInt() and 0xFF)
+            if (d != 0) return d
+        }
+        return 0
+    }
+
+    /** in-place +1 on a TAI64N (secs, whitened-nanos) pair. */
+    private fun bumpTimestamp(ts: ByteArray) {
+        var nanos = beInt(ts, 8)
+        if (nanos == -1) { // 0xFFFFFFFF — carry into seconds
+            putBeInt(ts, 8, 0)
+            var secs = beInt(ts, 0)
+            secs = secs + 1
+            putBeInt(ts, 0, secs)
+            if (secs == 0) { // 32-bit carry of the low seconds word
+                var high = beInt(ts, 4)
+                putBeInt(ts, 4, high + 1)
+            }
+        } else {
+            putBeInt(ts, 8, nanos + 1)
+        }
     }
 
     // --------------------------------------------------------- handshake ----
@@ -95,14 +146,8 @@ object WgProtocol {
         internal val ephPriv: ByteArray,
         internal val hash: ByteArray,
         internal val chainKey: ByteArray,
-        internal val reserved: ByteArray,
         val senderIndex: Int,
     )
-
-    /** WARP client_id bytes carried in the reserved field of every packet. */
-    fun warpReserved(accountClientId: ByteArray): ByteArray =
-        if (accountClientId.size >= 3) accountClientId.copyOf(3)
-        else accountClientId + ByteArray(3 - accountClientId.size)
 
     /**
      * Builds a handshake initiation packet for [staticPriv]/[staticPub] talking
@@ -116,8 +161,6 @@ object WgProtocol {
         senderIndex: Int,
         ephemeralPriv: ByteArray,
         timestamp: ByteArray = tai64nNow(),
-        /** WARP account client_id — written into the reserved bytes (1..3). */
-        reserved: ByteArray = ByteArray(3),
     ): Pair<ByteArray, PendingHandshake> {
         val ephPub = WgCrypto.x25519Base(ephemeralPriv)
 
@@ -143,8 +186,8 @@ object WgProtocol {
 
         val packet = ByteArray(INITIATION_SIZE)
         putLeInt(packet, 0, MSG_INITIATION)
-        // WARP: reserved bytes carry the client_id (Xray bind.go parity)
-        writeReserved(packet, reserved)
+        // v3.5: reserved bytes (1..3) stay ZERO — putLeInt already wrote them;
+        // non-zero values are dropped by production WARP (verified live).
         putLeInt(packet, 4, senderIndex)
         System.arraycopy(ephPub, 0, packet, 8, 32)
         System.arraycopy(staticCt, 0, packet, 40, 48)
@@ -155,7 +198,7 @@ object WgProtocol {
         System.arraycopy(mac1, 0, packet, 116, 16)
         // mac2 stays zero (no cookie)
 
-        return packet to PendingHandshake(ephemeralPriv, h, ck, warpReserved(reserved), senderIndex)
+        return packet to PendingHandshake(ephemeralPriv, h, ck, senderIndex)
     }
 
     /**
@@ -169,8 +212,9 @@ object WgProtocol {
         data: ByteArray,
     ): Pair<WgSession?, String> {
         if (data.size != RESPONSE_SIZE) return null to "bad response length ${data.size}"
-        val type = leInt(data, 0)
-        if (type != MSG_RESPONSE) return null to "not a response (type $type)"
+        // byte-wise type check (boringtun semantics) — a WARP response that
+        // echoes junk into its reserved bytes is still a valid response
+        if (data[0].toInt() != MSG_RESPONSE) return null to "not a response (type ${leInt(data, 0)})"
         val sender = leInt(data, 4)
         val receiver = leInt(data, 8)
         if (receiver != pending.senderIndex) return null to "receiver index mismatch"
@@ -191,7 +235,7 @@ object WgProtocol {
         }
         h = mixHash(h, empty)
         val (sendKey, recvKey) = kdf2(ck, ByteArray(0))
-        return WgSession(sendKey, recvKey, pending.senderIndex, sender, pending.reserved) to ""
+        return WgSession(sendKey, recvKey, pending.senderIndex, sender) to ""
     }
 
     // -------------------------------------------------------- data plane ----
@@ -202,8 +246,6 @@ object WgProtocol {
         private val recvKey: ByteArray,
         val ourIndex: Int,
         val theirIndex: Int,
-        /** WARP client_id — written into bytes 1..3 of every outgoing packet. */
-        private val reserved: ByteArray = ByteArray(3),
     ) {
         private val sendCounter = AtomicLong(0)
 
@@ -216,7 +258,6 @@ object WgProtocol {
             val ct = WgCrypto.chacha20Poly1305Seal(sendKey, nonce, padded, ByteArray(0))
             val packet = ByteArray(TRANSPORT_HEADER_SIZE + ct.size)
             putLeInt(packet, 0, MSG_TRANSPORT)
-            writeReserved(packet, reserved)
             putLeInt(packet, 4, theirIndex)
             putLeLong(packet, 8, counter)
             System.arraycopy(ct, 0, packet, 16, ct.size)
@@ -236,11 +277,6 @@ object WgProtocol {
             putLeLong(nonce, 4, counter)
             return WgCrypto.chacha20Poly1305Open(recvKey, nonce, packet.copyOfRange(16, packet.size), ByteArray(0))
         }
-    }
-
-    /** Writes the WARP client_id into the WireGuard reserved bytes (1..3). */
-    private fun writeReserved(packet: ByteArray, reserved: ByteArray) {
-        for (i in 0..2) packet[1 + i] = reserved.getOrElse(i) { 0 }
     }
 
     // ------------------------------------------------------------ ICMP v4 ----

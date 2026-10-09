@@ -29,7 +29,10 @@ data class WarpAccount(
     val privateKey: ByteArray,
     /** Static public key (32 raw bytes). */
     val publicKey: ByteArray,
-    /** Reserved / client_id bytes (3) — required by WARP's data plane. */
+    /** Registration client_id bytes — informational only. v3.5 live testing
+     *  proved production WARP servers REJECT packets carrying these bytes in
+     *  the WireGuard reserved field, so they are never written into packets
+     *  (kept for identity bookkeeping / future API use). */
     val reserved: ByteArray,
     /** Assigned tunnel IPv6 (no prefix length). */
     val v6: String,

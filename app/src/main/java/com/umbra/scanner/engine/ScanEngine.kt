@@ -109,7 +109,7 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
             account = try {
                 val acc = WarpRegistration.register(licenseKey.ifBlank { null })
                 sink.onLog(
-                    "warp identity ready · reserved ${acc.reserved.joinToString(".")} · v6 ${acc.v6}" +
+                    "warp identity ready · v6 ${acc.v6} · wg handshake mode (reserved=0, live-verified)" +
                         // v3.4: the WARP+ outcome is stated plainly — a placebo
                         // toggle is worse than no toggle.
                         when {
