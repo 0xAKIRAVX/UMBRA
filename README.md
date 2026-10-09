@@ -9,12 +9,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.5.1-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
+  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.5.2-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
   <img src="https://img.shields.io/badge/platform-Android%208.0%2B-34d399?style=flat-square&labelColor=0d1420" alt="platform">
   <img src="https://img.shields.io/badge/Kotlin-2.0-7f52ff?style=flat-square&labelColor=0d1420" alt="kotlin">
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285f4?style=flat-square&labelColor=0d1420" alt="compose">
   <img src="https://img.shields.io/badge/APK-%E2%89%882.5%20MB-f15bb5?style=flat-square&labelColor=0d1420" alt="size">
-  <img src="https://img.shields.io/badge/tests-131%2F131%20green%20%C2%B7%20live--verified%20WG-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
+  <img src="https://img.shields.io/badge/tests-138%2F138%20green%20%C2%B7%20live--verified%20WG-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-9b5de5?style=flat-square&labelColor=0d1420" alt="license">
 </p>
 
@@ -27,6 +27,18 @@ Your connection to Cloudflare's edge is only as good as the *specific IP* your n
 **UMBRA flips the table.** It samples the live Cloudflare and WARP address space directly from *your* device, measures what your network *actually* delivers to each candidate — latency, packet loss, TLS handshake, real download speed — ranks everything for you, and generates a VLESS config bound to the winner.
 
 No root. No Termux. No server. ~2 MB.
+
+---
+
+## What's new in v3.5.2 — the zombie-scan release
+
+The user's screenshot (v3.5.0, WARP mode) showed a scan stuck at `0/4608 tested`, elapsed ticking, `0.0/s`, one amber line — `internal error in scan-engine — NoClassDefFoundError: v1.W` — and a STOP button that did nothing. The v3.5.1 fix killed that crash at the root; this release fixes what the screenshot revealed BEYOND the crash itself:
+
+1. **A crashed engine used to leave the session Running forever.** The scan job caught `Exception` — but `NoClassDefFoundError` and friends are `Error`s. They escaped to the crash-journal net (good), and then… nothing: `finalize()` never ran, the UI stayed on the live scan screen with the timer ticking, the ongoing notification never ended, and STOP silently cancelled an already-dead job. The only way out was force-killing the app. Errors are now caught, journaled **with the full stack trace**, logged honestly, and the scan fails into the Done panel with the reason — the session can never zombie again. STOP on a dead engine is also a defense-in-depth path that always closes the session.
+2. **NETSENSE / smart-ranking NaN-proofing.** A missing or corrupt value in the persisted network profile used to parse as `NaN` — silently poisoning the grade, rendering “NaN ms” on the card, and NaN-ing every endpoint score through the relative-latency math (sorting becomes meaningless). Corrupt or absent numbers now read as “unknown”. The persisted result codec got the same hardening.
+3. **Test seams done properly** — the engine runner is now injectable, which is what made the zombie scenario a real regression test (7 new tests, 138/138 green): engine `Error` → Done with reason; STOP on dead engine → session closed; STOP on live engine → cooperative cancel; NaN guards ×3; `CrashGuard.record` journaling.
+
+> **A scan that hangs forever at 0 tested with an amber error line?** Install v3.5.2 — same signature, installs in place over any v3.5.x.
 
 ---
 
@@ -213,7 +225,7 @@ Grab the latest signed APK from the **[Releases](https://github.com/0xAKIRAVX/UM
 
 | | |
 | --- | --- |
-| Latest version | **v3.5.1** (build 16) |
+| Latest version | **v3.5.2** (build 17) |
 | Requirement | Android 8.0+ (API 26) |
 | Architecture | Universal (all ABIs) |
 | Permissions | `INTERNET`, `FOREGROUND_SERVICE`, `POST_NOTIFICATIONS` — nothing else |

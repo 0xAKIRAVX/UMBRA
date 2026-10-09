@@ -3,6 +3,11 @@ package com.umbra.scanner.core
 import org.json.JSONArray
 import org.json.JSONObject
 
+/** v3.5.2: optDouble returns NaN for corrupt/absent values — never let NaN
+ *  leak into persisted result fields (ranking math sorts them arbitrarily). */
+private fun JSONObject.optDoubleOrNull(key: String): Double? =
+    optDouble(key).takeUnless { it.isNaN() }
+
 /**
  * Compact ScanResult ⇄ JSON codec for the persisted "smart picks" store.
  * Only the fields the results board and pick logic need survive the trip —
@@ -40,16 +45,16 @@ object ResultCodec {
             protocol = runCatching { IpProtocol.valueOf(o.optString("protocol", "IPv4")) }
                 .getOrDefault(IpProtocol.IPv4),
             port = o.optInt("port", 443).coerceIn(1, 65535),
-            latencyMs = if (o.has("lat") && !o.isNull("lat")) o.optDouble("lat") else null,
-            jitterMs = if (o.has("jit") && !o.isNull("jit")) o.optDouble("jit") else null,
-            packetLoss = o.optDouble("loss", 0.0).coerceIn(0.0, 1.0),
-            speedMbps = if (o.has("spd") && !o.isNull("spd")) o.optDouble("spd") else null,
+            latencyMs = if (o.has("lat") && !o.isNull("lat")) o.optDoubleOrNull("lat") else null,
+            jitterMs = if (o.has("jit") && !o.isNull("jit")) o.optDoubleOrNull("jit") else null,
+            packetLoss = o.optDouble("loss", 0.0).takeUnless { it.isNaN() }?.coerceIn(0.0, 1.0) ?: 0.0,
+            speedMbps = if (o.has("spd") && !o.isNull("spd")) o.optDoubleOrNull("spd") else null,
             downloadedBytes = o.optLong("dl", 0L),
             tcpAttempts = o.optInt("att", 0),
             successfulAttempts = o.optInt("ok", 0),
             tlsSuccess = o.optBoolean("tls", false),
             tlsSkipped = o.optBoolean("tlsSkip", false),
-            tlsHandshakeMs = if (o.has("tlsMs") && !o.isNull("tlsMs")) o.optDouble("tlsMs") else null,
+            tlsHandshakeMs = if (o.has("tlsMs") && !o.isNull("tlsMs")) o.optDoubleOrNull("tlsMs") else null,
             httpStatus = if (o.has("http") && !o.isNull("http")) o.optInt("http") else null,
             wgHandshakes = o.optInt("wg", 0),
             error = if (o.has("err") && !o.isNull("err")) o.optString("err") else null,

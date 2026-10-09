@@ -77,6 +77,16 @@ object CrashGuard {
         runCatching { appendNote(tag, message) }
     }
 
+    /**
+     * v3.5.2: journal a throwable that was CAUGHT and handled by engine code
+     * itself (full stack trace, same format as the CEH net) — the scope-level
+     * CoroutineExceptionHandler never sees a handled exception, so the scan
+     * controller journals it here before failing the session honestly.
+     */
+    fun record(tag: String, throwable: Throwable) {
+        runCatching { append("coroutine[$tag]", throwable) }
+    }
+
     /** All journaled crash entries, newest first. */
     fun recentCrashes(): List<String> {
         val f = journalFile() ?: return emptyList()

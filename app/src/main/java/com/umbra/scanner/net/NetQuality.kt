@@ -321,14 +321,22 @@ object NetQuality {
         if (text.isNullOrBlank()) return null
         return runCatching {
             val o = JSONObject(text)
+            // v3.5.2: optDouble() returns NaN — never null — for a missing or
+            // non-numeric key, and a half-written prefs blob would otherwise
+            // push NaN through the whole stack: the NETSENSE card renders
+            // "NaN ms", gradeOf() scores a NaN line, and SmartRanking's
+            // relative-latency math NaNs EVERY endpoint score (sorting becomes
+            // meaningless). A number that is not a number is simply "unknown".
+            fun d(key: String): Double? =
+                o.optDouble(key).takeUnless { it.isNaN() }
             NetworkProfile(
-                latencyMs = if (o.isNull("latencyMs")) null else o.optDouble("latencyMs"),
-                jitterMs = if (o.isNull("jitterMs")) null else o.optDouble("jitterMs"),
-                packetLoss = o.optDouble("packetLoss", 0.0),
-                tlsRttMs = if (o.isNull("tlsRttMs")) null else o.optDouble("tlsRttMs"),
+                latencyMs = d("latencyMs"),
+                jitterMs = d("jitterMs"),
+                packetLoss = o.optDouble("packetLoss", 0.0).takeUnless { it.isNaN() } ?: 0.0,
+                tlsRttMs = d("tlsRttMs"),
                 dpiSuspected = o.optBoolean("dpiSuspected", false),
-                downloadMbps = if (o.isNull("downloadMbps")) null else o.optDouble("downloadMbps"),
-                uploadMbps = if (o.isNull("uploadMbps")) null else o.optDouble("uploadMbps"),
+                downloadMbps = d("downloadMbps"),
+                uploadMbps = d("uploadMbps"),
                 v6Ok = o.optBoolean("v6Ok", false),
                 measuredAt = o.optLong("measuredAt", System.currentTimeMillis()),
             )

@@ -100,6 +100,14 @@ class ScanController(private val settings: UmbraSettings? = null) {
     @Volatile private var tickerJob: Job? = null
     private var scope: CoroutineScope? = null
 
+    /**
+     * Test seam — production always runs a fresh [ScanEngine]; tests replace
+     * this to inject failures (e.g. an Error) into the exact scanJob path.
+     * Never touched from production code.
+     */
+    internal var engineRunner: suspend (ScanParams, ScanSink) -> Unit =
+        { p, s -> ScanEngine().run(p, s) }
+
     val isRunning: Boolean get() = _ui.value is ScanUi.Running
 
     /**
@@ -175,20 +183,46 @@ class ScanController(private val settings: UmbraSettings? = null) {
         }
         scanJob = engineScope.launch {
             try {
-                ScanEngine().run(p, sink)
+                engineRunner(p, sink)
                 finalize(cancelled = false)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 finalize(cancelled = true)
-            } catch (e: Exception) {
-                appendLog("engine failure: ${e.message ?: e.javaClass.simpleName}")
-                finalize(cancelled = false)
+            } catch (e: Throwable) {
+                // v3.5.2 (THE zombie-scan bug): Errors are NOT Exceptions —
+                // NoClassDefFoundError, StackOverflowError etc. escaped this
+                // catch, were journaled by the scope's CEH… and finalize()
+                // NEVER ran. The session stayed Running forever (progress
+                // stuck at 0/n, elapsed ticking, ongoing notification, STOP
+                // no-op because it cancelled an already-dead job — only a
+                // force-kill ended it; the exact state in the user's crash
+                // screenshot). Errors now fail the scan honestly: journaled
+                // WITH stack trace, honest log line, Done panel with reason.
+                CrashGuard.record("scan-engine", e)
+                appendLog(
+                    "engine failure — ${e.javaClass.simpleName}" +
+                        (e.message?.let { ": $it" } ?: "") + " · recorded to crash log (settings)"
+                )
+                runCatching { finalize(cancelled = false) }
             }
         }
     }
 
     fun stopScan() {
+        val job = scanJob
+        // v3.5.2 (defense-in-depth for the zombie-scan bug): pressing STOP on
+        // a session whose engine already died (a crash path finalize missed)
+        // must ALWAYS end the session — cancelling an already-completed job
+        // is a silent no-op, which is exactly what a stuck Running screen
+        // used to show. Fail the session honestly instead.
+        if (job == null || !job.isActive) {
+            if (isRunning) {
+                appendLog("stop requested — engine already dead · closing session")
+                runCatching { finalize(cancelled = true) }
+            }
+            return
+        }
         appendLog("stop requested — tearing down sockets")
-        scanJob?.cancel()
+        job.cancel()
     }
 
     /** Return to idle config screen (results stay available in [results]). */
@@ -206,12 +240,14 @@ class ScanController(private val settings: UmbraSettings? = null) {
         topValue: List<ScanResult> = _top.value,
         resultsValue: List<ScanResult> = _results.value,
         logValue: List<String> = _log.value,
+        paramsValue: ScanParams? = null,
     ) {
         _ui.value = uiState
         _stats.value = statsValue
         _top.value = topValue
         _results.value = resultsValue
         _log.value = logValue
+        if (paramsValue != null) params = paramsValue
     }
 
     /**
