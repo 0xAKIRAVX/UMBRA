@@ -85,18 +85,26 @@ object WgProtocol {
 
     private val lastTimestamp = java.util.concurrent.atomic.AtomicReference<ByteArray?>(null)
 
-    /** TAI64N now — 12 bytes BE: (0x400000000000000a + unixSecs) || (nanos & ~0xFFFFFF).
-     * v3.5: process-wide MONOTONIC. WireGuard responders reject initiations
-     * whose timestamp is <= the last accepted one for the same static key
-     * (anti-replay). nanoTime-derived nanos can jump backwards against the
-     * wall clock at second boundaries, so consecutive probe attempts could
-     * present a "stale" timestamp and be silently dropped. A strictly
-     * increasing sequence fixes multi-attempt probing for good. */
+    /** TAI64N now — 12 bytes BE: (0x400000000000000a + unixSecs) || nanos.
+     * v3.6: process-wide MONOTONIC with wireguard-go semantics (1 ns bumps).
+     *
+     * WHY THE CHANGE: the v3.5 "whitening" masked the nanos down to 2^24 ns
+     * granules, so every monotonic bump advanced the timestamp 16.7 ms into
+     * the FUTURE. WireGuard responders store the last accepted timestamp per
+     * static key server-side; after a burst of probes the sequence ran seconds
+     * ahead of the wall clock, and a restarted process reusing a persisted
+     * identity (the API-blocked-network fallback!) started back at wall-clock
+     * time — BELOW the server's stored mark — so every initiation was silently
+     * dropped as a replay and the scan found nothing. The nanos field is
+     * AEAD-encrypted inside the initiation anyway, so whitening had zero
+     * privacy value. 1 ns bumps keep the sequence strictly increasing while
+     * staying within ~1 ms of the wall clock even after 100k initiations,
+     * exactly like wireguard-go's Timestamp.Now(). */
     @Synchronized
     fun tai64nNow(): ByteArray {
         val nanoTime = System.nanoTime()
         val unixSecs = System.currentTimeMillis() / 1000L
-        val nanos = (nanoTime % 1_000_000_000L).toInt() and (0xFF000000.toInt()) // whitener
+        val nanos = (nanoTime % 1_000_000_000L).toInt()
         val out = ByteArray(12)
         putBeLong(out, 0, 0x400000000000000AL + unixSecs)
         putBeInt(out, 8, nanos)
@@ -104,8 +112,7 @@ object WgProtocol {
         if (last != null && compareTimestamps(out, last) <= 0) {
             // bump a COPY — callers keep the returned array; mutating the
             // stored one would retroactively change timestamps already handed
-            // out (aliasing bug caught by the monotonic regression test). The
-            // bump advances one whitened granule, see bumpTimestamp().
+            // out (aliasing bug caught by the monotonic regression test).
             val bumped = last.copyOf()
             bumpTimestamp(bumped)
             lastTimestamp.set(bumped)
@@ -115,6 +122,20 @@ object WgProtocol {
         return out
     }
 
+    /** Persists the current high-water mark so a NEW process reusing a
+     * persisted WARP identity never presents a timestamp the server already
+     * saw (anti-replay drops are silent). Null before the first handshake. */
+    fun saveMark(): ByteArray? = lastTimestamp.get()?.copyOf()
+
+    /** Restores a persisted high-water mark (no-op on null/malformed input). */
+    fun loadMark(mark: ByteArray?) {
+        if (mark != null && mark.size == 12) lastTimestamp.set(mark.copyOf())
+    }
+
+    /** Drops the in-process mark — used when the identity is invalidated so a
+     * fresh key starts from the wall clock instead of the dead key's future. */
+    fun resetMark() { lastTimestamp.set(null) }
+
     private fun compareTimestamps(a: ByteArray, b: ByteArray): Int {
         for (i in 0 until 12) {
             val d = (a[i].toInt() and 0xFF) - (b[i].toInt() and 0xFF)
@@ -123,26 +144,24 @@ object WgProtocol {
         return 0
     }
 
-    /** In-place advance by one whitened granule (2^24 ns) on a TAI64N pair.
-     * v3.5.1: the v3.5 +1ns bump kept the sequence strictly monotonic but
-     * leaked the call count into the whitened low 24 bits — after a few
-     * hundred rapid probes "nanos & 0xFFFFFF" went non-zero and the
-     * whitened-nanoseconds property became timing-dependent. Stepping whole
-     * granules keeps BOTH invariants at all times: strictly increasing AND
-     * whitened. (Responders only require strict monotonicity — being a
-     * granule ahead of the wall clock is invisible and harmless.) */
+    /** In-place advance by 1 ns on a TAI64N pair (v3.6 — wireguard-go
+     * semantics). Carries: nanos (bytes 8..11) wrap at 0xFFFFFFFF → seconds
+     * low word (bytes 4..7) +1 → 32-bit carry into the high word (bytes 0..3).
+     * After even 100k rapid initiations the sequence is at most ~0.1 ms ahead
+     * of the wall clock, so an app restart reusing the identity is always
+     * safely above the server's stored mark. */
     private fun bumpTimestamp(ts: ByteArray) {
-        val nanos = beInt(ts, 8)
-        if (nanos == 0xFF000000.toInt()) { // last whitened granule — carry into seconds
+        var low = beInt(ts, 8)
+        if (low == -1) { // 0xFFFFFFFF — nanos carry into the seconds low word
             putBeInt(ts, 8, 0)
-            var low = beInt(ts, 4) // seconds low word lives at bytes 4..7
-            low = low + 1
-            putBeInt(ts, 4, low)
-            if (low == 0) { // 32-bit carry into the high word (bytes 0..3)
+            var secs = beInt(ts, 4) // seconds low word lives at bytes 4..7
+            secs = secs + 1
+            putBeInt(ts, 4, secs)
+            if (secs == 0) { // 32-bit carry into the high word (bytes 0..3)
                 putBeInt(ts, 0, beInt(ts, 0) + 1)
             }
         } else {
-            putBeInt(ts, 8, nanos + 0x01000000)
+            putBeInt(ts, 8, low + 1)
         }
     }
 

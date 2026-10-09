@@ -236,16 +236,12 @@ class WgProtocolTest {
     }
 
     @Test
-    fun `tai64n has whitened nanoseconds and correct base`() {
+    fun `tai64n matches wireguard-go shape and stays near wall clock`() {
         // Fresh sequence state: other tests in this class burn hundreds of
-        // timestamps, and the monotonic granule-lead they accumulate (up to
-        // ~16.8 ms per rapid call) is irrelevant to the FORMAT being checked
-        // here. Reset the process-wide last timestamp so this assertion stays
-        // independent of test execution order.
-        val field = WgProtocol::class.java.getDeclaredField("lastTimestamp")
-        field.isAccessible = true
-        @Suppress("UNCHECKED_CAST")
-        (field.get(null) as java.util.concurrent.atomic.AtomicReference<ByteArray?>).set(null)
+        // timestamps, and the monotonic lead they accumulate is irrelevant to
+        // the FORMAT being checked here. Reset the process-wide last timestamp
+        // so this assertion stays independent of test execution order.
+        WgProtocol.resetMark()
 
         val ts = WgProtocol.tai64nNow()
         assertEquals(12, ts.size)
@@ -254,7 +250,47 @@ class WgProtocolTest {
         val delta = kotlin.math.abs(secsBase - 0x400000000000000AL - nowSecs)
         assertTrue("timestamp $secsBase too far from now", delta <= 2)
         val nanos = WgProtocol.beInt(ts, 8)
-        assertEquals("nanos must be whitened (low 24 bits zero)", 0, nanos and 0xFFFFFF)
+        assertTrue("nanos must be a plausible sub-second value", nanos in 0..999_999_999)
+    }
+
+    @Test
+    fun `rapid fire timestamps never race far ahead of wall clock`() {
+        // v3.6 regression guard for the replay-window bug: the old 2^24 ns
+        // whitening granule advanced the sequence ~16.7 ms per rapid call, so
+        // bursts pushed it seconds into the future — and a process restart
+        // reusing the disk identity then replayed BELOW the server's stored
+        // mark (every initiation silently dropped = "warp finds nothing").
+        // 1 ns bumps (wireguard-go semantics) keep the lead sub-millisecond.
+        WgProtocol.resetMark()
+        repeat(500) { WgProtocol.tai64nNow() }
+        val ts = WgProtocol.tai64nNow()
+        val secsBase = WgProtocol.beInt(ts, 0).toLong() shl 32 or (WgProtocol.beInt(ts, 4).toLong() and 0xFFFFFFFF)
+        val nowSecs = System.currentTimeMillis() / 1000
+        val leadMs = (secsBase - 0x400000000000000AL - nowSecs) * 1000
+        assertTrue("sequence ran ${leadMs}ms ahead of wall clock", leadMs <= 2_000)
+    }
+
+    @Test
+    fun `mark round-trips and a loaded mark forces strictly higher timestamps`() {
+        // v3.6: the anti-replay high-water mark is persisted next to the disk
+        // identity — a restarted process must continue ABOVE it.
+        WgProtocol.resetMark()
+        repeat(3) { WgProtocol.tai64nNow() }
+        val mark = WgProtocol.saveMark()
+        assertNotNull(mark)
+        assertEquals(12, mark!!.size)
+
+        // simulate a restart: fresh in-process state, mark restored from disk
+        WgProtocol.resetMark()
+        WgProtocol.loadMark(mark)
+        val next = WgProtocol.tai64nNow()
+        assertTrue("restored mark must not let the next timestamp go backwards",
+            compareTs(next, mark) > 0)
+
+        // malformed marks are ignored instead of corrupting the sequence
+        WgProtocol.loadMark(ByteArray(11))
+        WgProtocol.loadMark(null)
+        WgProtocol.resetMark()
     }
 
     @Test

@@ -54,4 +54,17 @@ class WarpLiveProbeTest {
         }
         assertTrue("no endpoint answered the Kotlin probe with an in-tunnel ping", confirmed)
     }
+
+    @Test
+    fun `warp gate verifies the path pre-flight`() {
+        assumeTrue(System.getenv("UMBRA_LIVE_TEST") == "1")
+        val account: WarpAccount = runBlocking { WarpRegistration.register() }
+        val logs = ArrayList<String>()
+        val out = runBlocking {
+            com.umbra.scanner.engine.WarpGate.check(account, 2408, 4000) { logs.add(it) }
+        }
+        logs.forEach { println("GATE: $it") }
+        println("GATE OUTCOME: $out")
+        assertTrue("expected Ok on an open network, got $out", out is com.umbra.scanner.engine.WarpGate.Outcome.Ok)
+    }
 }

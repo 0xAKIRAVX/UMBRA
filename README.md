@@ -9,12 +9,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.5.2-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
+  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.6.0-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
   <img src="https://img.shields.io/badge/platform-Android%208.0%2B-34d399?style=flat-square&labelColor=0d1420" alt="platform">
   <img src="https://img.shields.io/badge/Kotlin-2.0-7f52ff?style=flat-square&labelColor=0d1420" alt="kotlin">
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285f4?style=flat-square&labelColor=0d1420" alt="compose">
   <img src="https://img.shields.io/badge/APK-%E2%89%882.5%20MB-f15bb5?style=flat-square&labelColor=0d1420" alt="size">
-  <img src="https://img.shields.io/badge/tests-138%2F138%20green%20%C2%B7%20live--verified%20WG-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
+  <img src="https://img.shields.io/badge/tests-151%2F151%20green%20%C2%B7%20live--verified%20WG-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-9b5de5?style=flat-square&labelColor=0d1420" alt="license">
 </p>
 
@@ -27,6 +27,18 @@ Your connection to Cloudflare's edge is only as good as the *specific IP* your n
 **UMBRA flips the table.** It samples the live Cloudflare and WARP address space directly from *your* device, measures what your network *actually* delivers to each candidate — latency, packet loss, TLS handshake, real download speed — ranks everything for you, and generates a VLESS config bound to the winner.
 
 No root. No Termux. No server. ~2 MB.
+
+---
+
+## What's new in v3.6.0 — the scanner that diagnoses its own network
+
+The report this round: *“اسکنر وارپ‌ها بازم مشکل داره”* (the WARP scanner still has problems). The protocol stack was already live-verified — so this release attacks the two things that could still make a WARP scan fail *silently* on a real, censored network:
+
+1. **The WireGuard replay window could swallow every handshake after a restart.** UMBRA's TAI64N timestamps were "whitened" to 2²⁴-ns granules, so every monotonic bump jumped the sequence **16.7 ms into the future**. WireGuard responders remember the newest timestamp they have ever accepted *for your identity, server-side*. After a burst of probes the sequence ran seconds ahead of the wall clock — and when the app restarted and reused the persisted disk identity (exactly what happens on networks where the registration API is blocked), the fresh process started at wall-clock time, **below the server's stored mark**, and every single initiation was silently discarded as a replay: scan runs, finds nothing, no error anywhere. The timestamp now follows wireguard-go exactly — full-resolution nanoseconds, 1 ns bumps — so even 100 000 rapid initiations stay ~0.1 ms ahead of the clock (the old code: minutes), and the high-water mark is **persisted next to the identity** so a restarted process always resumes above it. Verified live against production WARP endpoints after the change.
+2. **A pre-flight gate now proves the path before the storm.** The engine used to throw thousands of probes at the network and, when UDP was blackholed by the ISP or the persisted identity had gone stale, the user waited the whole scan duration just to read "0 verified of 4608" — indistinguishable from "the app is broken". Before the storm now: two anycast seed endpoints get a real WireGuard handshake on your chosen port. If they answer → storm proceeds as configured (with the seed RTT logged). If they are silent → a **fresh identity** is registered and the seeds are retried (stale-identity detection). If still silent → every canonical WARP port is swept: any port that completes a real handshake becomes the scan's port list (per-port ISP blocking is detected and **adapted around**, with a tighter probe budget), and if nothing answers at all the scan ends immediately with an honest diagnosis — *"warp unreachable on this network — try EDGE mode or a different network"* — instead of ten wasted minutes. On API-blocked networks the identity is preserved and the scan proceeds with a clear warning about what "empty" would mean.
+3. **Zero-result scans now say why.** Every probe's failure is tallied live into short classes, and a WARP scan that ends with zero verified endpoints appends the top reasons to its final line — *"wg probe storm done · 0 verified of 4608 — handshake timeout ×4210 · icmp port-unreachable ×388"* — which is also what the Done panel shows. A timeout wall means UDP filtering; a port-unreachable wall means the endpoints are rejecting; cookies under load mean alive-but-throttled. The scanner finally tells you which world you're in.
+
+> **WARP scan runs fine but finds nothing (especially right after a restart, or on a filtered network)?** Install v3.6.0 — same signature, installs in place.
 
 ---
 
@@ -225,7 +237,7 @@ Grab the latest signed APK from the **[Releases](https://github.com/0xAKIRAVX/UM
 
 | | |
 | --- | --- |
-| Latest version | **v3.5.2** (build 17) |
+| Latest version | **v3.6.0** (build 18) |
 | Requirement | Android 8.0+ (API 26) |
 | Architecture | Universal (all ABIs) |
 | Permissions | `INTERNET`, `FOREGROUND_SERVICE`, `POST_NOTIFICATIONS` — nothing else |

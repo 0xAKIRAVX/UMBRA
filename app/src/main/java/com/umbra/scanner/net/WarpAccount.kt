@@ -122,10 +122,31 @@ object WarpRegistration {
         }
     }
 
-    private fun loadPersisted(): WarpAccount? =
-        runCatching { prefs?.getString("identity_v1", null) }
+    /** v3.6: persists the TAI64N high-water mark next to the identity so a
+     * restarted process reusing the identity never presents a timestamp the
+     * WARP responder already saw (silent anti-replay drops = "no endpoints
+     * found" on API-blocked networks where the disk identity is the only one). */
+    fun persistTimestampMark() {
+        runCatching {
+            val mark = WgProtocol.saveMark() ?: return
+            prefs?.edit()?.putString("ts_mark_v1",
+                Base64.encodeToString(mark, Base64.NO_WRAP))?.apply()
+        }
+    }
+
+    private fun loadPersisted(): WarpAccount? {
+        val acc = runCatching { prefs?.getString("identity_v1", null) }
             .getOrNull()
-            ?.let { WarpAccount.fromJson(it) }
+            ?.let { WarpAccount.fromJson(it) } ?: return null
+        // v3.6: restore the anti-replay mark WITH the identity — they are one
+        // logical unit (the mark is what the server remembers for this key).
+        runCatching {
+            prefs?.getString("ts_mark_v1", null)?.let { b64 ->
+                WgProtocol.loadMark(Base64.decode(b64, Base64.NO_WRAP))
+            }
+        }
+        return acc
+    }
 
     // v3.4: the license key applied in THIS process — re-applying the same key
     // to the same identity is pointless, but a DIFFERENT key must be applied.
@@ -136,7 +157,15 @@ object WarpRegistration {
         cachedAccount = null
         cachedAtMs = 0L
         appliedLicenseKey = null
-        runCatching { prefs?.edit()?.remove("identity_v1")?.apply() }
+        // v3.6: the mark belongs to the (now dead) identity — drop it too so a
+        // fresh key starts from the wall clock instead of a stale future mark.
+        WgProtocol.resetMark()
+        runCatching {
+            prefs?.edit()
+                ?.remove("identity_v1")
+                ?.remove("ts_mark_v1")
+                ?.apply()
+        }
     }
 
     private fun cached(): WarpAccount? {
@@ -235,10 +264,19 @@ object WarpRegistration {
      * v3.4: [licenseKey] — a WARP+ key is applied to the account right after
      * registration (fresh OR reused); a rejected key never aborts the scan,
      * the identity simply stays on the free WARP tier.
+     *
+     * v3.6: [fresh] — bypasses BOTH the in-process cache and the disk fallback
+     * and forces a brand-new API registration (used by the pre-flight gate
+     * when the current identity fails the seed check). A failure never
+     * disturbs the existing caches, so an API-blocked network keeps its
+     * persisted identity intact.
      */
-    suspend fun register(licenseKey: String? = null, attempts: Int = 3): WarpAccount =
-        withContext(Dispatchers.IO) {
-        var account: WarpAccount? = cached()
+    suspend fun register(
+        licenseKey: String? = null,
+        attempts: Int = 3,
+        fresh: Boolean = false,
+    ): WarpAccount = withContext(Dispatchers.IO) {
+        var account: WarpAccount? = if (fresh) null else cached()
         var lastError: Exception? = null
         if (account == null) {
             repeat(attempts) { i ->
@@ -281,7 +319,9 @@ object WarpRegistration {
             // v3.3: API unreachable / rate-limited → reuse the last working
             // identity instead of aborting the scan. If the endpoint later rejects
             // it (403 / handshake failure) the user sees honest probe errors.
-            if (account == null) account = loadPersisted()
+            // v3.6 [fresh]: NO fallback — the caller asked for a brand-new
+            // identity or nothing (pre-flight gate); keep the old caches intact.
+            if (account == null && !fresh) account = loadPersisted()
         }
         val acc = account ?: throw IllegalStateException(
             "WARP registration failed: ${lastError?.message ?: "unknown"}", lastError)
