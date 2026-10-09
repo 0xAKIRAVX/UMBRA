@@ -91,7 +91,9 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
         _sink = sink
         warpFailures.clear()
         sink.onPhase(ScanPhase.GENERATING)
-        val candidates = if (params.mode == ScanMode.WARP) {
+        // v3.6.2: var — the pre-flight gate's IPv6 adaptation can regenerate
+        // the pool on a proven family (see Outcome.AdaptFamily).
+        var candidates = if (params.mode == ScanMode.WARP) {
             // WARP endpoints: v4 pool + v4-embedded v6 (d0/d1) — uniform /48
             // sampling can never hit the real 2606:4700:d0::a29f:xxxx pattern.
             IpGenerator.generateWarp(params.family, params.samplesPerPrefix, random)
@@ -158,6 +160,12 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
         // hint appended to its diagnosis line.
         var gateUnverifiable = false
         if (params.mode == ScanMode.WARP && account != null) {
+            // v3.6.2: "scan anyway" — the gate can be disabled after a
+            // Blocked verdict; the scan then runs to completion and the
+            // zero-result tally line explains itself.
+            if (!runCatching { WarpGate.gateEnabled() }.getOrDefault(true)) {
+                sink.onLog("pre-flight gate disabled — scanning anyway (a blocked verdict will take the full scan)")
+            } else {
             val gateTimeout = maxOf(2500, params.tcpTimeoutMs)
             when (val gate = WarpGate.check(account!!, params.port, gateTimeout) { sink.onLog(it) }) {
                 is WarpGate.Outcome.Ok -> {
@@ -172,6 +180,17 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
                     sink.onGenerated(pairCount)
                     sink.onLog(gate.note)
                 }
+                is WarpGate.Outcome.AdaptFamily -> {
+                    // v3.6.2: v4 WARP is filtered but the gate PROVED v6
+                    // answers — regenerate the candidate pool on v6 instead
+                    // of scanning a mostly-dead v4 storm.
+                    account = gate.account
+                    candidates = IpGenerator.generateWarp(gate.family, params.samplesPerPrefix, random)
+                    adaptedByGate = true
+                    pairCount = candidates.size * ports.size
+                    sink.onGenerated(pairCount)
+                    sink.onLog("${gate.note} · ${candidates.size} ipv6 candidates × ${ports.size} port(s)")
+                }
                 is WarpGate.Outcome.Blocked -> {
                     sink.onLog(gate.note)
                     sink.onPhase(ScanPhase.DONE)
@@ -182,6 +201,7 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
                     gateUnverifiable = true
                     sink.onLog(gate.note)
                 }
+            }
             }
         }
 

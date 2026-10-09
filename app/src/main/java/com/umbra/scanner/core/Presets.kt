@@ -89,6 +89,16 @@ object Presets {
         "162.159.192.1",
     )
 
+    /** v3.6.2: IPv6 WARP seeds — the d0-embedded twins of the v4 seeds.
+     *  Iranian mobile carriers frequently filter the v4 WARP ranges while
+     *  leaving v6 untouched (v6 filtering is far rarer), so "every v4 probe
+     *  silent" is NOT proof the network can't carry WARP — the gate now
+     *  probes these before concluding anything. Generated from the v4 list
+     *  so the two never drift apart. */
+    val WARP_SEED_V6: List<ByteArray> = WARP_SEED_V4.mapNotNull { v4 ->
+        IpText.literalToBytes(v4)?.let { IpGenerator.v6Embedded(WARP_V6_PREFIX_D0, it) }
+    }
+
     /** WARP IPv6 endpoints embed the IPv4 pool: 2606:4700:d0::a29f:c001 == 162.159.192.1 */
     const val WARP_V6_PREFIX_D0 = "2606:4700:d0::"
     const val WARP_V6_PREFIX_D1 = "2606:4700:d1::"

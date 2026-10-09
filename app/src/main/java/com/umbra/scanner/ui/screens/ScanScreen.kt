@@ -438,8 +438,11 @@ private fun DonePanel(
         summary.error?.let { reason ->
             Text(
                 reason,
+                // v3.6.2: 3 lines truncated the full gate verdict (VPN + NTP
+                // evidence + remedies) into an unreadable ellipsis — the
+                // diagnosis IS the product on blocked networks.
                 style = MonoStyleSmall.copy(color = WarnAmber, fontSize = 10.5.sp),
-                maxLines = 3,
+                maxLines = 10,
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(12.dp))

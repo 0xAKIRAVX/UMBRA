@@ -40,6 +40,16 @@ class UmbraSettings(context: Context) {
     val dismissedUpdateTag = MutableStateFlow(prefs.getString("dismissed_update_tag", null))
     val lastUpdateCheck = MutableStateFlow(prefs.getLong("last_update_check", 0L))
 
+    /** v3.6.2: WARP pre-flight gate ("scan anyway" switch). Default ON —
+     *  disabled only after a Blocked verdict, when the user explicitly
+     *  wants the full-duration scan instead of the early honest abort. */
+    val preflightGate = MutableStateFlow(prefs.getBoolean("preflight_gate", true))
+
+    fun setPreflightGate(v: Boolean) {
+        preflightGate.value = v
+        prefs.edit().putBoolean("preflight_gate", v).apply()
+    }
+
     // ── v3.1.1: POST_NOTIFICATIONS is asked exactly once, not on every scan ──
     val notifAsked = MutableStateFlow(prefs.getBoolean("notif_asked", false))
 

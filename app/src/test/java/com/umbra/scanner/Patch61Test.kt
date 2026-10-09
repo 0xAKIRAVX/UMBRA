@@ -48,6 +48,8 @@ class Patch61Test {
     private val realSweeper = WarpGate.portSweeper
     private val realRegistrar = WarpGate.freshRegistrar
     private val realPoster = WarpRegistration.apiPoster
+    private val realEvidence = WarpGate.evidenceGatherer
+    private val realV6Seeds = WarpGate.v6Seeds
 
     @Before
     fun resetIdentityState() {
@@ -60,6 +62,10 @@ class Patch61Test {
         prefsField.set(WarpRegistration, null)
         WarpRegistration.attach(ApplicationProvider.getApplicationContext<Context>())
         WarpRegistration.clearCache()
+        // v3.6.2: hermetic — the gate's new evidence + v6 seams must not touch
+        // the real network from these legacy suites.
+        WarpGate.evidenceGatherer = { com.umbra.scanner.net.UdpEvidence.Evidence(false, false) }
+        WarpGate.v6Seeds = { emptyList() }
     }
 
     @After
@@ -69,6 +75,8 @@ class Patch61Test {
         WarpGate.portSweeper = realSweeper
         WarpGate.freshRegistrar = realRegistrar
         WarpRegistration.apiPoster = realPoster
+        WarpGate.evidenceGatherer = realEvidence
+        WarpGate.v6Seeds = realV6Seeds
         WarpRegistration.clearCache()
     }
 

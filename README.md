@@ -9,12 +9,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.6.1-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
+  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.6.2-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
   <img src="https://img.shields.io/badge/platform-Android%208.0%2B-34d399?style=flat-square&labelColor=0d1420" alt="platform">
   <img src="https://img.shields.io/badge/Kotlin-2.0-7f52ff?style=flat-square&labelColor=0d1420" alt="kotlin">
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285f4?style=flat-square&labelColor=0d1420" alt="compose">
   <img src="https://img.shields.io/badge/APK-%E2%89%882.5%20MB-f15bb5?style=flat-square&labelColor=0d1420" alt="size">
-  <img src="https://img.shields.io/badge/tests-162%2F162%20green%20%C2%B7%20live--verified%20WG-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
+  <img src="https://img.shields.io/badge/tests-176%2F176%20green%20%C2%B7%20live--verified%20WG-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-9b5de5?style=flat-square&labelColor=0d1420" alt="license">
 </p>
 
@@ -27,6 +27,20 @@ Your connection to Cloudflare's edge is only as good as the *specific IP* your n
 **UMBRA flips the table.** It samples the live Cloudflare and WARP address space directly from *your* device, measures what your network *actually* delivers to each candidate — latency, packet loss, TLS handshake, real download speed — ranks everything for you, and generates a VLESS config bound to the winner.
 
 No root. No Termux. No server. ~2 MB.
+
+---
+
+## What's new in v3.6.2 — when the network is the bug, name it
+
+The report this round (screenshot, 2026-10-09 23:58): scan completes with verdict *"WARP UNREACHABLE — UDP TO CLOUDFLARE WARP IS BLOCKED OR DROPPED (FRESH IDENTITY, 35 ENDPOINTS × EVERY CANONICAL PO…"* — truncated mid-word, 0/73728 tested, registration API working. First, the scanner itself was **re-proven live within the hour** (full WG handshake + in-tunnel ping against production, plus an independent cross-check implementation that got 4/7 endpoints answering): the engine is healthy. What remains are failure classes the app used to leave *unnamed* — so this release makes the scanner **detect and diagnose its own environment**:
+
+1. **Active VPN detection (the #1 silent WARP killer on Iranian phones).** Every app socket — including UMBRA's UDP probes — is routed *into* an active Android VPN (v2rayNG, Hiddify, …). TCP-only proxy tunnels (VLESS/vmess over ws/grpc-tcp) **drop UDP silently inside the tunnel** — so registration (TCP) succeeds while *every* WARP handshake gets zero replies, and the gate honestly reports "warp unreachable on this network" — a verdict that is actually about the *tunnel*. v3.6.2 detects an active system VPN (`TRANSPORT_VPN` via ConnectivityManager) **before the gate probes**, warns in the live log, and pins the explanation to any negative verdict: *disconnect the VPN and rescan for a verdict about the real network*.
+2. **IPv6 rescue rounds.** ISPs that filter the v4 WARP ranges frequently leave v6 untouched (v6 filtering is rare) — so "every v4 probe silent" was never proof WARP is impossible. The gate now probes the v6-embedded twins of the seeds (`2606:4700:d0::a29f:c001` = `162.159.192.1`, …) plus a v6 mini-storm, with the stored identity *and* the fresh one; a single v6 answer adapts the scan onto IPv6 (`Outcome.AdaptFamily` — the engine regenerates its candidate pool on the proven family instead of scanning a dead v4 storm).
+3. **NTP witness evidence on negative verdicts.** "UDP is blocked" is three different problems with three different remedies: (a) no UDP at all, (b) UDP works but Cloudflare is filtered, (c) Cloudflare passes but WARP's ranges/ports are selectively dropped. The gate now probes two NTP witnesses (`time.cloudflare.com` = in-network, `216.239.35.0` = out-of-network, both live-verified) before publishing a negative verdict and **names which world you're in** — each verdict now ends with the matching remedy instead of a shrug.
+4. **The verdict is no longer truncated.** The Done panel capped diagnosis text at 3 lines — the user's screenshot literally ends with "…CANONICAL PO" mid-word. Diagnosis text now renders up to 10 lines; the evidence, the VPN warning and all three remedies are actually readable.
+5. **"Scan anyway" — the pre-flight gate is now a switch.** A hard gate abort leaves no path forward on networks that are (or look) blocked. SETTINGS → SCAN ENGINE → PRE-FLIGHT GATE (on by default) can be disabled after a Blocked verdict; the scan then runs the full duration and the zero-result tally line explains itself. The Blocked verdict text names this option.
+
+> **WARP scan says "unreachable" but you're sure it should work? Install v3.6.2 and read the verdict — it now tells you whether it's the VPN, the ISP, or Cloudflare-side filtering, and what to do.** Same signature, installs in place over any v3.5.x/v3.6.x.
 
 ---
 
@@ -249,7 +263,7 @@ Grab the latest signed APK from the **[Releases](https://github.com/0xAKIRAVX/UM
 
 | | |
 | --- | --- |
-| Latest version | **v3.6.1** (build 19) |
+| Latest version | **v3.6.2** (build 20) |
 | Requirement | Android 8.0+ (API 26) |
 | Architecture | Universal (all ABIs) |
 | Permissions | `INTERNET`, `FOREGROUND_SERVICE`, `POST_NOTIFICATIONS` — nothing else |

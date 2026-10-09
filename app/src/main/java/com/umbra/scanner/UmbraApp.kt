@@ -5,6 +5,8 @@ import com.umbra.scanner.engine.CrashGuard
 import com.umbra.scanner.engine.NetStatusCenter
 import com.umbra.scanner.engine.ScanController
 import com.umbra.scanner.engine.UpdateCenter
+import com.umbra.scanner.engine.VpnSensor
+import com.umbra.scanner.engine.WarpGate
 import com.umbra.scanner.net.WarpRegistration
 import com.umbra.scanner.settings.UmbraSettings
 
@@ -27,5 +29,10 @@ class UmbraApp : Application() {
         controller.startGate = { netStatus.measuring.value }
         // v3.3: disk-backed WARP identity — survives blocked registration APIs
         WarpRegistration.attach(this)
+        // v3.6.2: the pre-flight gate reads the persisted "scan anyway"
+        // switch, and the VPN sensor gets a real ConnectivityManager to
+        // consult (null on JVM tests — unknown, never "active").
+        WarpGate.gateEnabled = { settings.preflightGate.value }
+        VpnSensor.attach(this)
     }
 }

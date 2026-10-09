@@ -4,6 +4,7 @@ import com.umbra.scanner.core.IpGenerator
 import com.umbra.scanner.core.IpText
 import com.umbra.scanner.core.NetFamily
 import com.umbra.scanner.core.Presets
+import com.umbra.scanner.net.UdpEvidence
 import com.umbra.scanner.net.UdpNoiseConfig
 import com.umbra.scanner.net.WarpAccount
 import com.umbra.scanner.net.WarpProbe
@@ -42,10 +43,31 @@ import kotlin.random.Random
  *    answers where the stored one was silent, and the Unverifiable outcome
  *    says plainly that an expired identity is one of the two possibilities.
  *
+ * v3.6.2 (the "اسکنر وارپ اصلا کار نمیکنه" round — live evidence):
+ *  - VPN VISIBILITY: an active system VPN (v2rayNG/Hiddify/…) captures every
+ *    app socket; TCP-only proxy tunnels drop UDP silently, so the gate sees
+ *    "fresh identity + zero replies anywhere" and used to publish a plain
+ *    "warp unreachable" that read like a scanner bug. The gate now warns in
+ *    the log up front and appends the VPN explanation to negative verdicts
+ *    (see VpnSensor).
+ *  - IPv6 RESCUE: ISPs that filter the v4 WARP ranges often leave v6
+ *    untouched — "every v4 probe silent" is NOT proof WARP is impossible
+ *    here. New rounds probe the v6-embedded twins of the seeds plus a v6
+ *    mini-storm; an answer adapts the scan to IPv6 via
+ *    [Outcome.AdaptFamily] instead of failing.
+ *  - UDP EGRESS EVIDENCE: negative verdicts now carry an independent NTP
+ *    witness result (UdpEgress) that separates "no udp at all" from
+ *    "cloudflare filtered" from "warp-specific filtering" — each has a
+ *    different remedy.
+ *  - GATE BYPASS: [gateEnabled] lets the user disable the gate entirely
+ *    ("scan anyway" — the scan then runs to completion and reports honestly).
+ *
  * Outcomes:
  *  - [Outcome.Ok]            path + identity proven (seed OR random endpoint)
  *  - [Outcome.Adapt]         primary port dead → a wg-verified replacement
  *                            port list (scan continues on the working ports)
+ *  - [Outcome.AdaptFamily]   v4 warp unreachable but IPv6 verified → the scan
+ *                            regenerates its candidate pool on v6
  *  - [Outcome.Blocked]       UDP to WARP is blackholed on this network →
  *                            abort early with an actionable diagnosis
  *  - [Outcome.Unverifiable]  registration API unreachable + no handshake
@@ -71,11 +93,17 @@ internal object WarpGate {
     sealed interface Outcome {
         data class Ok(val account: WarpAccount, val note: String) : Outcome
         data class Adapt(val account: WarpAccount, val ports: List<Int>, val note: String) : Outcome
+        data class AdaptFamily(val account: WarpAccount, val family: NetFamily, val note: String) : Outcome
         data class Blocked(val note: String) : Outcome
         data class Unverifiable(val account: WarpAccount, val note: String) : Outcome
     }
 
     // ---- injectable seams (tests replace these; production defaults are real) ----
+
+    /** v3.6.2: "scan anyway" — the user can disable the pre-flight gate
+     *  entirely after a Blocked verdict; production wires this to the
+     *  persisted setting (UmbraApp). */
+    internal var gateEnabled: () -> Boolean = { true }
 
     internal var seedProber: suspend (account: WarpAccount, ip: ByteArray, port: Int, timeoutMs: Int) -> SeedStats? =
         { account, ip, port, timeoutMs ->
@@ -90,6 +118,18 @@ internal object WarpGate {
      *  REAL scan pool (2 per WARP prefix = 32 fresh v4 candidates). */
     internal var poolSampler: () -> List<ByteArray> =
         { IpGenerator.generateWarp(NetFamily.V4, 2, Random(System.nanoTime())).map { it.bytes } }
+
+    /** v3.6.2: v6 seeds — the d0-embedded twins of the v4 seeds. */
+    internal var v6Seeds: () -> List<ByteArray> = { Presets.WARP_SEED_V6 }
+
+    /** v3.6.2: random v6 pool endpoints for the v6 mini-storm. */
+    internal var v6PoolSampler: () -> List<ByteArray> =
+        { IpGenerator.generateWarp(NetFamily.V6, 2, Random(System.nanoTime())).take(12).map { it.bytes } }
+
+    /** v3.6.2: independent UDP-egress evidence — consulted only when a
+     *  negative verdict is about to be published. */
+    internal var evidenceGatherer: suspend (timeoutMs: Int) -> UdpEvidence.Evidence =
+        { t -> UdpEvidence.gather(t) }
 
     internal var portSweeper: suspend (account: WarpAccount, timeoutMs: Int) -> Map<Int, Double> =
         { account, timeoutMs -> sweepPorts(account, timeoutMs) }
@@ -109,6 +149,14 @@ internal object WarpGate {
     ): Outcome = coroutineScope {
         val seeds = Presets.WARP_SEED_V4.mapNotNull { IpText.literalToBytes(it) }
         if (seeds.isEmpty()) return@coroutineScope Outcome.Blocked("no seed endpoints configured")
+
+        // v3.6.2: VPN visibility FIRST — every verdict below is measured
+        // THROUGH the tunnel while a system VPN is active, and TCP-only proxy
+        // tunnels drop UDP silently. Say it up front, not after the failure.
+        if (VpnSensor.active() == true) {
+            log("preflight · WARNING: a system VPN is active — udp probes ride its " +
+                "tunnel; tcp-only proxy tunnels drop udp silently")
+        }
 
         log("preflight · seed handshake :$primaryPort on ${Presets.WARP_SEED_V4.joinToString(" / ")}")
 
@@ -133,6 +181,12 @@ internal object WarpGate {
             )
         }
 
+        // round 1c — v3.6.2 IPv6 rescue: v4 silent everywhere does NOT mean
+        // WARP is impossible — networks that filter the v4 ranges often pass
+        // v6 (v6 filtering is rare). Probe the v6 twins of the seeds plus a
+        // small v6 mini-storm before suspecting the identity.
+        v6Rescue(account, primaryPort, timeoutMs, log)?.let { return@coroutineScope it }
+
         // round 2 — identity suspect (live-verified: WARP silently drops
         // initiations for unknown/expired keys — exactly what we just saw):
         // force a brand-new registration and replay seeds + mini-storm.
@@ -155,6 +209,11 @@ internal object WarpGate {
                         "via a random pool endpoint",
                 )
             }
+            // v3.6.2: fresh identity + v6 still unprobed — the stored identity
+            // may be fine while the NETWORK is v4-blocked; try v6 with the
+            // known-good fresh key before the expensive full port sweep.
+            v6Rescue(fresh, primaryPort, timeoutMs, log)?.let { return@coroutineScope it }
+
             // known-good identity + silence everywhere on the primary port →
             // per-port blocking? sweep every canonical WARP port across the
             // seeds AND random pool endpoints.
@@ -164,7 +223,10 @@ internal object WarpGate {
                 return@coroutineScope Outcome.Blocked(
                     "warp unreachable on this network — udp to cloudflare warp is blocked or dropped " +
                         "(fresh identity, ${seeds.size + pool.size} endpoints × every canonical port tried, " +
-                        "zero replies; try EDGE mode or a different network)",
+                        "zero replies; try EDGE mode, a different network, or disable the pre-flight " +
+                        "gate in settings to scan anyway)" +
+                        evidenceNote(timeoutMs) +
+                        (VpnSensor.hint() ?: ""),
                 )
             }
             return@coroutineScope Outcome.Adapt(fresh, working.keys.sorted(), adaptNote(primaryPort, working.keys))
@@ -173,6 +235,10 @@ internal object WarpGate {
         // round 3 — registration API unreachable (API-blocked network).
         // Sweep with the ORIGINAL identity: a single answering port proves it.
         log("preflight · registration api unreachable — sweeping warp ports with stored identity")
+        // v3.6.2: v6 with the stored identity too — API-blocked networks are
+        // exactly where the disk identity is the only option, and v6 may be
+        // the only family that passes.
+        v6Rescue(account, primaryPort, timeoutMs, log)?.let { return@coroutineScope it }
         val working = runCatching { portSweeper(account, timeoutMs) }.getOrDefault(emptyMap())
         if (working.isEmpty()) {
             return@coroutineScope Outcome.Unverifiable(
@@ -180,10 +246,60 @@ internal object WarpGate {
                 "identity unverifiable · registration api unreachable and no warp endpoint answers — " +
                     "either udp is filtered here, or the stored identity expired (warp servers drop " +
                     "unknown keys SILENTLY, no error). if the scan comes back empty, retry on a network " +
-                    "where the api works so a fresh identity can register (EDGE mode still works)",
+                    "where the api works so a fresh identity can register (EDGE mode still works)" +
+                    evidenceNote(timeoutMs) +
+                    (VpnSensor.hint() ?: ""),
             )
         }
         Outcome.Adapt(account, working.keys.sorted(), adaptNote(primaryPort, working.keys))
+    }
+
+    /**
+     * v3.6.2 — one IPv6 rescue attempt for [account]: v6 seeds first, then a
+     * small v6 mini-storm. Returns [Outcome.AdaptFamily] on the first answer,
+     * or null when v6 stays silent (or is unavailable on this device — send
+     * errors are caught by the probe layer and read as silence).
+     */
+    private suspend fun v6Rescue(
+        account: WarpAccount,
+        primaryPort: Int,
+        timeoutMs: Int,
+        log: (String) -> Unit,
+    ): Outcome? = coroutineScope {
+        val seeds6 = runCatching { v6Seeds() }.getOrDefault(emptyList())
+        if (seeds6.isEmpty()) return@coroutineScope null
+        log("preflight · v4 warp silent — probing ipv6 warp endpoints :$primaryPort")
+        val r = probeAll(account, seeds6, primaryPort, timeoutMs)
+        if (r.any { it?.answered == true }) {
+            return@coroutineScope Outcome.AdaptFamily(
+                account,
+                NetFamily.V6,
+                "preflight ok via IPv6 — v4 warp is filtered on this network but v6 " +
+                    "endpoints answer" +
+                    (bestPing(r)?.let { " · rtt ${"%.0f".format(java.util.Locale.US, it)} ms" } ?: "") +
+                    " · scan continues on ipv6",
+            )
+        }
+        val pool6 = runCatching { v6PoolSampler() }.getOrDefault(emptyList())
+        if (pool6.isNotEmpty()) {
+            log("preflight · v6 seeds silent — v6 mini-storm over random pool endpoints")
+            val r6 = probeAll(account, pool6, primaryPort, timeoutMs)
+            if (r6.any { it?.answered == true }) {
+                return@coroutineScope Outcome.AdaptFamily(
+                    account,
+                    NetFamily.V6,
+                    "preflight ok via a random ipv6 pool endpoint — v4 warp is filtered " +
+                        "here; scan continues on ipv6",
+                )
+            }
+        }
+        null
+    }
+
+    /** v3.6.2 — independent NTP evidence appended to negative verdicts. */
+    private suspend fun evidenceNote(timeoutMs: Int): String {
+        val evidence = runCatching { evidenceGatherer(timeoutMs) }.getOrNull() ?: return ""
+        return " · " + UdpEvidence.describe(evidence)
     }
 
     /** Probes [ips] in parallel on [port] with [account]; 2 attempts each. */

@@ -15,6 +15,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -35,12 +36,24 @@ class Patch60Test {
     private val realProber = WarpGate.seedProber
     private val realSweeper = WarpGate.portSweeper
     private val realRegistrar = WarpGate.freshRegistrar
+    private val realEvidence = WarpGate.evidenceGatherer
+    private val realV6Seeds = WarpGate.v6Seeds
+
+    @Before
+    fun hermeticSeams() {
+        // v3.6.2: the gate now consults NTP evidence + v6 seeds on the way to
+        // a negative verdict — keep these tests offline and deterministic.
+        WarpGate.evidenceGatherer = { com.umbra.scanner.net.UdpEvidence.Evidence(false, false) }
+        WarpGate.v6Seeds = { emptyList() }
+    }
 
     @After
     fun restoreSeams() {
         WarpGate.seedProber = realProber
         WarpGate.portSweeper = realSweeper
         WarpGate.freshRegistrar = realRegistrar
+        WarpGate.evidenceGatherer = realEvidence
+        WarpGate.v6Seeds = realV6Seeds
     }
 
     private fun fakeAccount(tag: String = "stored"): WarpAccount = WarpAccount(
