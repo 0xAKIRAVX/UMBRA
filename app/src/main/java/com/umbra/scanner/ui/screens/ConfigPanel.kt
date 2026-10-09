@@ -128,8 +128,12 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
     } else 1
 
     val estimate = remember(mode, cidrs, family, samples, sweepEnabled, sweepPortsStr) {
+        // v3.2 fix: WARP used to hand-roll `blocks × samples`, ignoring the
+        // small-block enumeration cap (254/24) — with the slider above 256 the
+        // displayed probe count was overstated up to 12x. Use the same capped
+        // estimator the generator actually honors.
         val base = if (mode == ScanMode.WARP) {
-            val v4 = Presets.WARP_V4.size * samples
+            val v4 = IpGenerator.estimate(Presets.WARP_V4, NetFamily.V4, samples)
             when (family) {
                 NetFamily.V4 -> v4
                 NetFamily.V6 -> v4 * 2

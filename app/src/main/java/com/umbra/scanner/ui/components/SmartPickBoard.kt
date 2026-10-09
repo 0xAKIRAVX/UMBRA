@@ -21,6 +21,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -63,8 +64,11 @@ fun SmartPickBoard(
     val accent = LocalAccent.current
     val s = LocalStrings.current
 
-    val warpPicks = SmartRanking.picks(warpResults, profile)
-    val edgePicks = SmartRanking.picks(edgeResults, profile)
+    // v3.2 fix: picks re-ran an O(n log n) sort on EVERY keystroke of the
+    // results search field (the results lists are remembered, but these
+    // derived picks were not). Memoize on the exact same inputs.
+    val warpPicks = remember(warpResults, profile) { SmartRanking.picks(warpResults, profile) }
+    val edgePicks = remember(edgeResults, profile) { SmartRanking.picks(edgeResults, profile) }
     if (warpPicks.best == null && edgePicks.best == null) return
 
     Column(modifier.fillMaxWidth()) {

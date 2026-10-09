@@ -18,6 +18,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
 
@@ -264,14 +265,19 @@ object AutoTune {
         val seedText = if (v6Ok) "2606:4700:d0::a29f:c001" else "162.159.192.1"
         val bytes = IpText.literalToBytes(seedText) ?: return null
         val d = runCatching {
+            // v3.2 fix: the download is blocking socket IO — dispatch it to IO so
+            // the main thread never freezes (was a 6.7s ANR window) and the
+            // timeout below can actually preempt the work.
             withTimeoutOrNull(6500) {
-                ExactIpHttps.download(
-                    bytes, 443, "speed.cloudflare.com",
-                    bytes = 512L * 1024,
-                    connectTimeoutMs = 2200,
-                    readTimeoutMs = 4500,
-                    maxDurationMs = 4500,
-                )
+                withContext(Dispatchers.IO) {
+                    ExactIpHttps.download(
+                        bytes, 443, "speed.cloudflare.com",
+                        bytes = 512L * 1024,
+                        connectTimeoutMs = 2200,
+                        readTimeoutMs = 4500,
+                        maxDurationMs = 4500,
+                    )
+                }
             }
         }.getOrNull() ?: return null
         return if (d.httpStatus == 200 && d.bytes > 0 && d.error == null && d.durationMs > 0) {

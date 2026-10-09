@@ -147,6 +147,19 @@ private fun BootSplash(version: String) {
 }
 
 /**
+ * v3.2: reverts the window to the display's DEFAULT mode — the refresh-rate
+ * toggle previously only ever pinned the max mode and never reset, leaving the
+ * panel running hot while the switch showed OFF.
+ */
+fun Activity.resetRefreshRate() {
+    try {
+        window.attributes = window.attributes.also { it.preferredDisplayModeId = 0 }
+        window.attributes = window.attributes.also { it.preferredRefreshRate = 0f }
+    } catch (_: Exception) {
+    }
+}
+
+/**
  * Frame-rate unlock: picks the highest physical refresh-rate display mode at the
  * current resolution and pins the window to it (works on 90/120/144 Hz panels,
  * including on low-end devices that default to 60 Hz for non-game apps).

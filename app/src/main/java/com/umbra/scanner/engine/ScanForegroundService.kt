@@ -86,8 +86,16 @@ class ScanForegroundService : Service() {
                     when (u) {
                         is ScanUi.Running -> notifySafe(buildProgressNotification(s))
                         is ScanUi.Done -> {
-                            notifySafe(buildFinalNotification(u))
-                            ServiceCompat.stopForeground(this@ScanForegroundService, ServiceCompat.STOP_FOREGROUND_DETACH)
+                            // v3.2 fix: when POST_NOTIFICATIONS is denied the final
+                            // notification cannot be posted — DETACH would leave the
+                            // ONGOING progress notification stuck in the shade until
+                            // process death. Remove it instead in that case.
+                            val posted = notifySafe(buildFinalNotification(u))
+                            ServiceCompat.stopForeground(
+                                this@ScanForegroundService,
+                                if (posted) ServiceCompat.STOP_FOREGROUND_DETACH
+                                else ServiceCompat.STOP_FOREGROUND_REMOVE
+                            )
                             stopSelf()
                         }
                         ScanUi.Idle -> stopSelf()
@@ -166,14 +174,16 @@ class ScanForegroundService : Service() {
             .build()
     }
 
-    private fun notifySafe(notification: Notification) {
+    private fun notifySafe(notification: Notification): Boolean {
         val granted = Build.VERSION.SDK_INT < 33 ||
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-        if (!granted) return
+        if (!granted) return false
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        try {
+        return try {
             nm.notify(NOTIF_ID, notification)
+            true
         } catch (_: SecurityException) {
+            false
         }
     }
 

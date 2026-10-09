@@ -269,6 +269,7 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
             tcpAttempts = total,
             successfulAttempts = lat.size,
             error = if (lat.isEmpty()) (t.lastError ?: "unreachable") else null,
+            tlsSkipped = !params.tlsVerify,
             mode = params.mode,
         )
     }

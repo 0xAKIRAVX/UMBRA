@@ -119,10 +119,19 @@ object NetQuality {
 
     // ------------------------------------------------------------- probes ----
 
-    /** (best latency, jitter, loss) over 12 interleaved TCP handshakes. */
+    /**
+     * (best latency, jitter, loss) over 12 interleaved TCP handshakes.
+     *
+     * v3.2 fix: jitter and loss are now computed PER SEED and aggregated from
+     * the most responsive seed. The seeds are 4 distinct anycast endpoints that
+     * legitimately sit 20-50ms apart — pooling their samples inflated "jitter"
+     * with inter-seed RTT spread and counted a single blocked seed as 25% line
+     * loss, dragging an EXCELLENT line down to FAIR and selecting the wrong
+     * adaptive ranking weights.
+     */
     private suspend fun pingSamples(): Triple<Double?, Double?, Double> = coroutineScope {
-        val samples = ArrayList<Double>(12)
-        var failures = 0
+        val perSeed = HashMap<String, MutableList<Double>>()
+        val failures = HashMap<String, Int>()
         val sem = Semaphore(4)
         repeat(3) { round ->
             val deferred = PING_SEEDS.map { seed ->
@@ -135,19 +144,38 @@ object NetQuality {
                     }
                 }
             }
-            for (r in deferred.awaitAll()) {
-                if (r != null) samples.add(r) else failures++
+            PING_SEEDS.forEachIndexed { i, seed ->
+                val r = deferred[i].await()
+                if (r != null) perSeed.getOrPut(seed) { ArrayList(3) }.add(r)
+                else failures[seed] = (failures[seed] ?: 0) + 1
             }
             if (round < 2) delay(140)
         }
-        val lat = samples.minOrNull()
-        val jit = if (samples.size >= 2) {
-            val mean = samples.average()
-            sqrt(samples.sumOf { (it - mean) * (it - mean) } / samples.size)
-        } else null
-        val total = samples.size + failures
-        val loss = if (total == 0) 1.0 else failures.toDouble() / total
+        val lat = perSeed.values.flatten().minOrNull()
+        // the most responsive seed (tie → lowest median) is the line's honest witness
+        val bestSeed = perSeed.entries
+            .sortedWith(compareByDescending<Map.Entry<String, MutableList<Double>>> { it.value.size }
+                .thenBy { median(it.value) })
+            .firstOrNull()
+        val jit = bestSeed?.let { (_, samples) ->
+            if (samples.size >= 2) {
+                val mean = samples.average()
+                sqrt(samples.sumOf { (it - mean) * (it - mean) } / samples.size)
+            } else null
+        }
+        // loss = the best seed's failure rate, not pooled across seeds
+        val rounds = 3
+        val loss = bestSeed?.let { (seed, samples) ->
+            val fails = failures[seed] ?: 0
+            (fails + samples.size).let { total -> if (total == 0) 1.0 else fails.toDouble() / total }
+        } ?: 1.0
         Triple(lat, jit, loss)
+    }
+
+    private fun median(values: List<Double>): Double {
+        val sorted = values.sorted()
+        val n = sorted.size
+        return if (n % 2 == 1) sorted[n / 2] else (sorted[n / 2 - 1] + sorted[n / 2]) / 2.0
     }
 
     private suspend fun probeV6(): Boolean = coroutineScope {

@@ -43,6 +43,7 @@ import com.umbra.scanner.core.Project
 import com.umbra.scanner.engine.UpdateCenter
 import com.umbra.scanner.i18n.AppLanguage
 import com.umbra.scanner.i18n.LocalStrings
+import com.umbra.scanner.resetRefreshRate
 import com.umbra.scanner.unlockMaxRefreshRate
 import com.umbra.scanner.ui.components.GradientButton
 import com.umbra.scanner.ui.components.NeonCard
@@ -205,7 +206,9 @@ fun SettingsScreen(app: UmbraApp) {
                 checked = highRefresh,
                 onChange = { on ->
                     settings.setHighRefresh(on)
+                    // v3.2: actually revert the window mode when switched OFF
                     if (on) (context as? Activity)?.unlockMaxRefreshRate()
+                    else (context as? Activity)?.resetRefreshRate()
                 },
             )
             ToggleRow(

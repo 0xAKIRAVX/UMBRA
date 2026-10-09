@@ -37,10 +37,15 @@ class NetStatusCenter(
      * Returns false when it refused (busy) so the UI can explain why.
      */
     fun startMeasure(): Boolean {
-        if (_measuring.value) return false
-        if (isScanRunning()) return false
+        // v3.2 fix: the flag is set SYNCHRONOUSLY (was set inside the launched
+        // coroutine — a check-then-act window let two rapid taps launch two
+        // concurrent NetQuality.measure() runs that poisoned each other).
+        if (!_measuring.compareAndSet(expect = false, update = true)) return false
+        if (isScanRunning()) {
+            _measuring.value = false
+            return false
+        }
         scope.launch {
-            _measuring.value = true
             try {
                 val p = NetQuality.measure { s -> _step.value = s }
                 settings.setNetworkProfile(p)

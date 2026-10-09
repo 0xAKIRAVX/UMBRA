@@ -106,6 +106,10 @@ data class ScanResult(
     val tlsSuccess: Boolean = false,
     val tlsHandshakeMs: Double? = null,
     val httpStatus: Int? = null,
+    /** EDGE/CUSTOM only: TLS verification was disabled by the user, so
+     *  tcp-alive results stay alive (marked) instead of being dropped —
+     *  v3.2 fix for the "TLS verify off → zero results" bug. */
+    val tlsSkipped: Boolean = false,
     /** WARP mode: completed WireGuard handshakes (data-plane pings counted in
      *  successfulAttempts). */
     val wgHandshakes: Int = 0,
@@ -122,7 +126,7 @@ data class ScanResult(
     val alive: Boolean
         get() = when (mode) {
             ScanMode.WARP -> successfulAttempts > 0
-            else -> tlsSuccess || httpStatus == 200
+            else -> tlsSuccess || httpStatus == 200 || (tlsSkipped && tcpAlive)
         }
 
     /** TCP-level reachability only (pre-filter, not proof). */

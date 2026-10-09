@@ -483,6 +483,10 @@ private fun metaLine(r: ScanResult, warpColor: Color): AnnotatedString = buildAn
     } else if (r.tlsSuccess) {
         append("  ·  ")
         withStyle(SpanStyle(color = OkMint)) { append("TLS") }
+    } else if (r.tlsSkipped && r.tcpAlive) {
+        // v3.2: TLS verify disabled — mark TCP-only results honestly
+        append("  ·  ")
+        withStyle(SpanStyle(color = Fog)) { append("TCP-ONLY") }
     }
     if (r.mode == ScanMode.WARP) {
         append("  ·  ")
@@ -548,7 +552,11 @@ private fun DetailSheet(
                 StatCell(s.wgHs, "${r.wgHandshakes}×", Modifier.weight(1f))
                 StatCell(s.inTunnelPing, "${r.successfulAttempts}/${r.tcpAttempts}", Modifier.weight(1f))
             } else {
-                StatCell("TLS", if (r.tlsSuccess) "OK" else "—", Modifier.weight(1f))
+                StatCell("TLS", when {
+                    r.tlsSuccess -> "OK"
+                    r.tlsSkipped && r.tcpAlive -> "OFF"
+                    else -> "—"
+                }, Modifier.weight(1f))
                 StatCell(s.score, "%.0f".format(java.util.Locale.US, SmartRanking.score(r, profile)), Modifier.weight(1f))
             }
         }

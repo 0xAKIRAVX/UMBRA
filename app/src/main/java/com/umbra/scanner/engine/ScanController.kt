@@ -93,8 +93,22 @@ class ScanController(private val settings: UmbraSettings? = null) {
 
     val isRunning: Boolean get() = _ui.value is ScanUi.Running
 
+    /**
+     * v3.2: gate consulted before a scan may start — wired to the NETSENSE
+     * center so a live network measurement and a scan never poison each
+     * other's latency statistics (the check existed only in one direction
+     * before: NETSENSE refused during scans, but scans did not refuse
+     * during a measurement).
+     */
+    @Volatile
+    var startGate: (() -> Boolean)? = null
+
     fun start(context: Context, newParams: ScanParams) {
         if (isRunning) return
+        if (startGate?.invoke() == true) {
+            appendLog("scan deferred — network measurement in progress · wait a few seconds")
+            return
+        }
         params = newParams
         resetState()
         startedElapsed = 0L

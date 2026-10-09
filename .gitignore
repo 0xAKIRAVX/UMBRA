@@ -10,10 +10,12 @@ local.properties
 captures/
 .DS_Store
 
-# Release signing — never commit
-*.jks
-*.keystore
-keystore.properties
+# Release signing — the release keystore is intentionally IN this repo
+# (see README "Signing" section): UMBRA is a personal sideloaded utility and
+# signature continuity across rebuilds matters more than key secrecy here.
+# Rotate (and switch to a local git-ignored key) if this ever becomes a
+# widely-distributed app.
+#!keystore/*
 
 # Build outputs
 *.apk

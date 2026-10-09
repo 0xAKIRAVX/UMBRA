@@ -44,6 +44,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -114,7 +116,19 @@ fun VlessScreen(app: UmbraApp) {
     val link = VlessGenerator.buildLink(config)
     val valid = host.isNotBlank() && VlessGenerator.isValidUuid(uuid) && !VlessGenerator.isTestOnlySni(sni)
     val testOnly = sni.isNotBlank() && VlessGenerator.isTestOnlySni(sni)
-    val qrBitmap = remember(link, showQr) { if (showQr) QrGen.generate(link) else null }
+    // v3.2 fix: QR encoding (ZXing + 512x512 bitmap) used to run during
+    // composition on the main thread and re-ran on every keystroke. It now runs
+    // off the main thread and is only produced for a VALID link.
+    var qrBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    LaunchedEffect(link, showQr, valid) {
+        qrBitmap = null
+        if (showQr && valid) {
+            withContext(Dispatchers.Default) {
+                val bmp = runCatching { QrGen.generate(link) }.getOrNull()
+                if (bmp != null) qrBitmap = bmp
+            }
+        }
+    }
 
     Column(
         Modifier
@@ -307,8 +321,8 @@ fun VlessScreen(app: UmbraApp) {
                 }
             }
             Spacer(Modifier.height(7.dp))
-            ActionRow(Icons.Rounded.QrCode2, if (showQr) s.hideQr else s.showQr, tint = accent.tint) {
-                showQr = !showQr
+            ActionRow(Icons.Rounded.QrCode2, if (showQr) s.hideQr else s.showQr, tint = if (valid) accent.tint else Fog) {
+                if (valid) showQr = !showQr
             }
             AnimatedVisibility(
                 visible = showQr,

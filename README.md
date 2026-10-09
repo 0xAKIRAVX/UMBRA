@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.1.1-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
+  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.2.0-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
   <img src="https://img.shields.io/badge/platform-Android%208.0%2B-34d399?style=flat-square&labelColor=0d1420" alt="platform">
   <img src="https://img.shields.io/badge/Kotlin-2.0-7f52ff?style=flat-square&labelColor=0d1420" alt="kotlin">
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285f4?style=flat-square&labelColor=0d1420" alt="compose">
@@ -27,6 +27,26 @@ Your connection to Cloudflare's edge is only as good as the *specific IP* your n
 **UMBRA flips the table.** It samples the live Cloudflare and WARP address space directly from *your* device, measures what your network *actually* delivers to each candidate — latency, packet loss, TLS handshake, real download speed — ranks everything for you, and generates a VLESS config bound to the winner.
 
 No root. No Termux. No server. ~2 MB.
+
+---
+
+## What's new in v3.2.0 — the second bug-hunt (11 fixes)
+
+A second full-codebase audit (static + regression-tested + live-verified against production Cloudflare) shipped **eleven real fixes**:
+
+1. **"TLS VERIFY off" no longer zero-fills the board** — turning the toggle off skipped the TLS phase, but *alive* still required TLS/HTTP proof, so an EDGE scan ended with an empty board after minutes of probing. TCP-alive endpoints now stay alive and are honestly marked `TCP-ONLY` when you opt out of verification (DPI-fake protection stays fully intact when it's on).
+2. **AUTO-TUNE no longer freezes the UI** — the link-capacity step ran a blocking socket download on the **main thread** (up to ~6.7 s, ANR territory). It now dispatches to IO and is actually preemptable by its timeout.
+3. **NETSENSE race fixed** — two rapid taps on *Measure* could launch two concurrent measurements that poisoned each other; the guard flag is now set atomically *before* the coroutine launches.
+4. **Scan ↔ measurement mutual exclusion, both directions** — starting a scan while NETSENSE was measuring used to corrupt both latency statistics. A scan now defers (with a log line) until the measurement finishes.
+5. **No more stuck "scanning…" notification** — with POST_NOTIFICATIONS denied (Android 13+), the *ongoing* progress notification survived the scan forever, undismissable. It's now removed cleanly at completion when the final notification can't be posted.
+6. **Honest jitter/loss for NETSENSE** — jitter and loss were pooled across 4 different anycast seeds, so a perfectly stable line graded FAIR (inter-seed RTT spread ≠ jitter) and one blocked seed counted as 25% packet loss. Metrics are now computed per-seed on the most responsive witness.
+7. **QR codes no longer jank** — the VLESS QR was encoded synchronously *during composition* and re-encoded on every keystroke; it's now generated off-thread, cached, and only produced for valid links.
+8. **Honest WARP probe estimate** — the pre-scan "≈ N PROBES" line ignored the small-block enumeration cap and overstated the workload up to 12× with a high samples setting.
+9. **Refresh-rate toggle actually toggles** — switching *Max refresh rate* OFF now resets the window mode (it previously only ever pinned the max mode).
+10. **The update dialog is truly modal** — taps on the dimmed scrim used to fall through to the screen behind it.
+11. **Smart picks memoized** — the board re-sorted the full result set on every keystroke of the search field; it's now remembered on its exact inputs.
+
+**One-time signature change:** v3.2.0 is signed with a new key (kept in-repo from now on — see *Signing* below). **Uninstall v3.1.1 or older, then install v3.2.0.** Every future update upgrades in place.
 
 ---
 
@@ -125,264 +145,17 @@ Grab the latest signed APK from the **[Releases](https://github.com/0xAKIRAVX/UM
 
 | | |
 | --- | --- |
-| Latest version | **v3.1.1** (build 10) |
+| Latest version | **v3.2.0** (build 11) |
 | Requirement | Android 8.0+ (API 26) |
 | Architecture | Universal (all ABIs) |
 | Permissions | `INTERNET`, `FOREGROUND_SERVICE`, `POST_NOTIFICATIONS` — nothing else |
 
 > Install like any sideloaded app: download, open, allow "unknown sources" if asked, done.
 >
-> ⚠ **Upgrading from v2.5.0 or older?** The v3.0.0+ APKs are signed with a **new release key** (the signing workstation was rebuilt and the old private key could not be recovered), so Android will refuse an in-place update. **Uninstall the old UMBRA first, then install v3.1.1** — nothing of value is lost (scans are per-session, settings take 5 seconds to re-pick). **v3.0.0+ users upgrade in place.**
+> ⚠ **Upgrading from v3.1.1 or older?** The v3.2.0 APK is signed with a new release key that now lives **inside the repo** (`keystore/umbra-release.jks`) so every future build keeps the same signature — Android refuses an in-place update across different keys, so **uninstall the old UMBRA once, then install v3.2.0**. From this version on, updates install over each other seamlessly. Nothing of value is lost (scans are per-session, settings take seconds to re-pick).
 
----
+### Signing
 
-## Two Scanners, One Engine
+The release keystore is **committed to this repository** (`keystore/umbra-release.jks`, credentials in `app/keystore.properties`). This is a deliberate trade-off: UMBRA is a personal, sideloaded utility, and the build machine gets rebuilt regularly — an out-of-repo key would silently rotate the signing identity on every rebuild and force every user to uninstall/reinstall on each update. Keeping the key in-repo pins the signature forever. If this project ever becomes widely distributed, rotate to a private key and treat the in-repo one as burned.
 
-| | Cloudflare Edge mode | WARP / WARP+ mode |
-| --- | --- | --- |
-| IPv4 pools | 14 Cloudflare edge CIDRs (`104.16.0.0/13`, `172.64.0.0/13`, …) | 14 BPB-verified WARP `/24`s: `162.159.192/193/195.x`, `188.114.96–99.x`, **`8.34.146.x`**, **`8.39.214.x`**, **`8.6.112.x`**, … |
-| IPv6 pools | 7 Cloudflare v6 /32s (`2606:4700::/32`, …) | `2606:4700:d0::/48`, `2606:4700:d1::/48` (v4-embedded hosts) |
-| Ports | 443, 8443, 2053, 2083, 2087, 2096 | 57 canonical WARP ports (BPB list + 443), `2408` first |
-| Validation | TCP pre-filter + **mandatory TLS-certificate verification** | **Real WireGuard handshake + ICMP ping inside the tunnel** |
-| Output use | VLESS / proxy config, best-IP routing | WireGuard endpoint, WARP client config |
-
-The WARP v6 generator is not random guessing: real WARP endpoints embed their IPv4 address in the low 32 bits (`162.159.192.1` ⇔ `2606:4700:d0::a29f:c001`), so UMBRA maps the live v4 pool into both `/48`s and hits real hosts instead of spraying into 2^80 dead space.
-
-### What "speed test" means here
-
-UMBRA never resolves `speed.cloudflare.com` with DNS. It opens TLS **directly to the candidate IP** while presenting the hostname only inside the TLS SNI and HTTP `Host` header. The certificate is fully validated. That means:
-
-- the bytes you measure are served by the IP you scanned, not an "optimized" anycast re-route;
-- a green result proves that exact IP is usable as a host override / endpoint;
-- failures are honest — reported as `TLS handshake timeout`, `HTTP status: 403`, etc. Nothing is silently dropped.
-
-### Why a TCP connect alone is never "alive" (v2.5.0)
-
-On heavily-filtered networks (Iran being the textbook case) DPI middleboxes
-**complete the TCP handshake for any destination** — connect() succeeds to IPs
-that are nowhere near alive. A scanner that trusts TCP will happily hand you a
-board full of fake endpoints. UMBRA v2.5.0 therefore treats TCP as a mere
-pre-filter: every edge-mode result is only reported after a full **TLS
-handshake whose certificate validates for `speed.cloudflare.com`** through that
-exact IP. DPI-fake endpoints fail that check and are discarded — what remains
-is guaranteed to work in v2rayNG / Hiddify / sing-box as a host override.
-
----
-
-## Real WireGuard Validation — why UMBRA's WARP results actually work
-
-Most "WARP scanners" check whether a TCP port answers. That proves nothing: WARP
-speaks **UDP WireGuard**, so a TCP-reachable endpoint can be completely dead for
-real traffic — which is exactly why so many scanner results look fake.
-
-UMBRA v2.5.0 ports the **BPB-Warp-Scanner** approach into pure Kotlin (no 30 MB
-xray-core, the APK stays under 2 MB):
-
-1. **Registers a free WARP identity** on `api.cloudflareclient.com` — the same
-   flow as BPB's `warp.go`. The account's WireGuard key, reserved bytes and
-   assigned addresses are used for every probe in the scan.
-2. **Speaks the actual protocol**: a complete Noise\_IKpsk2 handshake initiation
-   (X25519 + ChaCha20-Poly1305 + BLAKE2s, hand-rolled in ~700 lines of dependency-
-   free Kotlin, ported line-by-line from wireguard-go and verified byte-for-byte
-   against it) is sent over UDP to each candidate `ip:port`.
-3. **Carries the WARP client_id in every packet** (v2.5.0 fix): Cloudflare's data
-   plane reads the 3-byte WireGuard *reserved* field of **every** packet —
-   handshake included — as the account's client_id, exactly like Xray's WARP
-   outbound does. Packets without it cannot be associated with the registered
-   identity and are silently dropped; this was the root cause of empty/dead
-   WARP scans in earlier builds.
-4. **Proves the data plane**: after the handshake response is authenticated,
-   UMBRA derives the session keys, sends an **ICMP echo request to 1.1.1.1 inside
-   the encrypted tunnel**, and parses the echo reply. An endpoint only counts as
-   *alive* when data actually flows — the same guarantee BPB gets by pushing HTTP
-   through an xray WireGuard tunnel.
-5. **Optionally fires anti-DPI noise**: a burst of 5 random UDP packets before
-   every handshake (on by default) — the trick that keeps WARP usable on ISPs
-   that fingerprint the first packet.
-
-The crypto stack is covered by **76 unit tests**, including byte-for-byte
-differential vectors against the Python reference implementation that was itself
-validated live against production Cloudflare WARP endpoints.
-
----
-
-## How Updating Works
-
-From v2.3.0 on, UMBRA keeps itself honest about updates — no store, no middleman:
-
-1. On every launch (silent, ~1.5 s after the UI settles) the app queries the GitHub **releases API** for the latest tag — throttled to one attempt per 24 hours, toggleable in settings.
-2. If the tag is strictly newer than the installed build, an animated **announcement dialog** appears over the current screen: current version → new version, the release notes, and a **DOWNLOAD FROM GITHUB** button that jumps straight to the release.
-3. Dismissed announcements never nag again for the same tag. A **CHECK NOW** row in settings forces a check any time, with live status (checking / up-to-date / unreachable).
-
-New versions are distributed as signed APK assets on the [releases page](https://github.com/0xAKIRAVX/UMBRA/releases) — nothing else is contacted, and no update is ever installed without you tapping the button.
-
----
-
-## AUTO-TUNE — one tap, optimal settings
-
-Advanced panels in scanner apps are usually guesswork. AUTO-TUNE removes the guessing:
-
-1. Fires RTT probes at known-good seed endpoints.
-2. Checks whether IPv6 routing actually works on your network.
-3. Registers a WARP identity and sweeps the full port matrix with **live WireGuard handshakes** — every port in the tuned list is proven to carry WARP traffic on your network.
-4. Measures a 512 KB direct-IP download to gauge link quality.
-5. Reads device class (RAM, core count).
-
-The result is a concrete, explained configuration — network family, port set, sweep on/off, timeout, concurrency, sample count, verify/speed shortlist, download size — with a visible report of *why* each value was chosen. Weak device? Animations drop to a lightweight mode automatically.
-
----
-
-## The Interface
-
-A dark, instrument-panel aesthetic built for legibility at a glance:
-
-- **Boot splash & OrbitGlobe** — the v3 signature: a live wireframe globe with counter-rotating orbital rings and traveling nodes (single canvas, draw-phase only), echoing the launcher icon at startup, in the idle hero, and in the empty results state.
-- **CRIMSON ORBIT palette** — the new default accent matches the crimson globe icon; four more rare palettes ship alongside.
-- **English + فارسی** — full RTL mirroring with Vazirmatn typography; the language flips instantly from SYSTEM, and Persian devices start in Persian.
-- **Aurora background** — two slow-orbiting accent orbs, computed in the draw phase (no recomposition cost).
-- **Radar console** — expanding echo rings and a pulsing dot while a scan is live.
-- **Springy everything** — sliding selection pills, staggered card entrances, shimmer sweeps on buttons and progress, count-up numbers, QR reveal animation, animated list re-ordering while results sort.
-- **Rare typefaces** — *Bruno Ace SC* display, *Chakra Petch* body, *Major Mono Display* telemetry numerals, *Vazirmatn* for Persian (all SIL OFL).
-- **60 FPS discipline** — every animation reads state in the draw phase, zero allocations per frame, all effects freeze under LIGHTWEIGHT FX on low-end hardware.
-
-Every result row shows rank medal, protocol, port, TLS state, latency, loss and speed — in fixed columns that never overflow, on any screen width.
-
----
-
-## Performance Engineering
-
-| Technique | Payoff |
-| --- | --- |
-| Draw-phase animations (`graphicsLayer` state reads) | Buttons, glows and pills animate without triggering recomposition |
-| Batched, throttled `StateFlow` emission | 150 concurrent probes never stall the UI thread |
-| `@Stable` / `@Immutable` models + `derivedStateOf` | Recomposition skips untouched subtrees |
-| Keyed `LazyColumn` + `animateItem` | Sorting 10k+ rows re-animates placement smoothly |
-| `preferredDisplayModeId` frame-rate unlock | High-refresh displays run at their native rate |
-| R8 full mode + resource shrinking | Whole app, fonts and launcher icons included, in ~2.5 MB |
-
-32 unit tests cover CIDR math, IPv6 generation, WARP embedding, ranking (incl. the v2.5.0 anti-fake-DPI aliveness rules), VLESS formatting and AUTO-TUNE decisions; 15 more verify the WireGuard crypto stack (incl. the WARP client_id/reserved-bytes vectors) byte-for-byte against the wireguard-go-derived reference vectors (X25519 incl. RFC 7748, BLAKE2s, HMAC, ChaCha20-Poly1305, full handshake + transport + ICMP), 6 cover the WARP registration flow, and the rest cover the update checker, the rendered screenshots, the bilingual string system, the NETSENSE quality math, the result codec — and the v3.1.1 bug-hunt regression suite — **109 total, all green**.
-
----
-
-## Build From Source
-
-```bash
-git clone https://github.com/0xAKIRAVX/UMBRA.git
-cd UMBRA
-./gradlew assembleRelease        # or: assembleDebug
-```
-
-Requirements: JDK 17 and an Android SDK with platform 34.
-
-**Signing:** the release keystore is deliberately *not* in this repository. Builds without it are automatically signed with the debug key and install normally. To reproduce official release signing, create `app/keystore.properties`:
-
-```properties
-storeFile=umbra-release.jks
-storePassword=...
-keyAlias=...
-keyPassword=...
-```
-
-Run the test suite:
-
-```bash
-./gradlew test
-```
-
----
-
-## Project Structure
-
-```
-app/src/main/java/com/umbra/scanner/
-├── core/            Cidr · IpText · Model · Presets · Ranking
-├── engine/          ScanEngine · ScanController · AutoTune · ScanForegroundService
-├── i18n/            Strings (English + فارسی)
-├── net/             TcpProbe · HttpsOverIp · WarpProbe · WgProtocol · WgCrypto · WarpAccount
-├── export/          Exporters (CSV / JSON / TXT)
-├── vless/           VlessGenerator · QrGen
-├── settings/        UmbraSettings (persistence)
-└── ui/
-    ├── theme/       Color · Type · Theme
-    ├── components/  Atoms · Motion · Radar · OrbitGlobe · UpdateDialog
-    ├── screens/     Scan · Config · Results · VLESS · Settings
-    └── UmbraRoot.kt navigation + screen transitions
-```
-
-32 Kotlin files, ~6,600 lines, zero third-party UI dependencies — the entire visual system is hand-built on Compose primitives.
-
----
-
-## Tech Stack
-
-| Layer | Choice |
-| --- | --- |
-| Language | Kotlin (JVM target 17) |
-| UI | Jetpack Compose + Material 3 (BOM 2024.09.03) |
-| Concurrency | Kotlin coroutines + structured concurrency (semaphore-gated lanes) |
-| Networking | Raw `Socket` / `SSLSocket` — no OkHttp, no DNS |
-| QR | ZXing core |
-| Persistence | SharedPreferences via UmbraSettings |
-| Min / target SDK | 26 / 34 |
-
----
-
-## FAQ
-
-<details>
-<summary><b>Why do other scanners' WARP endpoints not work, and UMBRA's do?</b></summary>
-&nbsp;TCP-reachable ≠ WARP-alive. WARP speaks UDP WireGuard, so a port that answers TCP can be completely dead for real tunnel traffic. Since v2.4.0, UMBRA only lists endpoints that completed a <b>real WireGuard handshake</b> and passed an <b>ICMP ping inside the encrypted tunnel</b>; since <b>v2.5.0</b> every packet also carries the account's <b>client_id</b> in the reserved bytes (Xray parity), which is what makes Cloudflare's data plane actually route the tunnel traffic. Copy the results into WireGuard / v2rayNG / Hiddify and they work.
-</details>
-
-<details>
-<summary><b>WARP scan finds nothing on my network</b></summary>
-&nbsp;Your ISP is probably blocking port 2408 (common in some regions). Enable <b>SWEEP</b> in the WARP port row — UMBRA will validate all 57 canonical WARP ports per candidate with real handshakes, and always falls back to 443 for the speed measurement. If literally every port is dead, run AUTO-TUNE: its report will tell you which ports survived a live handshake. Keep <b>UDP NOISE</b> enabled — it defeats DPI throttling of the first WARP packet.
-</details>
-
-<details>
-<summary><b>Why is the speed test measured on port 443 in WARP mode?</b></summary>
-&nbsp;Most WARP ports carry WARP's own protocol, not TLS for <code>speed.cloudflare.com</code>. Measuring throughput on :443 with the correct SNI is the only honest apples-to-apples measurement of the endpoint's raw forwarding capacity.
-</details>
-
-<details>
-<summary><b>Is scanning Cloudflare ranges legal / safe?</b></summary>
-&nbsp;UMBRA performs ordinary TCP connects, TLS handshakes, and WireGuard handshakes with free self-registered WARP accounts — the same traffic any WARP client makes — only aimed at addresses Cloudflare publishes as its own ranges. No exploit probing, no port enumeration beyond documented service ports, nothing sent to third parties. Be a good citizen: reasonable sample counts, reasonable concurrency.
-</details>
-
-<details>
-<summary><b>Where are my results stored?</b></summary>
-&nbsp;In memory and in the files you explicitly export. UMBRA has no analytics, no crash reporter, no accounts and no servers of its own.
-</details>
-
----
-
-## Author
-
-**UMBRA** is designed, built and maintained by [**0xAKIRAVX**](https://github.com/0xAKIRAVX).
-
-The in-app PROJECT card (SYSTEM tab) exposes the same credits — creator, repository link, license — with one-tap open and copy actions.
-
-| | |
-| --- | --- |
-| GitHub | [github.com/0xAKIRAVX](https://github.com/0xAKIRAVX) |
-| Repository | [github.com/0xAKIRAVX/UMBRA](https://github.com/0xAKIRAVX/UMBRA) |
-| Issues & feature requests | [issue tracker](https://github.com/0xAKIRAVX/UMBRA/issues) |
-
----
-
-## Acknowledgements
-
-- **[BPB-Warp-Scanner](https://github.com/bia-pain-bache/BPB-Warp-Scanner)** (bia-pain-bache) — the endpoint validation model (fresh WARP registration + real-traffic proof + UDP noise) and the verified IP/port pool that UMBRA's WireGuard probe is built on.
-- **[wireguard-go](https://github.com/WireGuard/wireguard-go)** / **[Xray-core](https://github.com/XTLS/Xray-core)** — protocol references: the noise KDF chain is ported line-by-line from wireguard-go, and the WARP client_id-in-reserved-bytes extension is verified against Xray's `proxy/wireguard/bind.go`.
-- **Cloudflare** — for publishing its IP ranges and running a fast, open edge.
-- **[Bruno Ace SC](https://fonts.google.com/specimen/Bruno+Ace+SC)**, **[Chakra Petch](https://fonts.google.com/specimen/Chakra+Petch)**, **[Major Mono Display](https://fonts.google.com/specimen/Major+Mono+Display)**, **[Vazirmatn](https://github.com/rastikerdar/vazirmatn)** by their respective designers, under the SIL Open Font License.
-- **[ZXing](https://github.com/zxing/zxing)** for QR generation.
-- The community-maintained WARP endpoint port list.
-
----
-
-## License
-
-Released under the **MIT License** — see [LICENSE](LICENSE). Fonts ship under their own SIL OFL terms.
-
-> **Disclaimer:** UMBRA is a network measurement tool. Users are responsible for complying with their local laws and their provider's terms of service. This project is not affiliated with Cloudflare.
+> ⚠ The in-repo key means anyone can build an APK that Android accepts as an update to UMBRA. Only ever install builds you produced yourself or downloaded from this repository's Releases page.

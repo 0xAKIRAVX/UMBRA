@@ -18,5 +18,8 @@ class UmbraApp : Application() {
         controller = ScanController(settings)
         updateCenter = UpdateCenter(this, settings)
         netStatus = NetStatusCenter(settings) { controller.isRunning }
+        // v3.2: both directions guarded — a scan also refuses to start while
+        // NETSENSE is measuring (the reverse check exists above).
+        controller.startGate = { netStatus.measuring.value }
     }
 }

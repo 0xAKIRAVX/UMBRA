@@ -23,6 +23,7 @@ object ResultCodec {
         o.put("att", r.tcpAttempts)
         o.put("ok", r.successfulAttempts)
         o.put("tls", r.tlsSuccess)
+        if (r.tlsSkipped) o.put("tlsSkip", true)
         r.tlsHandshakeMs?.let { o.put("tlsMs", it) }
         r.httpStatus?.let { o.put("http", it) }
         o.put("wg", r.wgHandshakes)
@@ -47,6 +48,7 @@ object ResultCodec {
             tcpAttempts = o.optInt("att", 0),
             successfulAttempts = o.optInt("ok", 0),
             tlsSuccess = o.optBoolean("tls", false),
+            tlsSkipped = o.optBoolean("tlsSkip", false),
             tlsHandshakeMs = if (o.has("tlsMs") && !o.isNull("tlsMs")) o.optDouble("tlsMs") else null,
             httpStatus = if (o.has("http") && !o.isNull("http")) o.optInt("http") else null,
             wgHandshakes = o.optInt("wg", 0),
