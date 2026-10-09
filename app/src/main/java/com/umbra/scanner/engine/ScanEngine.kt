@@ -56,7 +56,7 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
             IpGenerator.generate(params.cidrs, params.family, params.samplesPerPrefix, random)
         }
         val ports = params.effectivePorts
-        val pairCount = candidates.size * ports.size
+        var pairCount = candidates.size * ports.size
         sink.onGenerated(pairCount)
         sink.onLog(
             "generated ${candidates.size} candidates × ${ports.size} port(s) = $pairCount probes" +
@@ -67,6 +67,23 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
             sink.onPhase(ScanPhase.DONE)
             return@coroutineScope
         }
+
+        // v3.3 guard: extreme settings (sweep × huge samples) could silently
+        // queue hundreds of thousands of multi-second UDP probes — an
+        // overnight "scan" that looks exactly like a hang. Cap the workload
+        // at a sane ceiling, keep the verified ordering, and say so in the log.
+        val PROBE_CAP = 120_000
+        val effectiveCandidates: List<Candidate>
+        if (pairCount > PROBE_CAP) {
+            effectiveCandidates = candidates.take((PROBE_CAP / ports.size).coerceAtLeast(1))
+            pairCount = effectiveCandidates.size * ports.size
+            sink.onLog(
+                "probe budget capped · ${PROBE_CAP} pairs max — candidates trimmed to ${effectiveCandidates.size}"
+            )
+        } else {
+            effectiveCandidates = candidates
+        }
+        sink.onGenerated(pairCount)
 
         // ---- WARP identity: one registration per scan (BPB warp.go flow) ----
         var account: WarpAccount? = null
@@ -103,20 +120,28 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
             for (r in stormCh) sink.onResult(r)
         }
         val jobs = ArrayList<Job>(pairCount)
-        for (cand in candidates) {
+        for (cand in effectiveCandidates) {
             for (p in ports) {
                 jobs.add(launch(Dispatchers.IO) {
                     stormSem.withPermit {
                         active.incrementAndGet(); sink.onActive(1)
                         try {
+                            // v3.3 fix (WARP crash, engine side): probeWarp/probeTcp
+                            // used to be invoked bare — any exception they leaked
+                            // (e.g. a SocketException from socket creation under fd
+                            // pressure) cancelled the WHOLE coroutine scope and the
+                            // scan died with "engine failure". Now a failed probe
+                            // returns a dead-endpoint result and the storm rolls on.
                             if (isWarp) {
                                 // sweeping hits many ports per IP — keep the loss
                                 // statistics honest without tripling wall time
                                 val attempts = if (ports.size > 1) params.warpAttempts.coerceAtMost(2) else params.warpAttempts
-                                stormCh.send(probeWarp(account!!, cand, p, attempts, params))
+                                stormCh.send(runCatching { probeWarp(account!!, cand, p, attempts, params) }
+                                    .getOrElse { deadProbe(cand, p, params, it) })
                             } else {
                                 val attempts = if (ports.size > 1 && params.tcpAttempts > 3) 3 else params.tcpAttempts
-                                stormCh.send(probeTcp(cand, p, attempts, params))
+                                stormCh.send(runCatching { probeTcp(cand, p, attempts, params) }
+                                    .getOrElse { deadProbe(cand, p, params, it) })
                             }
                         } finally {
                             active.decrementAndGet(); sink.onActive(-1)
@@ -253,6 +278,25 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
 
     private val sinkHolder: ScanSink get() = requireNotNull(_sink) { "engine not started" }
     private var _sink: ScanSink? = null
+
+    /** Fallback result for a probe whose machinery itself threw — counted as a
+     * dead endpoint so statistics stay honest while the scan keeps running. */
+    private fun deadProbe(
+        cand: Candidate,
+        port: Int,
+        params: ScanParams,
+        e: Throwable,
+    ): ScanResult = ScanResult(
+        ip = cand.text,
+        protocol = cand.protocol,
+        port = port,
+        packetLoss = 1.0,
+        tcpAttempts = 1,
+        successfulAttempts = 0,
+        error = "probe ${e.javaClass.simpleName}",
+        tlsSkipped = !params.tlsVerify,
+        mode = params.mode,
+    )
 
     private suspend fun probeTcp(cand: Candidate, port: Int, attempts: Int, params: ScanParams): ScanResult {
         val t = TcpProbe.probe(cand.bytes, port, attempts, params.tcpTimeoutMs)

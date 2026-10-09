@@ -4,6 +4,7 @@ import android.app.Application
 import com.umbra.scanner.engine.NetStatusCenter
 import com.umbra.scanner.engine.ScanController
 import com.umbra.scanner.engine.UpdateCenter
+import com.umbra.scanner.net.WarpRegistration
 import com.umbra.scanner.settings.UmbraSettings
 
 class UmbraApp : Application() {
@@ -21,5 +22,7 @@ class UmbraApp : Application() {
         // v3.2: both directions guarded — a scan also refuses to start while
         // NETSENSE is measuring (the reverse check exists above).
         controller.startGate = { netStatus.measuring.value }
+        // v3.3: disk-backed WARP identity — survives blocked registration APIs
+        WarpRegistration.attach(this)
     }
 }

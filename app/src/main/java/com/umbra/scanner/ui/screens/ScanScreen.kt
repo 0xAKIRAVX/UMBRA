@@ -407,6 +407,18 @@ private fun DonePanel(
             StatCell(s.time, formatElapsed(summary.elapsedMs), Modifier.weight(1f))
         }
         Spacer(Modifier.height(14.dp))
+        // v3.3: a zero-result scan now explains ITSELF — the engine's last
+        // word (blocked registration, capped budget, engine failure) is
+        // shown right in the panel instead of a silent empty result.
+        summary.error?.let { reason ->
+            Text(
+                reason,
+                style = MonoStyleSmall.copy(color = WarnAmber, fontSize = 10.5.sp),
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(12.dp))
+        }
         summary.best?.let { best ->
             Column {
                 Text(s.bestEndpoint, style = MaterialTheme.typography.labelSmall, color = Fade)

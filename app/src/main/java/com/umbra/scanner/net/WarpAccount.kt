@@ -1,5 +1,7 @@
 package com.umbra.scanner.net
 
+import android.content.Context
+import android.content.SharedPreferences
 import android.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -33,7 +35,39 @@ class WarpAccount(
     val v4: String,
     /** The WARP peer (responder) static public key — server-side identity. */
     val responderPublicKey: ByteArray,
-)
+) {
+    /** v3.3: JSON round-trip for the disk-backed identity fallback. */
+    fun toJson(): String {
+        val o = JSONObject()
+        o.put("priv", Base64.encodeToString(privateKey, Base64.NO_WRAP))
+        o.put("pub", Base64.encodeToString(publicKey, Base64.NO_WRAP))
+        o.put("reserved", Base64.encodeToString(reserved, Base64.NO_WRAP))
+        o.put("v6", v6)
+        o.put("v4", v4)
+        o.put("peer", Base64.encodeToString(responderPublicKey, Base64.NO_WRAP))
+        return o.toString()
+    }
+
+    companion object {
+        fun fromJson(text: String): WarpAccount? = runCatching {
+            val o = JSONObject(text)
+            fun b(key: String): ByteArray = Base64.decode(o.getString(key), Base64.NO_WRAP)
+            WarpAccount(
+                privateKey = b("priv"),
+                publicKey = b("pub"),
+                reserved = b("reserved"),
+                v6 = o.optString("v6"),
+                v4 = o.optString("v4").ifBlank { "172.16.0.2" },
+                responderPublicKey = b("peer"),
+            )
+        }.getOrNull()?.let { acc ->
+            // only accept structurally valid identities
+            if (acc.privateKey.size == 32 && acc.publicKey.size == 32 &&
+                acc.responderPublicKey.size == 32 && acc.v6.isNotBlank()
+            ) acc else null
+        }
+    }
+}
 
 object WarpRegistration {
 
@@ -51,9 +85,35 @@ object WarpRegistration {
     @Volatile private var cachedAccount: WarpAccount? = null
     @Volatile private var cachedAtMs: Long = 0L
 
+    // v3.3: disk-backed identity store. api.cloudflareclient.com is exactly
+    // the kind of endpoint that gets blocked on filtered networks — a fresh
+    // registration then fails and WARP scans aborted outright. A WARP
+    // identity stays valid server-side for weeks, so the last working one is
+    // persisted and reused whenever the API cannot be reached (BPB keeps its
+    // identity in warp.json for the same reason).
+    @Volatile private var prefs: SharedPreferences? = null
+
+    fun attach(context: Context) {
+        if (prefs == null) prefs =
+            context.getSharedPreferences("warp_identity", Context.MODE_PRIVATE)
+    }
+
+    private fun persist(account: WarpAccount) {
+        runCatching {
+            prefs?.edit()?.putString("identity_v1", account.toJson())?.apply()
+        }
+    }
+
+    private fun loadPersisted(): WarpAccount? =
+        runCatching { prefs?.getString("identity_v1", null) }
+            .getOrNull()
+            ?.let { WarpAccount.fromJson(it) }
+
+    /** Wipes both caches — used when the server rejects the stored identity. */
     fun clearCache() {
         cachedAccount = null
         cachedAtMs = 0L
+        runCatching { prefs?.edit()?.remove("identity_v1")?.apply() }
     }
 
     private fun cached(): WarpAccount? {
@@ -113,8 +173,9 @@ object WarpRegistration {
 
     /**
      * Registers a new account (or reuses the cached identity within its TTL).
-     * Retries a couple of times with a fresh identity (the API occasionally
-     * returns 4xx under load). Throws on final failure.
+     * Falls back to the last persisted identity when the API is unreachable —
+     * a dead registration endpoint no longer kills WARP scanning. Throws only
+     * when neither a fresh nor a stored identity is available.
      */
     suspend fun register(attempts: Int = 3): WarpAccount = withContext(Dispatchers.IO) {
         cached()?.let { return@withContext it }
@@ -140,6 +201,7 @@ object WarpRegistration {
                         ?: throw java.io.IOException("unparsable registration payload")
                     cachedAccount = account
                     cachedAtMs = System.currentTimeMillis()
+                    persist(account)
                     return@withContext account
                 } finally {
                     conn.disconnect()
@@ -154,6 +216,10 @@ object WarpRegistration {
             // A short backoff lets the window slide and the retry actually land.
             if (i < attempts - 1) delay(700)
         }
+        // v3.3: API unreachable / rate-limited → reuse the last working
+        // identity instead of aborting the scan. If the endpoint later rejects
+        // it (403 / handshake failure) the user sees honest probe errors.
+        loadPersisted()?.let { return@withContext it }
         throw IllegalStateException(
             "WARP registration failed: ${lastError?.message ?: "unknown"}", lastError)
     }

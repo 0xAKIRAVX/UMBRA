@@ -100,13 +100,42 @@ class WarpProbe(
         var cookieReplies = 0
         var lastError: String? = null
 
-        val socket = DatagramSocket()
+        // v3.3 fix (THE WARP crash): DatagramSocket() creation and connect() can
+        // throw (fd exhaustion, network torn down mid-scan). An escapee here —
+        // like the old unprotected socket.send()s — used to race up through the
+        // whole coroutine tree and ABORT the entire scan with "engine failure".
+        // A probe that cannot even open a socket is simply a dead endpoint.
+        val socket = try {
+            DatagramSocket().also {
+                it.soTimeout = timeoutMs
+                it.connect(target)
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return WarpProbeStats(
+                attempts = attempts.coerceAtLeast(1),
+                handshakes = 0,
+                pings = 0,
+                pingLatenciesMs = emptyList(),
+                handshakeLatenciesMs = emptyList(),
+                cookieReplies = 0,
+                lastError = "udp ${e.javaClass.simpleName}",
+            )
+        }
         try {
-            socket.soTimeout = timeoutMs
-            socket.connect(target)
-
             repeat(attempts.coerceAtLeast(1)) { attempt ->
-                when (val outcome = probeOnce(socket, target, src, timeoutMs, random)) {
+                val outcome = try {
+                    probeOnce(socket, target, src, timeoutMs, random)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // belt & braces: NOTHING thrown by a single attempt may
+                    // escape — a UDP error on one endpoint must never kill the
+                    // remaining thousands of probes in the storm.
+                    ProbeOutcome.Failed("udp ${e.javaClass.simpleName}")
+                }
+                when (outcome) {
                     is ProbeOutcome.Full -> {
                         handshakes++
                         pings++
@@ -156,13 +185,19 @@ class WarpProbe(
     ): ProbeOutcome {
         val buf = ByteArray(2048)
 
-        // 1. UDP noise burst (anti-DPI) — xray `noises` equivalent
+        // 1. UDP noise burst (anti-DPI) — xray `noises` equivalent.
+        // v3.3 fix: noise sends to a port nobody answers can trigger ICMP
+        // port-unreachable, and on a CONNECTED datagram socket the kernel
+        // surfaces that as PortUnreachableException on the very next send.
+        // The old unguarded send() was the #1 reason WARP scans collapsed.
         if (noise.enabled) {
             repeat(noise.count.coerceIn(1, 50)) {
                 val n = noise.minPacket + random.nextInt(
                     (noise.maxPacket - noise.minPacket).coerceAtLeast(1))
                 val pkt = ByteArray(n).also { random.nextBytes(it) }
-                socket.send(DatagramPacket(pkt, pkt.size, target))
+                if (!sendSafe(socket, pkt, target)) {
+                    return ProbeOutcome.Failed("udp send refused")
+                }
                 delay(noise.minDelayMs + random.nextInt(
                     (noise.maxDelayMs - noise.minDelayMs).coerceAtLeast(1)).toLong())
             }
@@ -178,8 +213,8 @@ class WarpProbe(
         )
 
         val t0 = System.nanoTime()
-        runInterruptible(Dispatchers.IO) {
-            socket.send(DatagramPacket(initPacket, initPacket.size, target))
+        if (!sendSafe(socket, initPacket, target)) {
+            return ProbeOutcome.Failed("udp send refused")
         }
         val respPacket = DatagramPacket(buf, buf.size)
         try {
@@ -212,8 +247,8 @@ class WarpProbe(
         val inner = WgProtocol.icmpEchoRequest(tunnelSrc, pingTarget, ident, 1)
         val transport = session.buildTransport(inner)
         val t1 = System.nanoTime()
-        runInterruptible(Dispatchers.IO) {
-            socket.send(DatagramPacket(transport, transport.size, target))
+        if (!sendSafe(socket, transport, target)) {
+            return ProbeOutcome.HandshakeOnly(hsMs, "ping send refused")
         }
         val dataPacket = DatagramPacket(buf, buf.size)
         try {
@@ -234,6 +269,28 @@ class WarpProbe(
         } else {
             ProbeOutcome.HandshakeOnly(hsMs, "not our echo")
         }
+    }
+
+    /**
+     * v3.3: interruptible, exception-proof datagram send. A connected UDP
+     * socket throws PortUnreachableException / SocketException when the OS
+     * reports ICMP errors for the destination — that is a normal, expected
+     * outcome when probing thousands of random endpoints and is converted to
+     * a simple false instead of being allowed to escape.
+     */
+    private suspend fun sendSafe(
+        socket: DatagramSocket,
+        data: ByteArray,
+        target: InetSocketAddress,
+    ): Boolean = try {
+        runInterruptible(Dispatchers.IO) {
+            socket.send(DatagramPacket(data, data.size, target))
+        }
+        true
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        false
     }
 
     private fun parseV4(text: String): ByteArray? {

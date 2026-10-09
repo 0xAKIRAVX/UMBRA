@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.2.0-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
+  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.3.0-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
   <img src="https://img.shields.io/badge/platform-Android%208.0%2B-34d399?style=flat-square&labelColor=0d1420" alt="platform">
   <img src="https://img.shields.io/badge/Kotlin-2.0-7f52ff?style=flat-square&labelColor=0d1420" alt="kotlin">
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285f4?style=flat-square&labelColor=0d1420" alt="compose">
@@ -27,6 +27,18 @@ Your connection to Cloudflare's edge is only as good as the *specific IP* your n
 **UMBRA flips the table.** It samples the live Cloudflare and WARP address space directly from *your* device, measures what your network *actually* delivers to each candidate — latency, packet loss, TLS handshake, real download speed — ranks everything for you, and generates a VLESS config bound to the winner.
 
 No root. No Termux. No server. ~2 MB.
+
+---
+
+## What's new in v3.3.0 — the WARP-crash release
+
+The scan engine no longer dies mid-scan. A full audit of the WARP data path found the crash users were reporting on filtered networks:
+
+1. **WARP scans no longer collapse on UDP errors (the crash)** — a *connected* datagram socket throws `PortUnreachableException` the moment the OS reports an ICMP error for the destination — which happens constantly when probing thousands of random endpoints, especially on filtered networks. One such exception used to race up the coroutine tree and abort the **entire scan** ("engine failure"). Every UDP send, the socket creation, and every single probe are now exception-proof: a dead endpoint counts as a dead endpoint, and the storm rolls on.
+2. **WARP identity survives a blocked registration API** — `api.cloudflareclient.com` is exactly the kind of endpoint that gets filtered. Registration now persists the last working identity to disk (like BPB's `warp.json`) and reuses it whenever a fresh registration cannot be made, instead of aborting the scan outright.
+3. **Zero-result scans explain themselves** — when a scan ends with nothing verified, the Done panel now shows the engine's actual last word (blocked registration, capped budget, network state) instead of a silent empty board.
+4. **Probe-budget cap** — extreme sweep × samples settings could queue hundreds of thousands of multi-second UDP probes (an overnight "scan" that looks like a hang). The workload is now capped at 120 000 pairs with an honest log line.
+5. **New launcher icon** — the cyber-globe artwork, fully re-cut into adaptive (safe-zone), monochrome (Material You themed) and legacy layers for every density.
 
 ---
 
@@ -145,7 +157,7 @@ Grab the latest signed APK from the **[Releases](https://github.com/0xAKIRAVX/UM
 
 | | |
 | --- | --- |
-| Latest version | **v3.2.0** (build 11) |
+| Latest version | **v3.3.0** (build 12) |
 | Requirement | Android 8.0+ (API 26) |
 | Architecture | Universal (all ABIs) |
 | Permissions | `INTERNET`, `FOREGROUND_SERVICE`, `POST_NOTIFICATIONS` — nothing else |

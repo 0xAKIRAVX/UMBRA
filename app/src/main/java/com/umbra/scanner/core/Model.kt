@@ -185,6 +185,10 @@ data class ScanSummary(
     val elapsedMs: Long,
     val params: ScanParams,
     val finishedAt: Long = System.currentTimeMillis(),
+    /** v3.3: when a scan produces ZERO alive endpoints, the most likely
+     * engine-level reason (last engine log line) — shown in the Done panel so
+     * "no results" is explainable instead of looking like a silent failure. */
+    val error: String? = null,
 )
 
 sealed interface ScanUi {

@@ -322,6 +322,12 @@ class ScanController(private val settings: UmbraSettings? = null) {
                 best = finalAlive.firstOrNull(),
                 elapsedMs = elapsed,
                 params = params ?: ScanParams(),
+                // v3.3: zero-result scans now carry the engine's own last word
+                // (registration blocked, probe budget capped, engine failure…)
+                // into the Done panel — silence is the worst error message.
+                error = if (finalAlive.isEmpty() && !cancelled) {
+                    _log.value.firstOrNull() ?: "no verified endpoints"
+                } else null,
             )
         )
     }
