@@ -9,12 +9,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.9.0-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
+  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.10.0-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
   <img src="https://img.shields.io/badge/platform-Android%208.0%2B-34d399?style=flat-square&labelColor=0d1420" alt="platform">
   <img src="https://img.shields.io/badge/Kotlin-2.0-7f52ff?style=flat-square&labelColor=0d1420" alt="kotlin">
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285f4?style=flat-square&labelColor=0d1420" alt="compose">
   <img src="https://img.shields.io/badge/APK-%E2%89%882.5%20MB-f15bb5?style=flat-square&labelColor=0d1420" alt="size">
-  <img src="https://img.shields.io/badge/tests-183%2F183%20green%20%C2%B7%20live%20WG--validated%20endpoints-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
+  <img src="https://img.shields.io/badge/tests-214%2F214%20green%20%C2%B7%20live%20WG--validated%20endpoints-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-9b5de5?style=flat-square&labelColor=0d1420" alt="license">
 </p>
 
@@ -27,6 +27,19 @@ Your connection to Cloudflare's edge is only as good as the *specific IP* your n
 **UMBRA flips the table.** It samples the live Cloudflare and WARP address space directly from *your* device, measures what your network *actually* delivers to each candidate — latency, packet loss, TLS handshake, real download speed — ranks everything for you, and generates a VLESS config bound to the winner.
 
 No root. No Termux. No server. ~2 MB.
+
+---
+
+## What's new in v3.10.0 — the recovery ladder (the 0-ALIVE fix)
+
+*“بازم مشکل داره”* — the screenshot: **SCAN COMPLETE · 0 ALIVE · 0/504 TESTED · 12S** · “endpoint scan aborted — 504 dead probes would only repeat this verdict · try: random ports · ipv6 · another network/isp · disconnect any active vpn”. v3.9 made the abort *honest* — but on a recoverable network an honest dead verdict is still a dead app. The gate had **two blind spots** that both false-aborted networks a working path existed on:
+
+1. **The witness never probed a single IPv6 pair on a dual-stack scan.** The generated pool is ordered v4-block-then-v6-block, and the witness tail took the *front* of the pool — 100% IPv4. On the classic filtered-mobile pattern “v4 WARP DPI-killed · v6 passes”, the gate aborted before the first v6 probe, with “try: ipv6” as *advice* while 250 v6 pairs sat unprobed in the very pool it was guarding. The witness pool is now **family-balanced**: 4 census seeds + 6 v4 + 6 v6 random pairs.
+2. **Silence aborted — the recovery was manual.** “Try: random ports” meant *you*, reconfiguring the scan by hand. Now, after the identity round goes silent, the **recovery ladder** runs automatically: a **full-port sweep** — every one of the 56 canonical WARP ports on the 3 census IPs + 2 pool IPs, v4 grid first, then their IPv6 twins (2606:4700:d0::x), single 1.5 s attempt each, up to 128 elastic lanes. Any answering `ip:port` is a **proven path**: the scan pool is **re-aimed** onto the winning ports (and family — a v4-configured scan whose only live path is v6 flips to v6, logged), the winners lead the pool so validated results stream within the first seconds, and the storm rolls. A sweep that answers with the *stored* identity also proves the key alive — the registration API being blocked no longer reads as “identity expired”. Only a network where *nothing anywhere* answers still aborts, and that verdict now names the sweep coverage that proved it (56 ports × N ips on v4+v6) instead of suggesting what the app could have tried itself.
+
+Live-verified from an open network: the sweep grid (5 IPs × 55 ports) found **105 answering paths across 51 ports, best 5 ms** — and notably *not* 2408, confirming the port-diversity census. On a port-filtered network this same sweep is what turns the 0-alive abort into a working scan.
+
+> **214/214 unit tests green (16 new regression tests: family-balanced witness, sweep grid, re-aim policy, port-choices generator, all four ladder flows), all live suites re-verified against production Cloudflare WARP including the new live sweep test. Install v3.10.0 over any v3.5.x–v3.9.0, same signature.**
 
 ---
 
@@ -321,7 +334,7 @@ Grab the latest signed APK from the **[Releases](https://github.com/0xAKIRAVX/UM
 
 | | |
 | --- | --- |
-| Latest version | **v3.9.0** (build 24) |
+| Latest version | **v3.10.0** (build 25) |
 | Requirement | Android 8.0+ (API 26) |
 | Architecture | Universal (all ABIs) |
 | Permissions | `INTERNET`, `FOREGROUND_SERVICE`, `POST_NOTIFICATIONS` — nothing else |

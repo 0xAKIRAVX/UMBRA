@@ -5,6 +5,7 @@ import com.umbra.scanner.core.EndpointPair
 import com.umbra.scanner.core.IpGenerator
 import com.umbra.scanner.core.IpProtocol
 import com.umbra.scanner.core.IpText
+import com.umbra.scanner.core.NetFamily
 import com.umbra.scanner.core.Presets
 import com.umbra.scanner.core.ScanMode
 import com.umbra.scanner.core.ScanParams
@@ -127,6 +128,18 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
          *  pool pairs. Small enough to be instant, large enough that a
          *  healthy-but-lossy path answers SOMETHING. */
         private const val WITNESS_RANDOM = 12
+
+        /** v3.10: recovery-sweep budget per probe. The sweep's job is path
+         *  DISCOVERY ("does ANY port on ANY known-good ip answer?"), not
+         *  RTT measurement — 1.5 s is 3× a high-latency mobile round trip
+         *  and keeps the worst-case ladder (witness + identity + witness +
+         *  v4 sweep + v6 sweep) inside ~15 s. */
+        internal const val SWEEP_TIMEOUT_MS = 1500
+
+        /** v3.10: how many drawn pool IPs ride the sweep alongside the census
+         *  seeds — spreads the sweep over more /24s so per-block filtering
+         *  is distinguishable from per-port filtering. */
+        internal const val SWEEP_EXTRA_POOL_IPS = 2
     }
 
     /** v3.6: per-scan tally of WHY warp probes failed — a zero-result scan
@@ -235,17 +248,35 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
         // feedback: 0/N tested · 0.0/s for minutes, the exact screen the
         // user screenshotted. The witness round answers the environment
         // question in ONE short budget: 16 mixed endpoints (the 4 census
-        // seeds + 12 random pool pairs), single attempt, ~2 s — if ANY of
-        // them answers (handshake or cookie), the path is live and the storm
-        // rolls; if ALL stay silent, a fresh identity is tried once (a
-        // server-side-dead key is silently dropped by every responder — the
-        // v3.6.1 ghost-key census), and if THAT is silent too the scan
-        // aborts honestly with the witness verdict instead of grinding.
+        // seeds + 12 random pool pairs, v4 AND v6), single attempt, ~2 s —
+        // if ANY of them answers (handshake or cookie), the path is live and
+        // the storm rolls; if ALL stay silent, a fresh identity is tried once
+        // (a server-side-dead key is silently dropped by every responder —
+        // the v3.6.1 ghost-key census).
+        //
+        // v3.10 (THE "0 ALIVE on a filtered network" fix): silence after the
+        // identity round no longer aborts. The v3.9 gate had two blind spots
+        // that both false-aborted recoverable networks —
+        //   1. the witness tail drew only from the FRONT of the pool, which
+        //      is 100% IPv4 (the v6 pairs sit at the END of the generated
+        //      list): on the classic Iranian mobile pattern "v4 WARP DPI-
+        //      killed, v6 passes" the gate NEVER probed a single v6 pair.
+        //   2. the configured port set was never widened: a pinned :2408
+        //      scan on a port-filtering ISP died with "try: random ports"
+        //      advice the user had to act on MANUALLY — the exact "بازم
+        //      مشکل داره" loop.
+        // The witness pool is now family-balanced, and after identity-round
+        // silence the RECOVERY LADDER runs: a full-port sweep (every
+        // canonical WARP port × census + pool IPs, v4 first, then the v6
+        // twins) — any answering ip:port is a PROVEN path, the pool is
+        // re-aimed onto the winning ports/family, and the storm rolls. Only
+        // a network where nothing anywhere answers still aborts, and the
+        // verdict then names the sweep coverage that proved it.
         if (params.mode == ScanMode.ENDPOINT && account != null && endpointPairs != null) {
             val witnessPairs = buildWitnessPool(endpointPairs)
             val witnessBudget = WITNESS_TIMEOUT_MS
             sink.onLog(
-                "pre-flight witness · ${witnessPairs.size} mixed endpoints · " +
+                "pre-flight witness · ${witnessPairs.size} mixed endpoints (v4+v6) · " +
                     "1 attempt × ${witnessBudget} ms"
             )
             var identity = account
@@ -276,21 +307,59 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
                     sink.onLog("pre-flight witness · fresh identity · $answered/${witnessPairs.size} answered · udp path live")
                     account = identity
                 } else {
-                    val why = if (fresh == null) {
-                        "identity may be expired and the registration api is unreachable — " +
-                            "a stored identity is the only one available on this network"
-                    } else {
-                        "warp udp is silent on this network even with a fresh identity"
+                    account = identity
+                    // ---- v3.10: the recovery ladder (port sweep, v4 then v6) ----
+                    // Runs with the FRESHEST identity available — even the
+                    // stored one when the registration API is unreachable: a
+                    // sweep that answers also proves that key is alive, which
+                    // the witness alone could not.
+                    val sweepV4 = buildSweepPool(endpointPairs, v6 = false)
+                    val sweepV6 = buildSweepPool(endpointPairs, v6 = true)
+                    var hits = runSweepRound(identity, sweepV4, "v4 · full port grid", sink)
+                    if (hits.isEmpty()) {
+                        hits = runSweepRound(identity, sweepV6, "v6 twins · full port grid", sink)
                     }
-                    sink.onLog("witness verdict · $why")
-                    sink.onLog(evidenceDiagnosis(witnessBudget))
-                    sink.onLog(
-                        "endpoint scan aborted — ${pairCount} dead probes would only repeat " +
-                            "this verdict · try: random ports · ipv6 · another network/isp · " +
-                            "disconnect any active vpn"
-                    )
-                    sink.onPhase(ScanPhase.DONE)
-                    return@coroutineScope
+                    if (hits.isNotEmpty()) {
+                        // a PROVEN path exists on this network — re-aim the
+                        // scan onto it and roll the storm
+                        val v4Hit = hits.any { it.pair.candidate.protocol == IpProtocol.IPv4 }
+                        val v6Hit = hits.any { it.pair.candidate.protocol == IpProtocol.IPv6 }
+                        val winningPorts = hits.map { it.pair.port }.distinct().sorted()
+                        val reAimed = reAimPool(pairCount, hits, params.family, random)
+                        endpointPairs = reAimed
+                        pairCount = reAimed.size
+                        sink.onGenerated(pairCount)
+                        if (fresh == null) {
+                            sink.onLog(
+                                "recovery sweep answered with the STORED identity — the key is " +
+                                    "alive, the scan's configured path was the filtered part"
+                            )
+                        }
+                        sink.onLog(
+                            "scan re-aimed · ${hits.size} proven ${if (v4Hit && v6Hit) "v4+v6" else if (v6Hit) "ipv6" else "v4"} " +
+                                "path(s) → ${reAimed.size} pairs on winning port(s) " +
+                                "${winningPorts.joinToString("/")} · storm rolling"
+                        )
+                    } else {
+                        val sweepIps = sweepV4.map { it.candidate.text }.distinct().size +
+                            sweepV6.map { it.candidate.text }.distinct().size
+                        val why = if (fresh == null) {
+                            "identity may be expired and the registration api is unreachable — " +
+                                "a stored identity is the only one available on this network"
+                        } else {
+                            "warp udp is silent on this network even with a fresh identity"
+                        }
+                        sink.onLog("witness verdict · $why")
+                        sink.onLog(evidenceDiagnosis(witnessBudget))
+                        sink.onLog(
+                            "endpoint scan aborted — ${pairCount} dead probes would only repeat " +
+                                "this verdict · recovery sweep already covered " +
+                                "${Presets.warpPortsCount()} ports × $sweepIps ips on v4+v6 · " +
+                                "try: another network/isp · disconnect any active vpn"
+                        )
+                        sink.onPhase(ScanPhase.DONE)
+                        return@coroutineScope
+                    }
                 }
             }
         }
@@ -685,33 +754,167 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
         )
     }
 
-    // ------------------------------------------------- v3.9 witness gate --
+    // ------------------------------------------------- v3.9/v3.10 witness --
 
     /**
      * The witness pool: the census-verified seeds FIRST (a healthy network
-     * answers them within one RTT), then [WITNESS_RANDOM] pairs drawn from
-     * the scan's own random pool — a pool draw that happens to reproduce a
-     * seed pair is already impossible (v3.8.1 dedup). Pure function —
-     * unit-tested directly.
+     * answers them within one RTT), then [WITNESS_RANDOM] pairs from the
+     * scan's own random pool — family-balanced (v3.10): the generated pool
+     * is ordered v4-block-then-v6-block, so the v3.9 `pool.take(16)` tail
+     * was 100% IPv4 and the gate NEVER probed a v6 pair on a dual-stack
+     * scan — exactly the "v4 WARP filtered · v6 passes" networks the gate
+     * exists for. Pure function — unit-tested directly.
      */
-    internal fun buildWitnessPool(pool: List<EndpointPair>): List<EndpointPair> =
-        pool.take(WITNESS_RANDOM + Presets.WARP_SEED_ENDPOINTS.size)
+    internal fun buildWitnessPool(pool: List<EndpointPair>): List<EndpointPair> {
+        val seedCount = Presets.WARP_SEED_ENDPOINTS.size
+        val seeds = pool.take(seedCount)
+        val rest = pool.drop(seedCount)
+        val v4 = rest.filter { it.candidate.protocol == IpProtocol.IPv4 }
+        val v6 = rest.filter { it.candidate.protocol == IpProtocol.IPv6 }
+        return when {
+            v4.isEmpty() -> seeds + v6.take(WITNESS_RANDOM)
+            v6.isEmpty() -> seeds + v4.take(WITNESS_RANDOM)
+            else -> seeds +
+                v4.take(WITNESS_RANDOM / 2) +
+                v6.take(WITNESS_RANDOM - WITNESS_RANDOM / 2)
+        }
+    }
+
+    /**
+     * v3.10: one answering witness/sweep probe — the pair plus its measured
+     * round-trip (handshake RTT when one completed; cookie replies carry no
+     * latency, sort last).
+     */
+    data class WitnessHit(val pair: EndpointPair, val rttMs: Double)
 
     /**
      * v3.9 witness seam — production probes the pairs for real with the
-     * elastic dispatcher (16 lanes, single attempt, short budget); tests
-     * inject the answered count so the gate logic runs offline.
+     * elastic dispatcher (single attempt, short budget); tests inject the
+     * answered count so the gate logic runs offline.
      */
     internal var witnessProber: suspend (WarpAccount, List<EndpointPair>, Int) -> Int =
-        { acc, pairs, budgetMs -> runWitnessRound(acc, pairs, budgetMs) }
+        { acc, pairs, budgetMs -> runWitnessRoundDetailed(acc, pairs, budgetMs).size }
 
-    /** One real witness round — returns how many pairs answered. */
-    private suspend fun runWitnessRound(
+    /**
+     * v3.10 sweep seam — production probes the sweep grid for real and
+     * returns the ANSWERING pairs with RTTs; tests inject winners so the
+     * re-aim flow runs offline.
+     */
+    internal var sweepProber: suspend (WarpAccount, List<EndpointPair>, Int) -> List<WitnessHit> =
+        { acc, pairs, budgetMs -> runWitnessRoundDetailed(acc, pairs, budgetMs) }
+
+    /**
+     * v3.10: the recovery sweep grid — pure function. The census seed IPs
+     * (spread across two /16s) plus [SWEEP_EXTRA_POOL_IPS] drawn pool IPs,
+     * each crossed with EVERY canonical WARP port ([Presets.WARP_PORTS_FULL]).
+     * [v6] selects the v4-embedded twins (2606:4700:d0::x) of the same IPs —
+     * the live-verified v6 pattern. Deduplicated on ip:port.
+     */
+    internal fun buildSweepPool(pool: List<EndpointPair>, v6: Boolean): List<EndpointPair> {
+        val seedIps = Presets.WARP_SEED_V4.mapNotNull { IpText.literalToBytes(it) }
+        val seedTexts = seedIps.map { IpText.format(it) }.toHashSet()
+        val poolIps = pool.drop(Presets.WARP_SEED_ENDPOINTS.size)
+            .filter { it.candidate.protocol == IpProtocol.IPv4 }
+            .map { it.candidate.text to it.candidate.bytes }
+            .filter { (text, _) -> text !in seedTexts }
+            .distinctBy { (text, _) -> text }
+            .take(SWEEP_EXTRA_POOL_IPS)
+            .map { (_, bytes) -> bytes }
+        val ips = seedIps + poolIps
+        val ports = Presets.WARP_PORTS_FULL
+        val out = ArrayList<EndpointPair>(ips.size * ports.size)
+        val seen = HashSet<String>(ips.size * ports.size * 2)
+        for (ip in ips) {
+            val cand = if (v6) {
+                val bytes = IpGenerator.v6Embedded(Presets.WARP_V6_PREFIX_D0, ip) ?: continue
+                Candidate(bytes)
+            } else {
+                Candidate(ip)
+            }
+            for (p in ports) {
+                if (seen.add("${cand.text}:$p")) out.add(EndpointPair(cand, p))
+            }
+        }
+        return out
+    }
+
+    /**
+     * v3.10: rebuilds the scan pool onto a PROVEN path — pure function.
+     * The sweep winners lead the pool (they are guaranteed answers on THIS
+     * network, so validated results stream within the first seconds), the
+     * rest is re-drawn randomly on the winning ports only — the family
+     * follows what actually answered (a v4-configured scan whose only
+     * answering path is v6 flips to v6; that is the recovery, logged by
+     * the caller). Never returns fewer pairs than the winners themselves.
+     */
+    internal fun reAimPool(
+        targetSize: Int,
+        hits: List<WitnessHit>,
+        configuredFamily: NetFamily,
+        random: Random,
+    ): List<EndpointPair> {
+        val winners = hits.map { it.pair }
+            .distinctBy { "${it.candidate.text}:${it.port}" }
+        val winningPorts = hits.sortedBy { it.rttMs }
+            .map { it.pair.port }
+            .distinct()
+            .ifEmpty { Presets.WARP_PORTS_FULL }
+        val v4Won = winners.any { it.candidate.protocol == IpProtocol.IPv4 }
+        val v6Won = winners.any { it.candidate.protocol == IpProtocol.IPv6 }
+        val targetFamily = when {
+            v4Won && v6Won -> NetFamily.BOTH
+            v6Won -> NetFamily.V6
+            else -> NetFamily.V4
+        }
+        // both families answered and the user asked for both — keep BOTH
+        // halves; a one-sided answer overrides the configured family (that
+        // IS the recovery) but never DOWNGRADES a both-family win.
+        val family = if (v4Won && v6Won) configuredFamily else targetFamily
+        val need = (targetSize - winners.size).coerceAtLeast(0)
+        val drawn = IpGenerator.generateEndpoints(family, need, winningPorts, random)
+        val winnerIds = winners.map { "${it.candidate.text}:${it.port}" }.toHashSet()
+        return winners + drawn.filter { "${it.candidate.text}:${it.port}" !in winnerIds }
+    }
+
+    /** One sweep round, logged end-to-end — returns the answering pairs. */
+    private suspend fun runSweepRound(
+        identity: WarpAccount,
+        pairs: List<EndpointPair>,
+        label: String,
+        sink: ScanSink,
+    ): List<WitnessHit> {
+        if (pairs.isEmpty()) return emptyList()
+        sink.onLog(
+            "recovery sweep · $label · ${pairs.map { it.candidate.text }.distinct().size} ips × " +
+                "${pairs.map { it.port }.distinct().size} ports · 1 attempt × $SWEEP_TIMEOUT_MS ms"
+        )
+        val hits = runCatching { sweepProber(identity, pairs, SWEEP_TIMEOUT_MS) }
+            .getOrDefault(emptyList())
+        if (hits.isEmpty()) {
+            sink.onLog("recovery sweep · $label · 0/${pairs.size} answered")
+        } else {
+            val best = hits.take(3).joinToString(" · ") {
+                "${it.pair.candidate.text}:${it.pair.port}" +
+                    (if (it.rttMs < Double.MAX_VALUE) " ${"%.0f".format(it.rttMs)}ms" else "")
+            }
+            sink.onLog("recovery sweep · $label · ${hits.size}/${pairs.size} answered · $best")
+        }
+        return hits
+    }
+
+    /**
+     * One real witness/sweep round — returns the answering pairs (handshake
+     * OR cookie-reply, the witness aliveness contract) sorted by RTT.
+     */
+    private suspend fun runWitnessRoundDetailed(
         acc: WarpAccount,
         pairs: List<EndpointPair>,
         budgetMs: Int,
-    ): Int = coroutineScope {
-        val witnessDispatcher = Dispatchers.IO.limitedParallelism(pairs.size.coerceIn(4, 64))
+    ): List<WitnessHit> = coroutineScope {
+        // v3.10: up to 128 lanes — the sweep grid (up to ~300 pairs) must not
+        // queue behind a small pool of 2-second receive() lanes, or the
+        // recovery ladder itself becomes the frozen screen it exists to fix.
+        val witnessDispatcher = Dispatchers.IO.limitedParallelism(pairs.size.coerceIn(4, 128))
         // A small always-on noise burst keeps the witness's traffic shape in
         // line with what the storm itself sends — a noise-less witness could
         // false-ABORT exactly the DPI-shaped networks the storm is tuned for
@@ -722,7 +925,7 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
             noise = UdpNoiseConfig(enabled = true, count = 3),
             dispatcher = witnessDispatcher,
         )
-        val answered = AtomicInteger(0)
+        val hits = java.util.concurrent.ConcurrentLinkedQueue<WitnessHit>()
         val jobs = pairs.map { pair ->
             launch(witnessDispatcher) {
                 val st = runCatching {
@@ -732,11 +935,14 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
                     )
                 }.getOrNull()
                 if (st != null && (st.handshakes > 0 || st.cookieReplies > 0)) {
-                    answered.incrementAndGet()
+                    val rtt = st.handshakeLatenciesMs.firstOrNull()
+                        ?: st.pingLatenciesMs.firstOrNull()
+                        ?: Double.MAX_VALUE
+                    hits.add(WitnessHit(pair, rtt))
                 }
             }
         }
         jobs.joinAll()
-        answered.get()
+        hits.sortedBy { it.rttMs }
     }
 }

@@ -174,16 +174,36 @@ object IpGenerator {
      * Endpoints are deduplicated on the `ip:port` text, never on the IP —
      * the same IP with different ports is a different endpoint, exactly like
      * the BPB scanner's `seen` map.
+     *
+     * v3.10: the port-choices overload backs the recovery ladder's re-aim —
+     * when a sweep proves only some ports pass this network, the rebuilt pool
+     * draws its ports from exactly those winners instead of the full list.
      */
     fun generateEndpoints(
         family: NetFamily,
         count: Int,
         port: Int,
         random: Random = Random(System.nanoTime()),
+    ): List<EndpointPair> = generateEndpoints(
+        family, count,
+        if (port > 0) listOf(port) else Presets.WARP_PORTS_FULL,
+        random,
+    )
+
+    /** v3.10: [portChoices] — the exact port menu each drawn pair picks from
+     *  (single pinned port, the full canonical list, or the sweep's winning
+     *  ports). Empty/invalid lists fall back to the canonical list. */
+    fun generateEndpoints(
+        family: NetFamily,
+        count: Int,
+        portChoices: List<Int>,
+        random: Random = Random(System.nanoTime()),
     ): List<EndpointPair> {
         if (count <= 0) return emptyList()
         val v4Blocks = CidrBlock.parseAll(Presets.WARP_V4)
         if (v4Blocks.isEmpty()) return emptyList()
+        val choices = portChoices.filter { it in 1..65535 }.distinct()
+            .ifEmpty { Presets.WARP_PORTS_FULL }
         val wantV4 = family != NetFamily.V6
         val wantV6 = family != NetFamily.V4
         // BPB split: half v4, half v6 when both families are requested
@@ -193,11 +213,10 @@ object IpGenerator {
             else -> 0
         }
         val v6Quota = count - v4Quota
-        val ports = Presets.WARP_PORTS_FULL
         val seen = HashSet<String>(count * 2)
         val out = ArrayList<EndpointPair>(count)
 
-        fun nextPort(): Int = if (port > 0) port else ports[random.nextInt(ports.size)]
+        fun nextPort(): Int = choices[random.nextInt(choices.size)]
 
         fun nextV4Bytes(): ByteArray {
             val block = v4Blocks[random.nextInt(v4Blocks.size)]

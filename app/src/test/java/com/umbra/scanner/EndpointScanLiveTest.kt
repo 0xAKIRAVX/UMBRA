@@ -137,4 +137,54 @@ class EndpointScanLiveTest {
         check(results.filter { it.alive }.all { it.wgHandshakes > 0 })
         println("random-port endpoint scan verdict: ${logs.last()}")
     }
+
+    @Test
+    fun `live recovery sweep finds answering warp paths on the full port grid`() {
+        assumeTrue(System.getenv("UMBRA_LIVE_TEST") == "1")
+        // v3.10: the recovery-ladder machinery itself — the full-port sweep
+        // grid (census + pool IPs × every canonical WARP port) against real
+        // Cloudflare. On an open network this MUST find answering paths
+        // (it is strictly wider than the witness that passes here); a zero
+        // would mean the sweep — the fix for the "0 ALIVE · aborted" screen —
+        // is itself broken.
+        val engine = ScanEngine()
+        val params = ScanParams(
+            mode = ScanMode.ENDPOINT,
+            family = NetFamily.V4,
+            port = 0,
+            endpointsCount = 8,
+            warpAttempts = 1,
+            tcpTimeoutMs = 3000,
+            concurrency = 32,
+            udpNoise = false,
+            tlsVerify = false,
+            speedTest = false,
+        )
+        val drawn = com.umbra.scanner.core.IpGenerator.generateEndpoints(
+            NetFamily.V4, params.endpointsCount, 0,
+        )
+        val seeds = com.umbra.scanner.core.Presets.WARP_SEED_ENDPOINTS.mapNotNull { (ip, p) ->
+            com.umbra.scanner.core.IpText.literalToBytes(ip)?.let {
+                com.umbra.scanner.core.EndpointPair(com.umbra.scanner.core.Candidate(it), p)
+            }
+        }
+        val grid = engine.buildSweepPool(seeds + drawn, v6 = false)
+        check(grid.size >= 3 * com.umbra.scanner.core.Presets.warpPortsCount()) {
+            "sweep grid too small: ${grid.size}"
+        }
+        val account = runBlocking {
+            com.umbra.scanner.net.WarpRegistration.register()
+        }
+        val hits = runBlocking {
+            engine.sweepProber(account, grid, 2500)
+        }
+        check(hits.isNotEmpty()) { "recovery sweep found NOTHING on an open network" }
+        check(hits.all { it.pair.port in com.umbra.scanner.core.Presets.WARP_PORTS_FULL })
+        val bestRtt = hits.firstOrNull { it.rttMs < Double.MAX_VALUE }?.rttMs
+        println(
+            "live recovery sweep: ${hits.size}/${grid.size} answered · " +
+                "ports ${hits.map { it.pair.port }.distinct().sorted()} · " +
+                "best ${bestRtt?.let { "%.0f".format(it) + "ms" } ?: "cookie"}"
+        )
+    }
 }

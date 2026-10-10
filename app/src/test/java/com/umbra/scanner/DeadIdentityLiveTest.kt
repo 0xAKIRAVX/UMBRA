@@ -46,13 +46,12 @@ class DeadIdentityLiveTest {
         )
 
         val probe = WarpProbe(ghost, noise = UdpNoiseConfig(enabled = false))
-        for (target in listOf(
-            "162.159.192.1" to 2408,
-            "188.114.96.1" to 2408,
-            "162.159.193.10" to 2408,
-            "188.114.97.1" to 2408,
-            "8.39.214.1" to 2408,
-        )) {
+        // v3.10: the census-verified seed endpoints — the original hardcoded
+        // :2408-only target list went dark from several PoPs (2408 answered
+        // 0 of 275 sweep probes from this network while 51 other ports
+        // answered 105 times), which failed the CONTROL and made the test
+        // cry "live network down" on a perfectly healthy network.
+        for (target in com.umbra.scanner.core.Presets.WARP_SEED_ENDPOINTS) {
             val ip = IpText.literalToBytes(target.first)!!
             val stats = runBlocking {
                 probe.probe(ip, target.second, attempts = 2, timeoutMs = 4000, interAttemptDelayMs = 300)
@@ -65,13 +64,7 @@ class DeadIdentityLiveTest {
         // control: the REAL identity must still pass somewhere (multi-endpoint)
         val probe2 = WarpProbe(real, noise = UdpNoiseConfig(enabled = false))
         var controlPings = 0
-        for (target in listOf(
-            "162.159.192.1" to 2408,
-            "188.114.96.1" to 2408,
-            "162.159.193.10" to 2408,
-            "188.114.97.1" to 2408,
-            "8.39.214.1" to 2408,
-        )) {
+        for (target in com.umbra.scanner.core.Presets.WARP_SEED_ENDPOINTS) {
             val ip = IpText.literalToBytes(target.first)!!
             val stats2 = runBlocking {
                 probe2.probe(ip, target.second, attempts = 2, timeoutMs = 4000, interAttemptDelayMs = 300)

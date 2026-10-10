@@ -234,13 +234,19 @@ class Patch90Test {
         val acc = fakeAccount()
         engine.registrationProvider = { _, _ -> acc }
         engine.witnessProber = { _, _, _ -> 0 }   // every round silent — filtered network
+        engine.sweepProber = { _, _, _ -> emptyList() } // v3.10: the ladder's last rung is silent too
         val sink = RecordingSink()
         engine.run(endpointParams(count = 500), sink)
 
         // the verdict names the world and states the remedies
         assertTrue(sink.logs.any { it.contains("warp udp is silent on this network even with a fresh identity") })
         assertTrue(sink.logs.any { it.contains("endpoint scan aborted") })
-        assertTrue(sink.logs.any { it.contains("try: random ports") })
+        // v3.10: the ladder ran — the abort names what the sweep covered
+        // (random ports + ipv6 are tried AUTOMATICALLY now, not advised)
+        assertTrue(sink.logs.any { it.contains("recovery sweep") })
+        assertTrue(sink.logs.any { it.contains("recovery sweep already covered") })
+        assertTrue(sink.logs.any { it.contains("another network/isp") })
+        assertTrue(sink.logs.none { it.contains("try: random ports") })
         // THE contract: the 504-pool storm NEVER runs — the frozen screen is
         // structurally impossible on a filtered network now
         assertFalse(sink.phases.contains(ScanPhase.WG))
@@ -256,6 +262,7 @@ class Patch90Test {
             fakeAccount()
         }
         engine.witnessProber = { _, _, _ -> 0 }
+        engine.sweepProber = { _, _, _ -> emptyList() } // v3.10: even the ladder is silent
         val sink = RecordingSink()
         engine.run(endpointParams(count = 4), sink)
 
