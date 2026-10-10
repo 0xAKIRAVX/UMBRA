@@ -24,7 +24,10 @@ object ResultCodec {
         r.jitterMs?.let { o.put("jit", it) }
         o.put("loss", r.packetLoss)
         r.speedMbps?.let { o.put("spd", it) }
-        r.downloadedBytes?.let { o.put("dl", it) } ?: o.put("dl", 0L)
+        // v3.8.1 cleanup: downloadedBytes is non-null — the old
+        // `x?.let { put } ?: put(0)` shape was a dead elvis that read like a
+        // nullable-override of a primitive field.
+        o.put("dl", r.downloadedBytes)
         o.put("att", r.tcpAttempts)
         o.put("ok", r.successfulAttempts)
         o.put("tls", r.tlsSuccess)

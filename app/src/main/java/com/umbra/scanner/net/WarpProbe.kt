@@ -57,8 +57,20 @@ data class WarpProbeStats(
             return sqrt(variance)
         }
 
+    /**
+     * v3.8.1 (the 100%-loss-on-a-validated-endpoint bug): loss is the fraction
+     * of probe rounds in which the endpoint answered NOTHING — no handshake,
+     * no ping. It used to be (attempts - pings)/attempts, so a HANDSHAKE-ONLY
+     * endpoint (handshakes = attempts, in-tunnel pings = 0 — common on WARP
+     * data planes that rate-limit or drop the tiny ICMP echo) showed
+     * "loss 100%" in the Done panel and every result row while being
+     * handshake-VALIDATED at the same time — a self-contradicting verdict the
+     * user reads as "this endpoint is broken". A round that completed a
+     * handshake is a successful round: the handshake IS the aliveness proof.
+     */
     val loss: Double
-        get() = if (attempts == 0) 1.0 else (attempts - pings).toDouble() / attempts
+        get() = if (attempts == 0) 1.0
+        else (attempts - maxOf(pings, handshakes)).toDouble() / attempts
 }
 
 /** UDP noise config — mirrors BPB's default (5 random packets of 50-100 bytes, 1-5ms apart). */

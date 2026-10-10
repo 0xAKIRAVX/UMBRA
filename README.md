@@ -9,12 +9,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.8.0-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
+  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.8.1-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
   <img src="https://img.shields.io/badge/platform-Android%208.0%2B-34d399?style=flat-square&labelColor=0d1420" alt="platform">
   <img src="https://img.shields.io/badge/Kotlin-2.0-7f52ff?style=flat-square&labelColor=0d1420" alt="kotlin">
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285f4?style=flat-square&labelColor=0d1420" alt="compose">
   <img src="https://img.shields.io/badge/APK-%E2%89%882.5%20MB-f15bb5?style=flat-square&labelColor=0d1420" alt="size">
-  <img src="https://img.shields.io/badge/tests-168%2F168%20green%20%C2%B7%20live%20WG--validated%20endpoints-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
+  <img src="https://img.shields.io/badge/tests-183%2F183%20green%20%C2%B7%20live%20WG--validated%20endpoints-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-9b5de5?style=flat-square&labelColor=0d1420" alt="license">
 </p>
 
@@ -27,6 +27,22 @@ Your connection to Cloudflare's edge is only as good as the *specific IP* your n
 **UMBRA flips the table.** It samples the live Cloudflare and WARP address space directly from *your* device, measures what your network *actually* delivers to each candidate — latency, packet loss, TLS handshake, real download speed — ranks everything for you, and generates a VLESS config bound to the winner.
 
 No root. No Termux. No server. ~2 MB.
+
+---
+
+## What's new in v3.8.1 — the full-codebase bug hunt (7 fixes)
+
+*“تمام باگ‌های برنامه رو رفع کن و تمام مشکلاتش رو”* — fix every bug in the app, functional and visual. A full audit of every layer (engine, net stack, controller, settings, export, every screen and component) turned up seven real defects, all fixed and pinned with regression tests (183/183 green, live WG handshake re-verified):
+
+1. **The mode-switcher could silently re-arm the fake-endpoint bug.** Passing through ENDPOINT mode turned the TLS-verify and speed-test toggles OFF (endpoint mode doesn't use them) — but switching back to EDGE/CUSTOM never turned them back ON. An EDGE scan then ran with TLS verification disabled, and on DPI-filtered networks (this app's entire audience) `alive = tcp-alive` means **fake endpoints again** — the exact v3.7 complaint, reborn through the mode switcher. Worse, the poisoned state was saved to disk, so restarts inherited it. Your pre-ENDPOINT toggle choices are now snapshotted and restored on the way out (and *your own* off-choices survive the round trip untouched).
+2. **Progress could never quite reach 100% (and the pool was overcounted).** The random endpoint draw deduplicates against itself — but not against the 4 census-verified seeds the engine prepends. With a pinned port, a 500-endpoint scan over the 4064-host v4 pool collides with a seed pair about half the time: the pair was probed twice, the result store merged the duplicates, and the tested counter could never reach the announced candidate count. The pool is now deduplicated on `ip:port`, seeds first.
+3. **A handshake-validated endpoint could report “loss 100%”.** Loss was computed from in-tunnel pings only — but plenty of perfectly good WARP endpoints complete every handshake while their data plane rate-limits or drops the tiny ICMP echo. The Done panel then showed a *validated* best endpoint with a 100%-loss stat: a self-contradiction users read as “this endpoint is broken”. Loss now counts probe rounds where the endpoint answered *nothing* (no handshake, no ping) — a completed handshake is a successful round, because the handshake IS the aliveness proof.
+4. **The “best endpoint” showed no port.** In ENDPOINT mode the port is half the endpoint (random ports!), and an IPv6 winner without brackets is ambiguous garbage. The Done panel's best endpoint and the live top-5 board now show the full `[ip]:port` — bracketed for IPv6, directly paste-able.
+5. **Persian labels in stat cells were glyph-torn.** The stat-cell component kept a fixed 1.2sp letter-spacing for every language; on connected Arabic script that tracking visually tears the letters apart (the hero and tagline rows already had the script guard — the most-used component had missed it).
+6. **The boot splash was see-through to touches.** For its 1.15 s lifetime every tap fell through the splash to the live UI underneath — nav items and buttons could be triggered blind. The splash now consumes pointer input like the update dialog's scrim.
+7. **Codec cleanup.** A dead elvis (`x?.let { put } ?: put(0)`) on a non-null field in the persisted-results encoder — harmless but misleading; simplified.
+
+> **Every bug found in the audit, fixed and regression-pinned — with live WireGuard validation re-confirmed after the engine changes. Install v3.8.1 over any v3.5.x–v3.8.0, same signature.**
 
 ---
 
@@ -291,7 +307,7 @@ Grab the latest signed APK from the **[Releases](https://github.com/0xAKIRAVX/UM
 
 | | |
 | --- | --- |
-| Latest version | **v3.7.0** (build 21) |
+| Latest version | **v3.8.1** (build 23) |
 | Requirement | Android 8.0+ (API 26) |
 | Architecture | Universal (all ABIs) |
 | Permissions | `INTERNET`, `FOREGROUND_SERVICE`, `POST_NOTIFICATIONS` — nothing else |

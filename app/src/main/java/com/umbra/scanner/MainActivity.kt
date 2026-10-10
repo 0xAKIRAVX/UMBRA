@@ -13,6 +13,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -33,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
@@ -120,7 +123,15 @@ private fun BootSplash(version: String) {
         Box(
             Modifier
                 .fillMaxSize()
-                .background(bg),
+                .background(bg)
+                // v3.8.1: the splash is a visual OVERLAY but was NOT an input
+                // one — for its 1.15 s lifetime every tap fell through to the
+                // live UI underneath (nav items, buttons, text fields could be
+                // triggered blind). Consume all pointer input while visible,
+                // same scrim technique as the update dialog.
+                .pointerInput(Unit) {
+                    awaitEachGesture { awaitFirstDown(requireUnconsumed = false) }
+                },
         ) {
             Column(
                 Modifier

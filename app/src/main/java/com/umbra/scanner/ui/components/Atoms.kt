@@ -283,7 +283,14 @@ fun StatCell(
         )
         Text(
             label,
-            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.2.sp),
+            style = MaterialTheme.typography.labelSmall.copy(
+                // v3.8.1 (Persian glyph-breaking fix): a fixed 1.2sp tracking
+                // visually tears connected Arabic-script letters apart — the
+                // Hero/tagline rows already guard on script range, this most-
+                // used cell component missed it. Latin/technical labels keep
+                // the tracked look; Persian labels render untracked.
+                letterSpacing = if (label.all { it.code < 0x590 }) 1.2.sp else 0.sp
+            ),
             color = Fade,
             maxLines = 1,
             softWrap = false,

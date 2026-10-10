@@ -123,6 +123,17 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
     var tlsOn by rememberSaveable { mutableStateOf(saved.tlsVerify) }
     var advanced by rememberSaveable { mutableStateOf(false) }
 
+    // v3.8.1 fix (the toggle-poisoning bug): entering ENDPOINT mode silently
+    // forced TLS + speed OFF (endpoint mode has no TLS phase), but switching
+    // BACK to EDGE/CUSTOM never restored them — an EDGE scan then ran with
+    // tlsVerify=false, and on DPI-filtered networks (this app's whole
+    // audience) alive = "tcpAlive && tlsSkipped" reports FAKE endpoints:
+    // the exact v3.7 complaint reborn through the mode switcher. Worse,
+    // saveParams persisted the poisoned state, so restarts inherited it.
+    // The user's pre-ENDPOINT choices are now snapshotted and restored.
+    var savedTls by rememberSaveable { mutableStateOf<Boolean?>(null) }
+    var savedSpeed by rememberSaveable { mutableStateOf<Boolean?>(null) }
+
     // transient auto-tune state
     var tuning by remember { mutableStateOf(false) }
     var tuneStep by remember { mutableStateOf<String?>(null) }
@@ -153,8 +164,15 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
             options = listOf(s.modeEndpoint, s.modeCfEdge, s.modeCustom),
             selected = modeIdx,
             onSelect = { i ->
-                modeIdx = i
                 val m = uiModes[i]
+                // v3.8.1: snapshot/restore the TLS + speed toggles around a
+                // pass through ENDPOINT mode — see onModeSwitchToggles below.
+                val restored = onModeSwitchToggles(m, mode, tlsOn, speedOn, savedTls, savedSpeed)
+                tlsOn = restored.tls
+                speedOn = restored.speed
+                savedTls = restored.savedTls
+                savedSpeed = restored.savedSpeed
+                modeIdx = i
                 port = Presets.defaultPort(m)
                 // v3.4 fix: the endpoint probe path clamps wg retries to 1..7 —
                 // an EDGE slider value of 8..10 carried into endpoint mode would
@@ -163,10 +181,8 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
                 // v3.7: endpoint mode opens as a pure BPB-style latency scan —
                 // no TLS phase (random warp ports don't serve speed.cloudflare.com)
                 // and no throughput pass unless the user turns it on.
-                if (m == ScanMode.ENDPOINT) {
-                    speedOn = false
-                    tlsOn = false
-                }
+                // (The v3.8.1 restore above re-enables them when the user
+                //  leaves endpoint mode for EDGE/CUSTOM.)
             },
         )
         Spacer(Modifier.height(6.dp))
@@ -570,4 +586,52 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
             modifier = Modifier.padding(horizontal = 2.dp),
         )
     }
+}
+
+/**
+ * v3.8.1 (the toggle-poisoning fix) — pure state transition for the TLS +
+ * SPEED toggles when the user switches scan modes. Pure function so the
+ * regression test can pin the exact contract:
+ *
+ *  - ENTERING ENDPOINT: both toggles go OFF (endpoint mode has no TLS phase
+ *    and opens as a pure BPB latency scan); the user's previous EDGE/CUSTOM
+ *    choices are snapshotted (only the FIRST entry snapshots — a later
+ *    re-entry after a restore re-snapshots the restored values).
+ *  - LEAVING ENDPOINT: the snapshot is restored (default true — TLS verify
+ *    is EDGE/CUSTOM's honest aliveness filter; running it off was exactly
+ *    how DPI-fake endpoints came back through the mode switcher).
+ *  - Any other switch (EDGE↔CUSTOM, same-mode): toggles untouched.
+ */
+internal data class ToggleRestore(
+    val tls: Boolean,
+    val speed: Boolean,
+    val savedTls: Boolean?,
+    val savedSpeed: Boolean?,
+)
+
+internal fun onModeSwitchToggles(
+    newMode: ScanMode,
+    prevMode: ScanMode,
+    tls: Boolean,
+    speed: Boolean,
+    savedTls: Boolean?,
+    savedSpeed: Boolean?,
+): ToggleRestore = when {
+    newMode == ScanMode.ENDPOINT && prevMode != ScanMode.ENDPOINT ->
+        ToggleRestore(
+            tls = false,
+            speed = false,
+            savedTls = savedTls ?: tls,
+            savedSpeed = savedSpeed ?: speed,
+        )
+
+    newMode != ScanMode.ENDPOINT && prevMode == ScanMode.ENDPOINT ->
+        ToggleRestore(
+            tls = savedTls ?: true,
+            speed = savedSpeed ?: true,
+            savedTls = null,
+            savedSpeed = null,
+        )
+
+    else -> ToggleRestore(tls, speed, savedTls, savedSpeed)
 }

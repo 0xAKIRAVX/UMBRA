@@ -46,6 +46,7 @@ import com.umbra.scanner.core.ScanStats
 import com.umbra.scanner.core.ScanSummary
 import com.umbra.scanner.core.ScanUi
 import com.umbra.scanner.core.ScanResult
+import com.umbra.scanner.core.IpText
 import com.umbra.scanner.i18n.LocalStrings
 import com.umbra.scanner.ui.components.AnimatedCountText
 import com.umbra.scanner.ui.components.GradientButton
@@ -290,7 +291,10 @@ private fun LivePanel(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        r.ip,
+                        // v3.8.1: the live board shows the FULL endpoint
+                        // (ip:port, IPv6 bracketed) — in random-port mode the
+                        // IP alone identifies nothing usable.
+                        r.endpointText(),
                         style = MonoStyle.copy(fontSize = 11.5.sp),
                         color = Mist,
                         maxLines = 1,
@@ -454,7 +458,10 @@ private fun DonePanel(
                 Text(s.bestEndpoint, style = MaterialTheme.typography.labelSmall, color = Fade)
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    best.ip,
+                    // v3.8.1: the "best endpoint" is the full ip:port — with
+                    // random ports the IP alone is not a usable endpoint, and
+                    // an IPv6 best needs brackets to be paste-able anywhere.
+                    best.endpointText(),
                     style = MonoStyleLarge,
                     color = accent.tint,
                     maxLines = 1,
@@ -485,3 +492,11 @@ internal fun formatElapsed(ms: Long): String {
         else -> "%d:%02d:%02d".format(java.util.Locale.US, s / 3600, (s % 3600) / 60, s % 60)
     }
 }
+
+/**
+ * v3.8.1: full display form of a result — `ip:port`, with IPv6 wrapped in
+ * square brackets so "[2606:4700:d0::1]:894" stays an unambiguous, directly
+ * usable endpoint everywhere it is shown (live board, Done panel).
+ */
+internal fun ScanResult.endpointText(): String =
+    "${IpText.forUrl(ip)}:$port"

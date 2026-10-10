@@ -63,6 +63,26 @@ internal fun classifyWarpProbe(
 }
 
 /**
+ * v3.8.1: the ENDPOINT probe pool — the census-verified seeds first, then the
+ * random draw with any seed pair that the draw happened to reproduce REMOVED
+ * (the draw deduplicates against itself, but a pinned-port 500-endpoint scan
+ * over the 4064-host v4 pool collides with a seed pair about half the time).
+ * A duplicate pair would be probed twice while the result store deduplicates
+ * by ip:port — the tested counter could then never reach the announced
+ * candidate count (progress stuck under 100%) and the completion line
+ * overcounted the pool. Pure function — unit-tested directly.
+ */
+internal fun assembleEndpointPool(
+    seeds: List<EndpointPair>,
+    drawn: List<EndpointPair>,
+): List<EndpointPair> {
+    if (seeds.isEmpty()) return drawn
+    val seedIds = HashSet<String>(seeds.size * 2)
+    for (s in seeds) seedIds.add("${s.candidate.text}:${s.port}")
+    return seeds + drawn.filter { "${it.candidate.text}:${it.port}" !in seedIds }
+}
+
+/**
  * UMBRA scan engine.
  * Phase 1  generate   — random candidates per CIDR (never full enumeration of big blocks);
  *                       ENDPOINT: BPB-style random ip:port pairs from the WARP ranges
@@ -123,7 +143,15 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
             val seeds = Presets.WARP_SEED_ENDPOINTS.mapNotNull { (ip, p) ->
                 IpText.literalToBytes(ip)?.let { EndpointPair(Candidate(it), p) }
             }
-            endpointPairs = seeds + drawn
+            // v3.8.1 fix: the random draw is deduplicated against ITSELF but
+            // never against the seeds prepended here. With a pinned port the
+            // drawn pool can contain a seed pair (a 500-endpoint scan on the
+            // 4064-host v4 pool hits a seed pair ~50% of the time): the pair
+            // was then probed TWICE, the duplicate result merged into the
+            // first, and `tested` (unique ids) could never reach the announced
+            // `candidates` — progress stuck at 99.8% and the completion line
+            // overcounted the pool. Dedup on the pair id, seeds first.
+            endpointPairs = assembleEndpointPool(seeds, drawn)
             emptyList()
         } else {
             IpGenerator.generate(params.cidrs, params.family, params.samplesPerPrefix, random)
