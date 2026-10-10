@@ -38,6 +38,15 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 class ScanController(private val settings: UmbraSettings? = null) {
 
+    companion object {
+        /** v3.9: sliding window for the live rate stat. */
+        internal const val RATE_WINDOW_MS = 15_000L
+
+        /** v3.9: hard cap — trimmed by time anyway, this bounds a pathological
+         *  burst between two stats ticks (350ms ticker). */
+        internal const val WINDOW_HARD_CAP = 8_192
+    }
+
     private val _ui = MutableStateFlow<ScanUi>(ScanUi.Idle)
     val ui: StateFlow<ScanUi> = _ui.asStateFlow()
 
@@ -87,6 +96,18 @@ class ScanController(private val settings: UmbraSettings? = null) {
     private val lock = Any()
     private val logLock = Any()
     private val resultMap = LinkedHashMap<String, ScanResult>()
+
+    /**
+     * v3.9 (the frozen-stats-card fix): timestamps (elapsedRealtime) of every
+     * newly-tested probe, kept inside a 15 s sliding window. The OLD rate
+     * (tested × 1000 / totalElapsed) was cumulative-since-start: during the
+     * WG storm's silent lead-in it read 0.0/s, and late in a long scan it
+     * averaged the whole history into meaningless slowness — the card looked
+     * dead in exactly both regimes the user screenshotted. The window rate
+     * spikes the moment results land and decays honestly when they stop.
+     */
+    private val testedWindow = ArrayDeque<Long>()
+    private val windowLock = Any()
 
     private val tested = AtomicInteger(0)
     private val aliveCount = AtomicInteger(0)
@@ -284,6 +305,7 @@ class ScanController(private val settings: UmbraSettings? = null) {
         synchronized(lock) { resultMap.clear() }
         tested.set(0); aliveCount.set(0); tlsOkCount.set(0)
         speedTestedCount.set(0); activeCount.set(0)
+        synchronized(windowLock) { testedWindow.clear() }
         candidatesCount = 0
         currentPhase = ScanPhase.IDLE
         _results.value = emptyList()
@@ -334,7 +356,12 @@ class ScanController(private val settings: UmbraSettings? = null) {
                     if (merged.speedMbps != null && old.speedMbps == null) speedDelta = 1
                 }
             }
-            if (newTested) tested.incrementAndGet()
+            if (newTested) {
+                tested.incrementAndGet()
+                synchronized(windowLock) {
+                    testedWindow.addLast(SystemClock.elapsedRealtime())
+                }
+            }
             if (aliveDelta != 0) aliveCount.addAndGet(aliveDelta)
             if (tlsDelta != 0) tlsOkCount.addAndGet(tlsDelta)
             if (speedDelta != 0) speedTestedCount.addAndGet(speedDelta)
@@ -362,7 +389,7 @@ class ScanController(private val settings: UmbraSettings? = null) {
     private fun publishStats() {
         val testedN = tested.get()
         val elapsed = if (startedElapsed == 0L) 0L else SystemClock.elapsedRealtime() - startedElapsed
-        val rate = if (elapsed > 500) testedN * 1000.0 / elapsed else 0.0
+        val rate = slidingRatePerSec(testedWindowSnapshot(), SystemClock.elapsedRealtime(), elapsed)
         val eta = when {
             candidatesCount <= 0 || rate < 0.5 -> null
             else -> (candidatesCount - testedN).toDouble() / rate
@@ -395,6 +422,19 @@ class ScanController(private val settings: UmbraSettings? = null) {
                 _top.value = snap.sortedBy { it.latencyMs ?: Double.MAX_VALUE }.take(5)
             }
         }
+    }
+
+    /** Copy of the tested-event window under its lock (never leaks the
+     * mutable deque to the rate computation). Also trims entries older than
+     * the 15 s window and hard-caps the size so a 120k mega-sweep's bursts
+     * cannot grow the deque unboundedly between stats ticks. */
+    private fun testedWindowSnapshot(): List<Long> = synchronized(windowLock) {
+        val now = SystemClock.elapsedRealtime()
+        while (testedWindow.isNotEmpty() && now - testedWindow.first() > RATE_WINDOW_MS) {
+            testedWindow.removeFirst()
+        }
+        while (testedWindow.size > WINDOW_HARD_CAP) testedWindow.removeFirst()
+        ArrayList(testedWindow)
     }
 
     private fun finalize(cancelled: Boolean) {
@@ -438,4 +478,32 @@ class ScanController(private val settings: UmbraSettings? = null) {
             )
         )
     }
+}
+
+/**
+ * v3.9 (the frozen-stats-card fix, pure core): throughput over a 15 s sliding
+ * window of tested-event timestamps.
+ *
+ *  - elapsed < window → the window IS the whole scan so far (identical to the
+ *    honest cumulative rate of the old code — early numbers stay truthful)
+ *  - elapsed ≥ window → only events inside the window count: the rate spikes
+ *    the moment results land (the old cumulative rate stayed ~0 through the
+ *    WG storm's silent lead-in — the 0.0/s screen) and decays to 0 honestly
+ *    when the pipeline stalls instead of averaging history into fake liveness.
+ * Pure function — unit-tested directly.
+ */
+internal fun slidingRatePerSec(
+    events: List<Long>,
+    nowMs: Long,
+    elapsedMs: Long,
+): Double {
+    if (events.isEmpty()) return 0.0
+    val windowMs = when {
+        elapsedMs >= ScanController.RATE_WINDOW_MS -> ScanController.RATE_WINDOW_MS
+        elapsedMs >= 1_000 -> elapsedMs
+        else -> 1_000L
+    }
+    val cutoff = nowMs - windowMs
+    val counted = events.count { it >= cutoff }
+    return counted * 1000.0 / windowMs
 }

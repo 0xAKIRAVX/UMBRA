@@ -21,6 +21,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
@@ -115,6 +116,17 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
          *  silently queue a multi-hour UDP storm that looks exactly like a
          *  hang. */
         private const val PROBE_CAP = 120_000
+
+        /** v3.9: pre-flight witness budget — one short round against the
+         *  census seeds + random pool pairs. Handshake RTTs on live paths
+         *  are well under a second (live census); 2 s leaves headroom for
+         *  high-latency radios while keeping the whole gate under ~3 s. */
+        internal const val WITNESS_TIMEOUT_MS = 2000
+
+        /** v3.9: witness pool size — the 4 census seeds + this many random
+         *  pool pairs. Small enough to be instant, large enough that a
+         *  healthy-but-lossy path answers SOMETHING. */
+        private const val WITNESS_RANDOM = 12
     }
 
     /** v3.6: per-scan tally of WHY warp probes failed — a zero-result scan
@@ -196,7 +208,7 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
             sink.onPhase(ScanPhase.REGISTER)
             sink.onLog("warp identity · api.cloudflareclient.com (silent · reused 15 min · disk fallback)")
             account = try {
-                registrationProvider(null)
+                registrationProvider(null, false)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -213,6 +225,74 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
                 return@coroutineScope
             }
             sink.onLog("warp identity ready · handshake validation live")
+        }
+
+        // ---- v3.9: pre-flight UDP witness gate (ENDPOINT only) ----
+        // THE frozen-scan lesson, restated as a gate: v3.8 removed the WARP
+        // mode and with it the v3.6.1 environment gate — on a network where
+        // WARP UDP is filtered (the app's core audience runs exactly such
+        // networks), the scan ground through the WHOLE pool with zero
+        // feedback: 0/N tested · 0.0/s for minutes, the exact screen the
+        // user screenshotted. The witness round answers the environment
+        // question in ONE short budget: 16 mixed endpoints (the 4 census
+        // seeds + 12 random pool pairs), single attempt, ~2 s — if ANY of
+        // them answers (handshake or cookie), the path is live and the storm
+        // rolls; if ALL stay silent, a fresh identity is tried once (a
+        // server-side-dead key is silently dropped by every responder — the
+        // v3.6.1 ghost-key census), and if THAT is silent too the scan
+        // aborts honestly with the witness verdict instead of grinding.
+        if (params.mode == ScanMode.ENDPOINT && account != null && endpointPairs != null) {
+            val witnessPairs = buildWitnessPool(endpointPairs)
+            val witnessBudget = WITNESS_TIMEOUT_MS
+            sink.onLog(
+                "pre-flight witness · ${witnessPairs.size} mixed endpoints · " +
+                    "1 attempt × ${witnessBudget} ms"
+            )
+            var identity = account
+            var answered = runCatching {
+                witnessProber(identity, witnessPairs, witnessBudget)
+            }.getOrDefault(0)
+            if (answered > 0) {
+                sink.onLog("pre-flight witness · $answered/${witnessPairs.size} answered · udp path live")
+            } else {
+                sink.onLog(
+                    "pre-flight witness · 0/${witnessPairs.size} answered (seeds included) — " +
+                        "re-registering a fresh identity to rule out a stale key"
+                )
+                val fresh = try {
+                    registrationProvider(null, true)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    null
+                }
+                if (fresh != null) {
+                    identity = fresh
+                    answered = runCatching {
+                        witnessProber(identity, witnessPairs, witnessBudget)
+                    }.getOrDefault(0)
+                }
+                if (answered > 0) {
+                    sink.onLog("pre-flight witness · fresh identity · $answered/${witnessPairs.size} answered · udp path live")
+                    account = identity
+                } else {
+                    val why = if (fresh == null) {
+                        "identity may be expired and the registration api is unreachable — " +
+                            "a stored identity is the only one available on this network"
+                    } else {
+                        "warp udp is silent on this network even with a fresh identity"
+                    }
+                    sink.onLog("witness verdict · $why")
+                    sink.onLog(evidenceDiagnosis(witnessBudget))
+                    sink.onLog(
+                        "endpoint scan aborted — ${pairCount} dead probes would only repeat " +
+                            "this verdict · try: random ports · ipv6 · another network/isp · " +
+                            "disconnect any active vpn"
+                    )
+                    sink.onPhase(ScanPhase.DONE)
+                    return@coroutineScope
+                }
+            }
         }
 
         // v3.3 guard: extreme settings (deep endpoint counts × retries) could
@@ -248,12 +328,44 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
         val isWg = params.mode == ScanMode.ENDPOINT && account != null
         sink.onPhase(if (isWg) ScanPhase.WG else ScanPhase.TCP)
         val active = AtomicInteger(0)
-        val stormSem = Semaphore(params.concurrency.coerceIn(4, 500))
+        // v3.9 (THE frozen-scan fix, engine side): the WG storm gets ELASTIC
+        // probe lanes. Every probe coroutine is launched on this view and
+        // every blocking socket call inside WarpProbe is dispatched through
+        // it too — Dispatchers.IO.limitedParallelism(n) is the one kotlinx
+        // dispatcher whose views grow BEYOND the default 64 threads, so a
+        // concurrency-320 storm really gets 320 blocking lanes instead of
+        // queueing every receive() behind 64 threads held for their full
+        // timeout (the serialized 0/504 · 0.0/s screen). The TCP storm keeps
+        // the plain IO pool: its per-probe blocking budget is one short
+        // connect, not attempts × 2 × timeout.
+        val lanes = params.concurrency.coerceIn(4, 500)
+        val probeDispatcher = Dispatchers.IO.limitedParallelism(lanes)
+        val stormSem = Semaphore(lanes)
         val stormCh = Channel<ScanResult>(Channel.UNLIMITED)
         val stormCollector = launch(Dispatchers.Default) {
             for (r in stormCh) sink.onResult(r)
         }
         val jobs = ArrayList<Job>(LAUNCH_WINDOW)
+        // v3.9: WG storm heartbeat — while the storm grinds (all-dead pools
+        // under big per-endpoint budgets), the stats card's tested/rate stay
+        // at 0 UNTIL the first probe lands; the user saw exactly that as a
+        // frozen app. The heartbeat line lands in the visible log every 10 s
+        // while nothing has landed yet (and every 30 s afterwards), proving
+        // liveness with real numbers: probes completed + lanes busy.
+        val probed = AtomicInteger(0)
+        val heartbeatJob = if (isWg) launch {
+            var beat = 0
+            while (true) {
+                delay(10_000)
+                beat++
+                if (probed.get() == 0 || beat % 3 == 0) {
+                    sink.onLog(
+                        "wg storm · ${probed.get()}/$pairCount probed · " +
+                            "${active.get()} lanes busy"
+                    )
+                }
+            }
+        } else null
         // v3.4 fix (OOM): a capped mega-sweep used to materialize ALL pair
         // coroutines up front — 120k suspended jobs plus a 120k-entry result
         // map was a guaranteed low-memory kill before the first probe even
@@ -267,7 +379,7 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
             if (jobs.size >= LAUNCH_WINDOW) {
                 jobs.removeAll { it.isCompleted }
             }
-            jobs.add(launch(Dispatchers.IO) {
+            jobs.add(launch(probeDispatcher) {
                 try {
                     stormSem.withPermit {
                         active.incrementAndGet(); sink.onActive(1)
@@ -279,7 +391,7 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
                             // scan died with "engine failure". Now a failed probe
                             // returns a dead-endpoint result and the storm rolls on.
                             if (isWg) {
-                                stormCh.send(runCatching { probeWarp(account!!, cand, p, params) }
+                                stormCh.send(runCatching { probeWarp(account!!, cand, p, params, probeDispatcher) }
                                     .getOrElse { deadProbe(cand, p, params, it) })
                             } else {
                                 stormCh.send(runCatching { probeTcp(cand, p, params) }
@@ -292,6 +404,7 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
                 } finally {
                     launchWindow.release()
                 }
+                if (isWg) probed.incrementAndGet()
             })
         }
         val pairs = endpointPairs
@@ -305,6 +418,7 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
             }
         }
         jobs.joinAll()
+        heartbeatJob?.cancel()
         stormCh.close()
         stormCollector.join()
         if (isWg) {
@@ -444,10 +558,12 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
         return if (parts.isEmpty()) "" else parts.joinToString(" · ", prefix = " · ")
     }
 
-    /** v3.6: registration seam — production registers via the real Cloudflare
-     * API; tests inject an identity so engine-level flows run offline. */
-    internal var registrationProvider: suspend (licenseKey: String?) -> WarpAccount =
-        { key -> WarpRegistration.register(key) }
+    /** v3.6 registration seam — production registers via the real Cloudflare
+     * API; tests inject an identity so engine-level flows run offline.
+     * v3.9: [fresh] forwards to [WarpRegistration.register]'s fresh flag so
+     * the witness gate can self-heal a server-side-dead (stale) key. */
+    internal var registrationProvider: suspend (licenseKey: String?, fresh: Boolean) -> WarpAccount =
+        { key, fresh -> WarpRegistration.register(key, fresh = fresh) }
 
     /**
      * Runs [transform] over [items] with bounded parallelism on Dispatchers.IO and
@@ -532,10 +648,12 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
         cand: Candidate,
         port: Int,
         params: ScanParams,
+        probeDispatcher: kotlinx.coroutines.CoroutineDispatcher,
     ): ScanResult {
         val probe = WarpProbe(
             account,
             noise = UdpNoiseConfig(enabled = params.udpNoise, count = params.noiseCount),
+            dispatcher = probeDispatcher,
         )
         val t = probe.probe(
             cand.bytes,
@@ -565,5 +683,60 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
             } else null,
             mode = params.mode,
         )
+    }
+
+    // ------------------------------------------------- v3.9 witness gate --
+
+    /**
+     * The witness pool: the census-verified seeds FIRST (a healthy network
+     * answers them within one RTT), then [WITNESS_RANDOM] pairs drawn from
+     * the scan's own random pool — a pool draw that happens to reproduce a
+     * seed pair is already impossible (v3.8.1 dedup). Pure function —
+     * unit-tested directly.
+     */
+    internal fun buildWitnessPool(pool: List<EndpointPair>): List<EndpointPair> =
+        pool.take(WITNESS_RANDOM + Presets.WARP_SEED_ENDPOINTS.size)
+
+    /**
+     * v3.9 witness seam — production probes the pairs for real with the
+     * elastic dispatcher (16 lanes, single attempt, short budget); tests
+     * inject the answered count so the gate logic runs offline.
+     */
+    internal var witnessProber: suspend (WarpAccount, List<EndpointPair>, Int) -> Int =
+        { acc, pairs, budgetMs -> runWitnessRound(acc, pairs, budgetMs) }
+
+    /** One real witness round — returns how many pairs answered. */
+    private suspend fun runWitnessRound(
+        acc: WarpAccount,
+        pairs: List<EndpointPair>,
+        budgetMs: Int,
+    ): Int = coroutineScope {
+        val witnessDispatcher = Dispatchers.IO.limitedParallelism(pairs.size.coerceIn(4, 64))
+        // A small always-on noise burst keeps the witness's traffic shape in
+        // line with what the storm itself sends — a noise-less witness could
+        // false-ABORT exactly the DPI-shaped networks the storm is tuned for
+        // (false-pass is self-correcting: the storm just runs; false-abort
+        // is the harmful direction).
+        val witnessProbe = WarpProbe(
+            acc,
+            noise = UdpNoiseConfig(enabled = true, count = 3),
+            dispatcher = witnessDispatcher,
+        )
+        val answered = AtomicInteger(0)
+        val jobs = pairs.map { pair ->
+            launch(witnessDispatcher) {
+                val st = runCatching {
+                    witnessProbe.probe(
+                        pair.candidate.bytes, pair.port,
+                        attempts = 1, timeoutMs = budgetMs, interAttemptDelayMs = 0,
+                    )
+                }.getOrNull()
+                if (st != null && (st.handshakes > 0 || st.cookieReplies > 0)) {
+                    answered.incrementAndGet()
+                }
+            }
+        }
+        jobs.joinAll()
+        answered.get()
     }
 }

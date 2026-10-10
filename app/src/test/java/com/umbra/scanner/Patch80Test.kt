@@ -81,7 +81,9 @@ class Patch80Test {
     @Test
     fun `endpoint scan registers identity silently and prepends seeds`() = runBlocking {
         val engine = ScanEngine()
-        engine.registrationProvider = { fakeAccount() }
+        engine.registrationProvider = { _, _ -> fakeAccount() }
+        // v3.9: witness gate must pass so the storm runs offline
+        engine.witnessProber = { _, _, _ -> 3 }
         val sink = RecordingSink()
         engine.run(endpointParams(count = 4), sink)
 
@@ -102,7 +104,10 @@ class Patch80Test {
     @Test
     fun `zero-result endpoint scan diagnoses itself with udp evidence`() = runBlocking {
         val engine = ScanEngine()
-        engine.registrationProvider = { fakeAccount() }
+        engine.registrationProvider = { _, _ -> fakeAccount() }
+        // v3.9: witness gate passes; the offline probes all die → the storm
+        // still completes with an honest zero-result diagnosis
+        engine.witnessProber = { _, _, _ -> 2 }
         // seam: no NTP witness answered either → "no udp egress" world
         engine.evidenceGatherer = { UdpEvidence.Evidence(cloudflareNtp = false, otherNtp = false) }
         val sink = RecordingSink()
@@ -121,7 +126,7 @@ class Patch80Test {
     @Test
     fun `no identity means honest abort - never a tcp-only fallback`() = runBlocking {
         val engine = ScanEngine()
-        engine.registrationProvider = { throw IOException("api unreachable") }
+        engine.registrationProvider = { _, _ -> throw IOException("api unreachable") }
         val sink = RecordingSink()
         engine.run(endpointParams(count = 2), sink)
 

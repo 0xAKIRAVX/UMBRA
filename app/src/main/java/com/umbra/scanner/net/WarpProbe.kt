@@ -1,5 +1,6 @@
 package com.umbra.scanner.net
 
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runInterruptible
@@ -73,6 +74,53 @@ data class WarpProbeStats(
         else (attempts - maxOf(pings, handshakes)).toDouble() / attempts
 }
 
+
+/**
+ * v3.9 (THE frozen-scan fix, budget ladder): per-attempt wait budget.
+ *
+ * The v3.8 contract ran EVERY retry at the FULL timeout — a dead endpoint
+ * (the overwhelming majority of a random draw) burned attempts × timeout
+ * before releasing its lane, and with retries serialized behind the 64-thread
+ * IO pool that was minutes of silence on the stats card. New ladder:
+ *   attempt 0 → the full budget (a congested-but-alive endpoint deserves it)
+ *   attempt 1+ → half the budget (floor 700 ms, never above the base)
+ * An endpoint that was silent for the FULL first budget and stays silent at
+ * half is dead with near-certainty — retries exist for flaky-but-alive
+ * endpoints, which answer within the first budget anyway (the live census
+ * shows WARP handshakes completing in well under a second).
+ * Pure function — unit-tested directly.
+ */
+internal fun attemptTimeoutMs(attemptIndex: Int, baseTimeoutMs: Int): Int {
+    if (attemptIndex <= 0) return baseTimeoutMs
+    val half = baseTimeoutMs / 2
+    val floor = minOf(baseTimeoutMs, 700)
+    return maxOf(half, floor)
+}
+
+/**
+ * v3.9: the anti-DPI noise burst is a CONNECTION-OPENING disguise (xray's
+ * `noises` semantics), not a per-packet tax — the full burst rides before
+ * the first handshake only; later attempts send a single refresh packet.
+ * 35 garbage datagrams per dead endpoint (5 × 7 attempts) was pure radio
+ * waste on mobile networks. Pure function — unit-tested directly.
+ */
+internal fun noisePacketsFor(attemptIndex: Int, configured: Int): Int =
+    if (attemptIndex <= 0) configured.coerceIn(0, 50) else configured.coerceAtMost(1)
+
+object WarpProbeBudget {
+    /**
+     * v3.9: does the retry loop stop after the round that just completed?
+     *   - [fullSeen]: handshake AND in-tunnel ping answered — the endpoint is
+     *     proven AND its RTT measured; re-proving it was pure waste.
+     *   - [bonusSpent]: an alive-without-ping endpoint already had its one
+     *     bonus round (the in-tunnel ping may land on the retry); alive is
+     *     proven by the handshake, more rounds change nothing.
+     * Silence NEVER stops early — retries exist exactly for it. Pure
+     * function — unit-tested directly.
+     */
+    fun stopAfter(fullSeen: Boolean, bonusSpent: Boolean): Boolean = fullSeen || bonusSpent
+}
+
 /** UDP noise config — mirrors BPB's default (5 random packets of 50-100 bytes, 1-5ms apart). */
 data class UdpNoiseConfig(
     val enabled: Boolean = true,
@@ -88,12 +136,31 @@ class WarpProbe(
     private val noise: UdpNoiseConfig = UdpNoiseConfig(),
     /** Address pinged through the tunnel — Cloudflare's own anycast DNS. */
     private val pingTarget: ByteArray = byteArrayOf(1, 1, 1, 1),
+    /**
+     * v3.9 (THE frozen-scan fix, probe side): the dispatcher every blocking
+     * socket call is dispatched through. The default 64-thread
+     * Dispatchers.IO pool SERIALIZES the whole probe storm — a storm of 320
+     * "active" coroutines all blocking in receive() for their full timeout
+     * each collapses to 64 real lanes, and a 504-endpoint scan with 7 retries
+     * × 2 s timeouts needs ~3500 receive-seconds: 55+ seconds of pure
+     * serialized waiting BEFORE THE FIRST RESULT LANDS, exactly the
+     * 0/504 · 0.0/s · 1:43 state in the user's screenshot. The engine passes
+     * an ELASTIC view (Dispatchers.IO.limitedParallelism(lanes) grows beyond
+     * 64 threads) so a concurrency-N storm really gets N blocking lanes.
+     */
+    private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
 
     /**
      * Probes one endpoint [attempts] times with [timeoutMs] per datagram wait.
      * Cooperatively cancellable (runInterruptible sockets). Each call builds its
      * own Random — a single WarpProbe may be shared by concurrent coroutines.
+     *
+     * v3.9: [attempts] is the retry CEILING, not a quota — the loop stops the
+     * moment the endpoint is proven (handshake + ping answered, or alive with
+     * its one bonus round), and retries 2+ wait on the half budget (see
+     * [attemptTimeoutMs]). [WarpProbeStats.attempts] reports the rounds that
+     * actually ran so loss stays honest.
      */
     suspend fun probe(
         ip: ByteArray,
@@ -150,10 +217,34 @@ class WarpProbe(
         val noiseSocket = if (noise.enabled) {
             try { DatagramSocket() } catch (_: Exception) { null }
         } else null
+        var attemptsRun = 1
         try {
-            repeat(attempts.coerceAtLeast(1)) { attempt ->
+            // v3.9: the budget-ladder retry loop. The old `repeat(attempts)`
+            // ran every round at the FULL timeout and never stopped early —
+            // a dead endpoint burned attempts × timeout of its lane (and all
+            // lanes were serialized behind the 64-thread IO pool — see the
+            // dispatcher note above), and a FULLY VALIDATED endpoint was
+            // re-probed attempts-1 more times for nothing.
+            //
+            // Early-exit accounting: `bonusSpent` means the bonus round for an
+            // alive-without-ping endpoint has ALREADY RUN (alive was seen
+            // BEFORE that round started), so a stop decision made after it is
+            // final. Setting it at round START is what keeps the accounting
+            // honest — the round that observes the first alive answer is never
+            // itself the bonus.
+            var roundsRun = 0
+            var fullSeen = false
+            var aliveSeen = false
+            var bonusSpent = false
+            val maxAttempts = attempts.coerceAtLeast(1)
+            while (roundsRun < maxAttempts &&
+                !WarpProbeBudget.stopAfter(fullSeen, bonusSpent)
+            ) {
+                val aliveBeforeRound = aliveSeen
+                val budget = attemptTimeoutMs(roundsRun, timeoutMs)
+                val noiseNow = noisePacketsFor(roundsRun, noise.count)
                 val outcome = try {
-                    probeOnce(socket, noiseSocket, target, src, timeoutMs, random)
+                    probeOnce(socket, noiseSocket, target, src, budget, random, noiseNow)
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -162,32 +253,42 @@ class WarpProbe(
                     // remaining thousands of probes in the storm.
                     ProbeOutcome.Failed("udp ${e.javaClass.simpleName}")
                 }
+                roundsRun++
                 when (outcome) {
                     is ProbeOutcome.Full -> {
                         handshakes++
                         pings++
                         pingLat.add(outcome.pingMs)
                         hsLat.add(outcome.hsMs)
+                        fullSeen = true
                     }
                     is ProbeOutcome.HandshakeOnly -> {
                         handshakes++
                         hsLat.add(outcome.hsMs)
                         lastError = "handshake ok · no data plane (${outcome.reason})"
+                        aliveSeen = true
                     }
-                    is ProbeOutcome.CookieReply -> cookieReplies++
+                    is ProbeOutcome.CookieReply -> {
+                        cookieReplies++
+                        aliveSeen = true
+                    }
                     is ProbeOutcome.Failed -> lastError = outcome.reason
                 }
-                if (interAttemptDelayMs > 0 && attempt < attempts - 1) {
+                if (aliveBeforeRound && !fullSeen) bonusSpent = true
+                if (roundsRun < maxAttempts && interAttemptDelayMs > 0 &&
+                    !WarpProbeBudget.stopAfter(fullSeen, bonusSpent)
+                ) {
                     delay(interAttemptDelayMs)
                 }
             }
+            attemptsRun = roundsRun
         } finally {
             runCatching { socket.close() }
             runCatching { noiseSocket?.close() }
         }
 
         return WarpProbeStats(
-            attempts = attempts.coerceAtLeast(1),
+            attempts = attemptsRun.coerceAtLeast(1),
             handshakes = handshakes,
             pings = pings,
             pingLatenciesMs = pingLat,
@@ -209,22 +310,25 @@ class WarpProbe(
         noiseSocket: DatagramSocket?,
         target: InetSocketAddress,
         tunnelSrc: ByteArray,
-        timeoutMs: Int,
+        budgetMs: Int,
         random: Random,
+        noiseCount: Int,
     ): ProbeOutcome {
         val buf = ByteArray(2048)
 
         // 1. UDP noise burst (anti-DPI) — xray `noises` semantics: sent to
         // RANDOM destinations, never to the probe target (v3.5 fix — see
         // probe()). Every send is fire-and-forget by definition.
-        if (noise.enabled && noiseSocket != null) {
-            repeat(noise.count.coerceIn(1, 50)) {
+        // v3.9: [noiseCount] is the ladder's decision — the full burst rides
+        // before the FIRST handshake only; later attempts a single packet.
+        if (noise.enabled && noiseSocket != null && noiseCount > 0) {
+            repeat(noiseCount) {
                 val n = noise.minPacket + random.nextInt(
                     (noise.maxPacket - noise.minPacket).coerceAtLeast(1))
                 val pkt = ByteArray(n).also { random.nextBytes(it) }
                 try {
                     val dest = randomNoiseDestination(random)
-                    runInterruptible(Dispatchers.IO) {
+                    runInterruptible(dispatcher) {
                         noiseSocket.send(DatagramPacket(pkt, pkt.size, dest))
                     }
                 } catch (e: kotlinx.coroutines.CancellationException) {
@@ -254,14 +358,14 @@ class WarpProbe(
         // negotiation) must be discarded while the wait budget continues —
         // a single receive() used to eat the whole budget on the first junk.
         var resp: ByteArray? = null
-        val hsDeadlineNs = System.nanoTime() + timeoutMs * 1_000_000L
+        val hsDeadlineNs = System.nanoTime() + budgetMs * 1_000_000L
         while (resp == null) {
             val remainingMs = (hsDeadlineNs - System.nanoTime()) / 1_000_000L
             if (remainingMs <= 0) return ProbeOutcome.Failed("handshake timeout")
             socket.soTimeout = remainingMs.toInt().coerceAtLeast(1)
             val respPacket = DatagramPacket(buf, buf.size)
             try {
-                runInterruptible(Dispatchers.IO) { socket.receive(respPacket) }
+                runInterruptible(dispatcher) { socket.receive(respPacket) }
             } catch (e: SocketTimeoutException) {
                 return ProbeOutcome.Failed("handshake timeout")
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -301,7 +405,7 @@ class WarpProbe(
         }
         // v3.5: same skip-stray loop for the data plane wait — only a transport
         // packet (type byte 4) from the endpoint carries our echo reply.
-        val pingDeadlineNs = System.nanoTime() + timeoutMs * 1_000_000L
+        val pingDeadlineNs = System.nanoTime() + budgetMs * 1_000_000L
         var dataBytes: ByteArray? = null
         while (dataBytes == null) {
             val remainingMs = (pingDeadlineNs - System.nanoTime()) / 1_000_000L
@@ -309,7 +413,7 @@ class WarpProbe(
             socket.soTimeout = remainingMs.toInt().coerceAtLeast(1)
             val dataPacket = DatagramPacket(buf, buf.size)
             try {
-                runInterruptible(Dispatchers.IO) { socket.receive(dataPacket) }
+                runInterruptible(dispatcher) { socket.receive(dataPacket) }
             } catch (e: SocketTimeoutException) {
                 return ProbeOutcome.HandshakeOnly(hsMs, "ping timeout")
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -345,7 +449,7 @@ class WarpProbe(
         data: ByteArray,
         target: InetSocketAddress,
     ): Boolean = try {
-        runInterruptible(Dispatchers.IO) {
+        runInterruptible(dispatcher) {
             socket.send(DatagramPacket(data, data.size, target))
         }
         true

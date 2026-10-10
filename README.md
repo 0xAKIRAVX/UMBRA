@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.8.1-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
+  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.9.0-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
   <img src="https://img.shields.io/badge/platform-Android%208.0%2B-34d399?style=flat-square&labelColor=0d1420" alt="platform">
   <img src="https://img.shields.io/badge/Kotlin-2.0-7f52ff?style=flat-square&labelColor=0d1420" alt="kotlin">
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285f4?style=flat-square&labelColor=0d1420" alt="compose">
@@ -27,6 +27,20 @@ Your connection to Cloudflare's edge is only as good as the *specific IP* your n
 **UMBRA flips the table.** It samples the live Cloudflare and WARP address space directly from *your* device, measures what your network *actually* delivers to each candidate — latency, packet loss, TLS handshake, real download speed — ranks everything for you, and generates a VLESS config bound to the winner.
 
 No root. No Termux. No server. ~2 MB.
+
+---
+
+## What's new in v3.9.0 — the frozen-scan fix (the 0/504 release)
+
+*“اینو مشکلش رو حل کن”* — the screenshot: a 504-endpoint scan at **TESTED 0/504 · ALIVE 0 · RATE 0.0/S · ACTIVE 320 · ELAPSED 1:43**, looking completely dead while claiming "handshake validation live". The scanner was not broken — it was **architecturally frozen**, and three separate defects stacked into that screen:
+
+1. **Every blocking UDP receive was serialized behind 64 threads.** The storm launched 320 concurrent probes, but each probe's `socket.receive()` was dispatched through the default 64-thread `Dispatchers.IO` pool — and a dead endpoint's receive *blocks its thread for the full timeout*. 320 "active" lanes collapsed to 64 real ones, and a 504 × 7-retry scan needed **~3,500 receive-seconds of queue**: the first result could not physically land for over a minute. The WG storm now rides an **elastic probe dispatcher** (`Dispatchers.IO.limitedParallelism(lanes)` — the one kotlinx view that grows beyond 64 threads), so a concurrency-N storm really gets N blocking lanes. The live 120-endpoint regression scan (18 validated, 4/4 seed hits, 5 ms best) now completes in **~7 seconds**.
+2. **Every retry waited the FULL timeout, and nothing stopped early.** A dead endpoint burned `attempts × timeout` of its lane (7 × 6 s = 42 s at the slider max), and a *fully validated* endpoint was re-probed `attempts − 1` more times for nothing. The probe now runs a **budget ladder** — attempt 1 at the full timeout, retries at half (700 ms floor) — and **stops the moment the endpoint is proven** (handshake + ping, or alive with its one bonus round). The anti-DPI noise burst also rides the first handshake only instead of every retry (35 garbage datagrams per dead endpoint was pure radio waste).
+3. **A filtered network got zero feedback, forever.** v3.8 deleted the WARP mode and with it the v3.6 environment gate — on networks where WARP UDP is filtered (exactly this app's audience), the scan ground the whole pool silently. A **pre-flight witness gate** now answers the environment question in one ~2 s round (4 census seeds + 12 random pool pairs): any answer → the storm rolls; total silence → a fresh identity is registered once (a server-side-dead key is silently dropped by every responder — live-verified with a ghost key), and only if that is silent too does the scan **abort honestly** with the witness verdict, the NTP-evidence diagnosis and the VPN hint — the frozen 0/N screen is structurally impossible now.
+
+Plus the stats card itself: the RATE/ETA were cumulative-since-start (0.0/s through the whole silent lead-in, then fake-averaged slowness at the end) — now a **15 s sliding window** that spikes the moment results land, and a **storm heartbeat** log line every 10 s while results are pending (`wg storm · 87/504 probed · 320 lanes busy`) so the app never *looks* dead while it works.
+
+> **193/193 unit tests green (13 new regression tests), all 7 live-gated suites re-verified against production Cloudflare WARP (witness gate pass, identity self-heal, census, ghost-key silence, full engine flow). Install v3.9.0 over any v3.5.x–v3.8.1, same signature.**
 
 ---
 
@@ -307,7 +321,7 @@ Grab the latest signed APK from the **[Releases](https://github.com/0xAKIRAVX/UM
 
 | | |
 | --- | --- |
-| Latest version | **v3.8.1** (build 23) |
+| Latest version | **v3.9.0** (build 24) |
 | Requirement | Android 8.0+ (API 26) |
 | Architecture | Universal (all ABIs) |
 | Permissions | `INTERNET`, `FOREGROUND_SERVICE`, `POST_NOTIFICATIONS` — nothing else |
