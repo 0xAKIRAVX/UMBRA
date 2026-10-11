@@ -166,7 +166,12 @@ fun ResultsScreen(
         val content = build()
         scope.launch {
             val ok = Exporters.writeToUri(context, uri, content)
-            Toast.makeText(context, if (ok) "$label exported" else "export failed", Toast.LENGTH_SHORT).show()
+            Toast.makeText(
+                context,
+                // v3.11: routed through i18n — was hardcoded English
+                if (ok) s.exportedToast(label) else s.exportFailed,
+                Toast.LENGTH_SHORT,
+            ).show()
         }
     }
 
@@ -182,7 +187,7 @@ fun ResultsScreen(
 
     fun copy(text: String, label: String) {
         clipboard.setText(AnnotatedString(text))
-        Toast.makeText(context, "$label copied", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, s.copiedToast(label), Toast.LENGTH_SHORT).show()
     }
 
     Column(
@@ -365,7 +370,7 @@ fun ResultsScreen(
                         type = "text/plain"
                         putExtra(Intent.EXTRA_TEXT, line)
                     }
-                    context.startActivity(Intent.createChooser(intent, "Share endpoint"))
+                    context.startActivity(Intent.createChooser(intent, s.shareEndpointChooser))
                 },
             )
         }

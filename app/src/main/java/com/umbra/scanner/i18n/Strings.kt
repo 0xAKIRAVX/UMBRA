@@ -134,6 +134,17 @@ data class AppStrings(
     val createVless: String,
     val shareEndpoint: String,
 
+    // ── v3.11: toast / chooser strings that used to be hardcoded English and
+    // leaked into the Persian UI (export feedback, copy feedback, share
+    // chooser titles, the crash-journal counter) ──
+    val exportedToast: (String) -> String,
+    val exportFailed: String,
+    val copiedToast: (String) -> String,
+    val shareEndpointChooser: String,
+    val vlessCopiedToast: String,
+    val shareVlessChooser: String,
+    val crashCountLabel: (Int) -> String,
+
     // ── vless ──────────────────────────────────────────────────────
     val vlessForge: String,
     val vlessTagline: String,
@@ -350,6 +361,14 @@ val EnglishStrings = AppStrings(
     copyWgEndpoint = "COPY WIREGUARD ENDPOINT LINE",
     createVless = "CREATE VLESS FROM THIS IP",
     shareEndpoint = "SHARE ENDPOINT LINE",
+    // v3.11: routed toasts / chooser titles (were hardcoded English)
+    exportedToast = { label -> "$label exported" },
+    exportFailed = "export failed",
+    copiedToast = { label -> "$label copied" },
+    shareEndpointChooser = "Share endpoint",
+    vlessCopiedToast = "vless link copied",
+    shareVlessChooser = "Share vless link",
+    crashCountLabel = { n -> "$n recorded · latest:" },
     vlessForge = "VLESS FORGE",
     vlessTagline = "exact-IP vless links · IPv6 auto-bracketed · tls + ws",
     identity = "IDENTITY",
@@ -555,6 +574,14 @@ val PersianStrings = AppStrings(
     copyWgEndpoint = "کپی خط Endpoint وایرگارد",
     createVless = "ساخت VLESS از این IP",
     shareEndpoint = "اشتراک‌گذاری خط اندپوینت",
+    // v3.11: رشته‌های توست و انتخابگر اشتراک — قبلاً انگلیسی ثابت بودند
+    exportedToast = { label -> "خروجی $label انجام شد" },
+    exportFailed = "خروجی ناموفق بود",
+    copiedToast = { label -> "$label کپی شد" },
+    shareEndpointChooser = "اشتراک‌گذاری اندپوینت",
+    vlessCopiedToast = "لینک VLESS کپی شد",
+    shareVlessChooser = "اشتراک لینک VLESS",
+    crashCountLabel = { n -> "$n مورد ثبت شده · آخرین:" },
     vlessForge = "آهنگرِ VLESS",
     vlessTagline = "لینک‌های VLESS با IP مستقیم · براکت خودکار IPv6 · tls + ws",
     identity = "هویت",

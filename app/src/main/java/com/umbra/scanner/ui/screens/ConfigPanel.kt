@@ -99,27 +99,47 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
     var familyIdx by rememberSaveable { mutableIntStateOf(saved.family.ordinal) }
     var port by rememberSaveable { mutableIntStateOf(saved.port) }
     // v3.7: ENDPOINT-mode knob — how many random ip:port endpoints to test
-    var endpoints by rememberSaveable { mutableIntStateOf(saved.endpointsCount) }
+    var endpoints by rememberSaveable {
+        mutableIntStateOf(clampToSlider(saved.endpointsCount, 50..20000))
+    }
     var udpNoise by rememberSaveable { mutableStateOf(saved.udpNoise) }
     var customCidrs by rememberSaveable {
         mutableStateOf(saved.cidrs.filter { it.contains('/') }.joinToString("\n"))
     }
-    var samples by rememberSaveable { mutableIntStateOf(saved.samplesPerPrefix) }
+    var samples by rememberSaveable {
+        mutableIntStateOf(clampToSlider(saved.samplesPerPrefix, 50..3000))
+    }
     // v3.4 fix: the retries slider now starts from the value the mode actually
     // uses — an ENDPOINT session restored warpAttempts=7 (set by auto-tune) but
     // the slider showed tcpAttempts=3 and every relaunched scan silently ran ×3.
     var attempts by rememberSaveable {
         mutableIntStateOf(
-            if (saved.mode == ScanMode.ENDPOINT) saved.warpAttempts else saved.tcpAttempts
+            if (saved.mode == ScanMode.ENDPOINT) {
+                clampToSlider(saved.warpAttempts, 1..7)
+            } else {
+                clampToSlider(saved.tcpAttempts, 1..10)
+            }
         )
     }
-    var timeoutMs by rememberSaveable { mutableIntStateOf(saved.tcpTimeoutMs) }
+
+    // v3.11 fix (out-of-range sliders): loadParams() clamps persisted values
+    // into the ENGINE's ranges (e.g. timeout 300..8000, samples 10..5000), but
+    // the ADVANCED sliders draw narrower boxes (timeout 300..6000, samples
+    // 50..3000, endpoints 50..20000). A pre-v3.11 save outside a slider's box
+    // rendered a thumb clamped to the edge while the value text showed the
+    // true number — and the next drag jumped. Clamp every slider init into
+    // its own box so the thumb, the text and the started scan all agree.
+    var timeoutMs by rememberSaveable {
+        mutableIntStateOf(clampToSlider(saved.tcpTimeoutMs, 300..6000))
+    }
     var concurrency by rememberSaveable { mutableIntStateOf(saved.concurrency) }
     var verifyTopN by rememberSaveable { mutableIntStateOf(saved.verifyTopN) }
     var speedOn by rememberSaveable { mutableStateOf(saved.speedTest) }
     var speedTopN by rememberSaveable { mutableIntStateOf(saved.speedTopN) }
     var speedConc by rememberSaveable { mutableIntStateOf(saved.speedConcurrency) }
-    var dlMb by rememberSaveable { mutableIntStateOf(saved.downloadMbLabel) }
+    // v3.11: chips max out at 50 MB — an older 100 MB save left NO chip
+    // selected while silently running 100 MB downloads.
+    var dlMb by rememberSaveable { mutableIntStateOf(clampToSlider(saved.downloadMbLabel, 1..50)) }
     var tlsOn by rememberSaveable { mutableStateOf(saved.tlsVerify) }
     var advanced by rememberSaveable { mutableStateOf(false) }
 
@@ -251,35 +271,41 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
                 )
             }
             Spacer(Modifier.height(14.dp))
-        } else {
-            // v3.7: ENDPOINT-mode count presets (BPB quick 100 / normal 1000 / deep)
-            if (mode == ScanMode.ENDPOINT) {
-                SectionLabel(s.endpointsCountLabel)
-                Spacer(Modifier.height(7.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                    listOf(100, 500, 1000, 5000).forEach { n ->
-                        SelectChip(
-                            text = n.toString(),
-                            selected = endpoints == n,
-                            onClick = { endpoints = n },
-                        )
-                    }
-                }
-                Spacer(Modifier.height(14.dp))
-            }
-            Text(s.family, style = MaterialTheme.typography.labelSmall, color = Fade)
+        }
+        // v3.7: ENDPOINT-mode count presets (BPB quick 100 / normal 1000 / deep)
+        if (mode == ScanMode.ENDPOINT) {
+            SectionLabel(s.endpointsCountLabel)
             Spacer(Modifier.height(7.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                NetFamily.entries.forEachIndexed { i, f ->
+            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                listOf(100, 500, 1000, 5000).forEach { n ->
                     SelectChip(
-                        text = f.label,
-                        selected = familyIdx == i,
-                        onClick = { familyIdx = i },
+                        text = n.toString(),
+                        selected = endpoints == n,
+                        onClick = { endpoints = n },
                     )
                 }
             }
             Spacer(Modifier.height(14.dp))
         }
+        // v3.11 fix (the hidden family filter): the family selector used to be
+        // rendered ONLY for non-CUSTOM modes, while params.family silently
+        // filtered the custom CIDR list in IpGenerator.generate/estimate — a
+        // user whose last ENDPOINT session left family on IPv6 and who pasted
+        // v4 CIDRs got "no valid candidates" with NO visible control to fix
+        // it. The selector is now shown for EVERY mode — the control and the
+        // behavior it drives are on the same screen.
+        Text(s.family, style = MaterialTheme.typography.labelSmall, color = Fade)
+        Spacer(Modifier.height(7.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            NetFamily.entries.forEachIndexed { i, f ->
+                SelectChip(
+                    text = f.label,
+                    selected = familyIdx == i,
+                    onClick = { familyIdx = i },
+                )
+            }
+        }
+        Spacer(Modifier.height(14.dp))
 
         // ── AUTO-TUNE ────────────────────────────────────────────────
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -587,6 +613,14 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
         )
     }
 }
+
+/**
+ * v3.11: clamps a persisted setting into the slider's own range so the thumb,
+ * the value text and the scan the button starts all agree (see the note at
+ * the timeout/state inits). Pure function — unit-tested directly.
+ */
+internal fun clampToSlider(value: Int, range: IntRange): Int =
+    value.coerceIn(range.first, range.last)
 
 /**
  * v3.8.1 (the toggle-poisoning fix) — pure state transition for the TLS +

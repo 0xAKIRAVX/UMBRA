@@ -398,7 +398,7 @@ fun SettingsScreen(app: UmbraApp) {
                 }
             } else {
                 Text(
-                    "${crashes.size} recorded · latest:",
+                    s.crashCountLabel(crashes.size),
                     style = MaterialTheme.typography.labelSmall,
                     color = Fade,
                 )

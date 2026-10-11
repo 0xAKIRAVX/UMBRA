@@ -34,6 +34,7 @@ import com.umbra.scanner.core.SmartRanking
 import com.umbra.scanner.i18n.LocalStrings
 import com.umbra.scanner.net.NetGrade
 import com.umbra.scanner.net.NetworkProfile
+import com.umbra.scanner.ui.screens.endpointText
 import com.umbra.scanner.ui.theme.Fade
 import com.umbra.scanner.ui.theme.Fog
 import com.umbra.scanner.ui.theme.Graphite
@@ -156,7 +157,11 @@ private fun PickRow(
                 Spacer(Modifier.width(7.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
-                        best.ip,
+                        // v3.11: the headline pick shows the FULL endpoint
+                        // ([ip]:port, IPv6 bracketed) — with random ports a bare
+                        // IP identifies nothing usable; same fix class as
+                        // v3.8.1's live board / Done panel.
+                        best.endpointText(),
                         style = MonoStyle.copy(fontSize = 12.sp),
                         color = Mist,
                         maxLines = 1,
@@ -262,7 +267,8 @@ private fun PickCell(
         }
         Spacer(Modifier.height(3.dp))
         Text(
-            result?.ip ?: "—",
+            // v3.11: full endpoint here too — see the headline pick note.
+            result?.endpointText() ?: "—",
             style = MonoStyleSmall.copy(fontSize = 9.sp, color = if (enabled) Mist else Fade),
             maxLines = 1,
             softWrap = false,

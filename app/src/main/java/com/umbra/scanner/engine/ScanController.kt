@@ -455,6 +455,15 @@ class ScanController(private val settings: UmbraSettings? = null) {
         if (settings != null && mode != null && finalAlive.isNotEmpty()) {
             settings.saveScanResults(mode, finalAlive)
         }
+        // v3.11 fix: the zero-result diagnosis line must be captured BEFORE the
+        // net-profile line is appended — _log is newest-first, so reading
+        // firstOrNull() after that append showed "net profile · …" in the Done
+        // panel instead of the engine's actual verdict (the masked-diagnosis
+        // bug: the product's core honesty feature was silently skipped on every
+        // device that had ever run NETSENSE).
+        val zeroResultError = if (finalAlive.isEmpty() && !cancelled) {
+            _log.value.firstOrNull() ?: "no verified endpoints"
+        } else null
         if (profile != null) {
             appendLog("net profile · ${com.umbra.scanner.net.NetQuality.describe(profile)}")
         }
@@ -472,9 +481,7 @@ class ScanController(private val settings: UmbraSettings? = null) {
                 // v3.3: zero-result scans now carry the engine's own last word
                 // (registration blocked, probe budget capped, engine failure…)
                 // into the Done panel — silence is the worst error message.
-                error = if (finalAlive.isEmpty() && !cancelled) {
-                    _log.value.firstOrNull() ?: "no verified endpoints"
-                } else null,
+                error = zeroResultError,
             )
         )
     }

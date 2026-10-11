@@ -310,7 +310,7 @@ fun VlessScreen(app: UmbraApp) {
             ActionRow(Icons.Rounded.ContentCopy, s.copyLink, tint = if (valid) Mist else Fog) {
                 if (valid) {
                     clipboard.setText(AnnotatedString(link))
-                    Toast.makeText(context, "vless link copied", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, s.vlessCopiedToast, Toast.LENGTH_SHORT).show()
                 }
             }
             Spacer(Modifier.height(7.dp))
@@ -320,7 +320,7 @@ fun VlessScreen(app: UmbraApp) {
                         type = "text/plain"
                         putExtra(Intent.EXTRA_TEXT, link)
                     }
-                    context.startActivity(Intent.createChooser(intent, "Share vless link"))
+                    context.startActivity(Intent.createChooser(intent, s.shareVlessChooser))
                 }
             }
             Spacer(Modifier.height(7.dp))

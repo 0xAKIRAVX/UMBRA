@@ -350,7 +350,10 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
                             "warp udp is silent on this network even with a fresh identity"
                         }
                         sink.onLog("witness verdict · $why")
-                        sink.onLog(evidenceDiagnosis(witnessBudget))
+                        // v3.11: only log when there IS evidence — the old call
+                        // logged an empty line (or one starting with " · ")
+                        val gateDiag = evidenceDiagnosis(witnessBudget)
+                        if (gateDiag.isNotEmpty()) sink.onLog(gateDiag)
                         sink.onLog(
                             "endpoint scan aborted — ${pairCount} dead probes would only repeat " +
                                 "this verdict · recovery sweep already covered " +
@@ -508,7 +511,8 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
                         .take(3).joinToString(" · ") { "${it.key} ×${it.value}" }
                     line += " — $reasons"
                 }
-                line += evidenceDiagnosis(maxOf(1200, params.tcpTimeoutMs))
+                val diag = evidenceDiagnosis(maxOf(1200, params.tcpTimeoutMs))
+                if (diag.isNotEmpty()) line += " · $diag"
             }
             sink.onLog(line)
         } else {
@@ -618,13 +622,18 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
      * separate "no UDP at all" (VPN / ISP) from "Cloudflare filtered" from
      * "WARP-specific filtering"; an active system VPN hint rides along. Runs
      * ONLY on a zero-result scan, never on healthy ones.
+     *
+     * v3.11 fix: returns the parts joined with NO leading separator — the old
+     * `prefix = " · "` made the standalone gate-abort log line start with a
+     * dangling " · " (and logged an EMPTY line when no evidence existed).
+     * Callers add their own separator where one belongs.
      */
     private suspend fun evidenceDiagnosis(timeoutMs: Int): String {
         val parts = ArrayList<String>(2)
         val evidence = runCatching { evidenceGatherer(timeoutMs) }.getOrNull()
         if (evidence != null) parts.add(UdpEvidence.describe(evidence))
         VpnSensor.hint()?.let { parts.add(it.trim()) }
-        return if (parts.isEmpty()) "" else parts.joinToString(" · ", prefix = " · ")
+        return parts.joinToString(" · ")
     }
 
     /** v3.6 registration seam — production registers via the real Cloudflare
