@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.10.0-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
+  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.11.0-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
   <img src="https://img.shields.io/badge/platform-Android%208.0%2B-34d399?style=flat-square&labelColor=0d1420" alt="platform">
   <img src="https://img.shields.io/badge/Kotlin-2.0-7f52ff?style=flat-square&labelColor=0d1420" alt="kotlin">
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285f4?style=flat-square&labelColor=0d1420" alt="compose">
@@ -27,6 +27,21 @@ Your connection to Cloudflare's edge is only as good as the *specific IP* your n
 **UMBRA flips the table.** It samples the live Cloudflare and WARP address space directly from *your* device, measures what your network *actually* delivers to each candidate — latency, packet loss, TLS handshake, real download speed — ranks everything for you, and generates a VLESS config bound to the winner.
 
 No root. No Termux. No server. ~2 MB.
+
+---
+
+## What's new in v3.11.0 — the full bug-hunt polish (6 fixes)
+
+*«تمام باگ‌های برنامه رو بگیر طوری که برنامه کامل بدون باگ بشه»* — make the app completely bug-free. A fresh-eyes audit of **every source file** (engine, net stack, controller, settings, codec, export, every screen, every component, i18n parity, manifest) found **6 real defects**, all fixed and pinned with 7 new regression tests:
+
+1. **The zero-result diagnosis was masked on NETSENSE devices.** `finalize()` read the Done panel's error from the newest log line *after* appending `net profile · …` — so on any device that had ever run a network measurement, a zero-result scan showed the profile line instead of the engine's actual verdict (blocked registration, filtered network, the probe-failure tally). The honesty feature — the whole point of the zero-result diagnosis — was silently skipped for exactly the users most likely to need it. The error line is now captured *before* the profile line is appended.
+2. **Verdict lines had format defects.** The gate-abort evidence line started with a dangling ` · ` (the diagnosis was joined with a leading separator), and a scan with *no* witness evidence logged an empty line into the visible log. Evidence parts are now joined bare and only logged when non-empty.
+3. **CUSTOM mode had an invisible filter.** The IP-family selector was rendered only for non-custom modes — while `family` silently filtered the pasted CIDR list. Leaving family on IPv6 from a previous session and pasting v4 CIDRs yielded "no valid candidates" with **no visible control to fix it**. The selector now shows in every mode.
+4. **Sliders could disagree with their own value text.** Persisted settings clamp into the *engine's* ranges (timeout up to 8000 ms, samples up to 5000) — wider than the *slider* boxes (6000 / 3000). An out-of-box value rendered a thumb pinned at the edge while the text showed the true number. Every slider init is now clamped into its own box (pure `clampToSlider`, unit-tested).
+5. **Smart picks showed bare IPs.** The headline pick and the ping/stable/fast cells displayed the IP alone — in random-port mode that identifies nothing usable, and a bare IPv6 is ambiguous. Picks now show the full `[ip]:port` endpoint, IPv6 bracketed (the same fix class as v3.8.1's live board / Done panel).
+6. **Seven English leaks in the Persian UI.** Export toasts ("CSV exported" / "export failed"), copy toasts, the share chooser titles and the crash-log counter were hardcoded English — now routed through the i18n table with proper فارسی (StringsTest parity rows added).
+
+> **221/221 unit tests green (7 new), all live suites re-verified against production Cloudflare (WG handshakes + in-tunnel pings, pinned-IP registration, recovery sweep across the 56-port grid, honest dead-path verdict), DEX post-build verification passed. Install v3.11.0 over any v3.5.x–v3.10.0, same signature.**
 
 ---
 
@@ -334,7 +349,7 @@ Grab the latest signed APK from the **[Releases](https://github.com/0xAKIRAVX/UM
 
 | | |
 | --- | --- |
-| Latest version | **v3.10.0** (build 25) |
+| Latest version | **v3.11.0** (build 26) |
 | Requirement | Android 8.0+ (API 26) |
 | Architecture | Universal (all ABIs) |
 | Permissions | `INTERNET`, `FOREGROUND_SERVICE`, `POST_NOTIFICATIONS` — nothing else |
