@@ -9,12 +9,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.12.0-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
+  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v4.0.0-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
   <img src="https://img.shields.io/badge/platform-Android%208.0%2B-34d399?style=flat-square&labelColor=0d1420" alt="platform">
-  <img src="https://img.shields.io/badge/Kotlin-2.0-7f52ff?style=flat-square&labelColor=0d1420" alt="kotlin">
+  <img src="https://img.shields.io/badge/Kotlin%20%2B%20Rust%20%2B%20Go-tri--lingual-7f52ff?style=flat-square&labelColor=0d1420" alt="kotlin">
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285f4?style=flat-square&labelColor=0d1420" alt="compose">
-  <img src="https://img.shields.io/badge/APK-%E2%89%882.5%20MB-f15bb5?style=flat-square&labelColor=0d1420" alt="size">
-  <img src="https://img.shields.io/badge/tests-251%2F251%20green%20%C2%B7%20live%20WG--validated%20endpoints-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
+  <img src="https://img.shields.io/badge/APK-%E2%89%8845%20MB%20%C2%B7%20tri--lingual-f15bb5?style=flat-square&labelColor=0d1420" alt="size">
+  <img src="https://img.shields.io/badge/tests-227%2F227%20green%20%C2%B7%20live%20WG--validated%20endpoints-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-9b5de5?style=flat-square&labelColor=0d1420" alt="license">
 </p>
 
@@ -26,7 +26,45 @@ Your connection to Cloudflare's edge is only as good as the *specific IP* your n
 
 **UMBRA flips the table.** It samples the live Cloudflare and WARP address space directly from *your* device, measures what your network *actually* delivers to each candidate — latency, packet loss, TLS handshake, real download speed — ranks everything for you, and generates a VLESS config bound to the winner.
 
-No root. No Termux. No server. ~2 MB.
+No root. No Termux. No server.
+
+## Rebuilding the native cores (v4)
+
+The release APK ships prebuilt binaries; to rebuild them from source:
+
+```bash
+# Rust WG core → app/src/main/jniLibs/<abi>/libumbra_core.so
+# (+ the host build for in-JVM tests → app/src/test/resources/native/)
+scripts/build-native.sh release        # needs: rustup, NDK r27, JDK 17+
+
+# Go clean-IP core → native/goclean.aar (gomobile)
+cd native/goclean && gomobile bind -target=android/arm64,android/arm,android/amd64     -androidapi 26 -javapkg com.umbra.scanner.goclean -o ../goclean.aar .
+
+# Rust differential vectors (byte-for-byte WG protocol parity)
+cd native/umbra-core && cargo test
+
+# Go engine as a desktop CLI (cross-verification from any network)
+cd native/goclean && go run ./cmd/umbra-clean -samples 240 -speed 10
+```
+
+The Rust core's crypto and WG packets are pinned by `native/umbra-core/tests/vectors.rs`
+against `app/src/test/resources/warp_vectors.json` — the same vectors the Kotlin
+suite has verified against production since v3.5.
+
+
+---
+
+## What's new in v4.0.0 — the tri-lingual rebuild (Rust + Go + Kotlin)
+
+*«از زبان Go و Rust و Kotlin استفاده کن و برنامه رو بنویس»* — rewrite the program with Go, Rust and Kotlin. The scanning core now lives in **three languages**, each doing what it is best at — and the app gained the thing every frustrated user actually needs: a **DEBUG CONSOLE**.
+
+1. **The WireGuard engine is now native Rust** (`native/umbra-core`, ~2k lines, zero dependencies, std only): x25519 (51-bit limbs), BLAKE2s, ChaCha20-Poly1305, the Noise_IKpsk2 handshake, TAI64N anti-replay timestamps, the UDP probe engine with its noise burst, budget ladder and in-tunnel ICMP ping — all ported line-by-line from the battle-tested Kotlin implementation and **pinned byte-for-byte by the differential vector suite** (`tests/vectors.rs` reuses `warp_vectors.json`, including a full closed-loop handshake against a test responder). Probes run on real Rust threads (no coroutine-dispatcher serialization *ever*), keys come from `/dev/urandom`, and the TAI64N high-water mark persists across process restarts. Live-verified against production Cloudflare **through the same JNI bridge the phone uses**: a Robolectric test loads the host build of the exact same `.so` and completes a real handshake + in-tunnel ping.
+2. **The CLEAN-IP engine is now Go** (`native/goclean`, gomobile AAR): TCP latency + real TLS certificate validation against the platform trust store + `/cdn-cgi/trace` (colo + the **zone-routing filter** — an anycast IP that answers error 1034 is real Cloudflare but *does not serve your zone* and never works in an IP-pinned config; those are now discarded honestly) + `/__down` speed test, all on goroutines. A desktop CLI (`go run ./cmd/umbra-clean`) runs the identical engine off-device for cross-verification — live-verified from the dev network: 25 TLS-verified IPs across HKG/DFW/IAD PoPs, 8 speed tests at 460–645 Mbps.
+3. **The DEBUG CONSOLE** (new tab): engine status (which cores are live + versions), the **live per-probe debug stream** — every WG initiation/response with packet sizes, hex previews and round-trip timings, every clean-IP tcp/tls/trace verdict — and a **single-endpoint deep probe**: paste any `ip:port`, run one full WG or CLEAN probe right now, and read the round-by-round narration of exactly why it does or does not work. Exportable as text from the share sheet. Per-probe lines are opt-in (DEBUG toggle, persisted).
+4. **Kotlin stays the orchestrator + UI**: the recovery ladder, witness gate, re-aim, identity registration/rotation, the Compose M3 app, i18n (EN/FA), VLESS generator, export — unchanged in behavior, 221 prior regression tests still green. When a native core is somehow missing the honest fallback path (pure-Kotlin probe / edge pipeline) takes over *and says so* in the log.
+5. **APK ~45 MB** (from ~2.5 MB): the price of shipping three toolchains — Go runtime ×3 ABIs, Rust core ×3 ABIs. Install over any v3.x, same signature.
+
+> **227/227 unit tests green (6 new native-bridge tests), all live suites re-verified against production Cloudflare: the RUST core's real WG handshake + in-tunnel ping through the JNI bridge, the full ENDPOINT scan storm through the native engine, the recovery sweep on the 56-port grid, the Go clean-IP engine from the dev network. DEX post-build verification passed (JNI + gomobile surfaces kept).**
 
 ---
 

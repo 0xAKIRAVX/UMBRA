@@ -22,6 +22,8 @@ class UmbraSettings(context: Context) {
     val haptics = MutableStateFlow(prefs.getBoolean("haptics", true))
     val highRefresh = MutableStateFlow(prefs.getBoolean("high_refresh", true))
     val lightFx = MutableStateFlow(prefs.getBoolean("light_fx", false))
+    /** v4: per-probe debug lines from the Rust/Go cores (debug console). */
+    val debugLines = MutableStateFlow(prefs.getBoolean("debug_lines", false))
 
     // ── language (0 = english · 1 = فارسی · default follows system locale) ──
     val language = MutableStateFlow(
@@ -114,6 +116,7 @@ class UmbraSettings(context: Context) {
     fun setHaptics(v: Boolean) { haptics.value = v; prefs.edit().putBoolean("haptics", v).apply() }
     fun setHighRefresh(v: Boolean) { highRefresh.value = v; prefs.edit().putBoolean("high_refresh", v).apply() }
     fun setLightFx(v: Boolean) { lightFx.value = v; prefs.edit().putBoolean("light_fx", v).apply() }
+    fun setDebugLines(v: Boolean) { debugLines.value = v; prefs.edit().putBoolean("debug_lines", v).apply() }
 
     fun setAutoUpdate(v: Boolean) { autoUpdate.value = v; prefs.edit().putBoolean("auto_update", v).apply() }
     fun setDismissedUpdateTag(tag: String?) {

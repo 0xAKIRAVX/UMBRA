@@ -18,7 +18,7 @@ enum class NetFamily(val label: String) {
  * old CUSTOM(2) → CUSTOM).
  */
 enum class ScanMode(val label: String, val tagline: String) {
-    CF_EDGE("EDGE", "Cloudflare edge · speed.cloudflare.com"),
+    CF_EDGE("CLEAN IP", "Cloudflare clean-IP · go engine · real TLS + speed"),
     CUSTOM("CUSTOM", "Your own CIDR list"),
     /** BPB-Warp-Scanner equivalent: random ip:port endpoints drawn from the
      *  WARP ranges (IPv4 + IPv6), each validated by a REAL WireGuard

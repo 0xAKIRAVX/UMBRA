@@ -62,6 +62,18 @@ class ScanController(private val settings: UmbraSettings? = null) {
     private val _log = MutableStateFlow<List<String>>(emptyList())
     val log: StateFlow<List<String>> = _log.asStateFlow()
 
+    /** v4: the DEBUG console — per-probe lines from the Rust/Go cores
+     *  (packet sizes, hex previews, timings, verdicts). Newest-first, capped,
+     *  exportable. This is the user-facing debug system. */
+    private val _debugLog = MutableStateFlow<List<String>>(emptyList())
+    val debugLog: StateFlow<List<String>> = _debugLog.asStateFlow()
+
+    /** v4: which engines are live (drives the debug console status card). */
+    val engineStatus: String
+        get() = com.umbra.scanner.engine.ScanEngine().engineStatusLine() +
+            (com.umbra.scanner.bridge.UmbraCore.version()?.let { "\n$it" } ?: "") +
+            (com.umbra.scanner.bridge.GoClean.version()?.let { "\n$it" } ?: "")
+
     /**
      * v3.3.1: transient, user-facing notice (currently: why a scan start was
      * refused). The Idle screen renders it under the start button so a
@@ -375,6 +387,10 @@ class ScanController(private val settings: UmbraSettings? = null) {
             appendLog(line)
         }
 
+        override fun onDebug(line: String) {
+            appendDebugLog(line)
+        }
+
         override fun snapshot(): List<ScanResult> = synchronized(lock) { ArrayList(resultMap.values) }
     }
 
@@ -388,6 +404,30 @@ class ScanController(private val settings: UmbraSettings? = null) {
         // the scan log is the single richest visibility stream the app has,
         // and the debug console must carry it too.
         runCatching { com.umbra.scanner.debug.DebugLog.mirrorScanLine(line) }
+    }
+
+    private fun appendDebugLog(line: String) {
+        synchronized(logLock) {
+            // debug lines are high-volume (one per probe phase): keep 400
+            _debugLog.value = listOf(line) + _debugLog.value.take(399)
+        }
+    }
+
+    /** v4: wipes the debug stream (the console's CLEAR button). */
+    fun clearDebugLog() {
+        synchronized(logLock) { _debugLog.value = emptyList() }
+    }
+
+    /** v4: the whole debug console as one shareable text block. */
+    fun exportDebugLog(): String = synchronized(logLock) {
+        val status = engineStatus
+        val lines = _debugLog.value.asReversed()
+        buildString {
+            appendLine("UMBRA DEBUG LOG · ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US).format(java.util.Date())}")
+            appendLine(status)
+            appendLine("---")
+            lines.forEach { appendLine(it) }
+        }
     }
 
     private fun publishStats() {

@@ -31,7 +31,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BugReport
+import androidx.compose.material.icons.rounded.MonitorHeart
 import androidx.compose.material.icons.rounded.Key
+import androidx.compose.material.icons.rounded.BugReport
+import androidx.compose.material.icons.rounded.MonitorHeart
 import androidx.compose.material.icons.rounded.Leaderboard
 import androidx.compose.material.icons.rounded.Radar
 import androidx.compose.material.icons.rounded.Tune
@@ -81,7 +84,8 @@ private val DESTS = listOf(
     Dest({ it.navScan }, Icons.Rounded.Radar),
     Dest({ it.navResults }, Icons.Rounded.Leaderboard),
     Dest({ it.navVless }, Icons.Rounded.Key),
-    Dest({ it.navDiag }, Icons.Rounded.BugReport),
+    Dest({ it.navDiag }, Icons.Rounded.MonitorHeart),
+    Dest({ it.navDebug }, Icons.Rounded.BugReport),
     Dest({ it.navSystem }, Icons.Rounded.Tune),
 )
 
@@ -118,6 +122,7 @@ fun UmbraRoot(app: UmbraApp) {
                     1 -> ResultsScreen(app = app, onGoScan = { destIdx = 0 }, onGoVless = { destIdx = 2 })
                     2 -> VlessScreen(app = app)
                     3 -> DiagnosticsScreen(app = app)
+                    4 -> com.umbra.scanner.ui.screens.DebugScreen(app = app)
                     else -> SettingsScreen(app = app)
                 }
             }

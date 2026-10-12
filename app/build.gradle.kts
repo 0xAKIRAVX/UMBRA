@@ -24,7 +24,7 @@ android {
         minSdk = 26
         targetSdk = 34
         versionCode = 27
-        versionName = "3.12.0"
+        versionName = "4.0.0"
         vectorDrawables { useSupportLibrary = true }
     }
 
@@ -89,6 +89,11 @@ tasks.matching { it.name == "testReleaseUnitTest" }.configureEach {
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.09.03")
     implementation(composeBom)
+
+    // v4 (tri-lingual rebuild): the GO clean-ip engine, embedded as a
+    // gomobile AAR (built by native/goclean + scripts; see
+    // native/goclean and README "rebuilding the native cores").
+    implementation(files("../native/goclean.aar"))
 
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.activity:activity-compose:1.9.2")

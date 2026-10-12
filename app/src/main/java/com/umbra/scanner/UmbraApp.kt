@@ -9,6 +9,7 @@ import com.umbra.scanner.engine.ScanController
 import com.umbra.scanner.engine.UpdateCenter
 import com.umbra.scanner.engine.VpnSensor
 import com.umbra.scanner.net.WarpRegistration
+import com.umbra.scanner.engine.ScanEngine
 import com.umbra.scanner.settings.UmbraSettings
 
 class UmbraApp : Application() {
@@ -23,6 +24,8 @@ class UmbraApp : Application() {
         CrashGuard.install(this)
         settings = UmbraSettings(this)
         controller = ScanController(settings)
+        // v4: hydrate the debug-console toggle from persisted settings
+        ScanEngine.debugEnabled = settings.debugLines.value
         updateCenter = UpdateCenter(this, settings)
         netStatus = NetStatusCenter(settings) { controller.isRunning }
         // v3.2: both directions guarded — a scan also refuses to start while

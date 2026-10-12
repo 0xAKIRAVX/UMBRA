@@ -193,14 +193,24 @@ object WarpRegistration {
     /** v3.6: persists the TAI64N high-water mark next to the identity so a
      * restarted process reusing the identity never presents a timestamp the
      * WARP responder already saw (silent anti-replay drops = "no endpoints
-     * found" on API-blocked networks where the disk identity is the only one). */
+     * found" on API-blocked networks where the disk identity is the only one).
+     * v4: the RUST core owns the handshake timestamps now — its mark wins when
+     * the native engine is live (the Kotlin mark belongs to the fallback path). */
     fun persistTimestampMark() {
         runCatching {
-            val mark = WgProtocol.saveMark() ?: return
+            val mark = com.umbra.scanner.bridge.UmbraCore.mark()
+                ?: WgProtocol.saveMark() ?: return
             prefs?.edit()?.putString("ts_mark_v1",
                 Base64.encodeToString(mark, Base64.NO_WRAP))?.apply()
         }
     }
+
+    /** v4: raw persisted mark for restoring into the Rust core at scan start. */
+    fun persistedMark(): ByteArray? = runCatching {
+        prefs?.getString("ts_mark_v1", null)?.let { b64 ->
+            Base64.decode(b64, Base64.NO_WRAP).takeIf { it.size == 12 }
+        }
+    }.getOrNull()
 
     private fun loadPersisted(): WarpAccount? {
         val acc = runCatching { prefs?.getString("identity_v1", null) }

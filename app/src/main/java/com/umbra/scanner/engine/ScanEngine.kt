@@ -11,6 +11,8 @@ import com.umbra.scanner.core.ScanMode
 import com.umbra.scanner.core.ScanParams
 import com.umbra.scanner.core.ScanPhase
 import com.umbra.scanner.core.ScanResult
+import com.umbra.scanner.bridge.GoClean
+import com.umbra.scanner.bridge.UmbraCore
 import com.umbra.scanner.net.ExactIpHttps
 import com.umbra.scanner.net.TcpProbe
 import com.umbra.scanner.net.UdpEvidence
@@ -24,9 +26,13 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.random.Random
 
@@ -36,6 +42,11 @@ interface ScanSink {
     fun onResult(result: ScanResult)
     fun onActive(delta: Int)
     fun onLog(line: String)
+
+    /** v4: per-probe debug lines (packet sizes, hex previews, timings) —
+     * the on-device debug console. Default no-op keeps older sinks source-compatible. */
+    fun onDebug(line: String) {}
+
     fun snapshot(): List<ScanResult>
 }
 
@@ -108,6 +119,10 @@ internal fun assembleEndpointPool(
 class ScanEngine(private val random: Random = Random(System.nanoTime())) {
 
     companion object {
+        /** v4: global toggle for per-probe debug lines (the debug console). */
+        @Volatile
+        var debugEnabled: Boolean = false
+
         /** v3.4: upper bound on simultaneously-live storm coroutines (the
          *  memory valve — the semaphore in [ScanParams.concurrency] remains
          *  the actual probing valve). */
@@ -157,6 +172,15 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
         _sink = sink
         warpFailures.clear()
         sink.onPhase(ScanPhase.GENERATING)
+        // v4 (the tri-lingual rebuild): the engine lineup, logged on every
+        // scan — the user always knows WHICH cores are running.
+        sink.onLog(engineStatusLine())
+        // v4: CLEAN-IP (EDGE/CUSTOM) scans run on the GO engine when embedded —
+        // TCP latency + real TLS + trace + speed, all in Go's goroutines.
+        if (params.mode != ScanMode.ENDPOINT && GoClean.loaded) {
+            runCleanIpGo(params, sink)
+            return@coroutineScope
+        }
         // v3.8: ENDPOINT mode generates random ip:port PAIRS (BPB behavior),
         // prepended with a handful of census-verified seed endpoints so a
         // healthy network sees validated results within the first seconds.
@@ -238,6 +262,13 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
                 return@coroutineScope
             }
             sink.onLog("warp identity ready · handshake validation live")
+        }
+
+        // v4: hand the persisted anti-replay mark to the RUST core once per
+        // scan — a restarted process reusing the disk identity continues
+        // ABOVE the server's stored timestamp instead of silently replaying.
+        if (params.mode == ScanMode.ENDPOINT && account != null && UmbraCore.loaded) {
+            WarpRegistration.persistedMark()?.let { UmbraCore.loadMark(it) }
         }
 
         // ---- v3.9: pre-flight UDP witness gate (ENDPOINT only) ----
@@ -728,6 +759,14 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
         params: ScanParams,
         probeDispatcher: kotlinx.coroutines.CoroutineDispatcher,
     ): ScanResult {
+        // v4 (the Rust half of the tri-lingual rebuild): every WG probe runs in
+        // the NATIVE core when embedded — same protocol (pinned byte-for-byte
+        // by differential vectors), real threads, /dev/urandom keys, and the
+        // per-probe debug lines for the debug console. Falls back to the pure
+        // Kotlin probe only when the native library is missing.
+        if (UmbraCore.loaded) {
+            return probeWarpNative(account, cand, port, params, sinkHolder)
+        }
         val probe = WarpProbe(
             account,
             noise = UdpNoiseConfig(enabled = params.udpNoise, count = params.noiseCount),
@@ -911,6 +950,220 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
         return hits
     }
 
+    // ================================================== v4 native engines ===
+
+    /** The engine lineup line logged at every scan start. */
+    internal fun engineStatusLine(): String {
+        val rust = UmbraCore.loaded
+        val go = GoClean.loaded
+        return when {
+            rust && go -> "engines · rust wg-core + go clean-ip (tri-lingual rebuild)"
+            rust -> "engines · rust wg-core (go clean-ip unavailable — kotlin edge fallback)"
+            go -> "engines · go clean-ip (rust wg-core unavailable — kotlin wg fallback)"
+            else -> "engines · kotlin fallback (no native cores embedded)"
+        }
+    }
+
+    /** v4: one WG probe through the RUST core. Blocking socket work runs on
+     *  the caller's lane thread; the native side manages its own retries,
+     *  noise burst, in-tunnel ping and anti-replay timestamps. */
+    private fun probeWarpNative(
+        account: WarpAccount,
+        cand: Candidate,
+        port: Int,
+        params: ScanParams,
+        sink: ScanSink,
+    ): ScanResult {
+        val cfg = UmbraCore.buildConfig(
+            attempts = params.warpAttempts.coerceIn(1, 7),
+            timeoutMs = params.tcpTimeoutMs.coerceAtLeast(2000),
+            interMs = 200,
+            noise = params.udpNoise,
+            noiseCount = params.noiseCount,
+            debug = debugEnabled,
+            identity = UmbraCore.WgIdentity(
+                priv = account.privateKey,
+                pub = account.publicKey,
+                peer = account.responderPublicKey,
+                v4 = account.v4,
+            ),
+        )
+        val out = runCatching {
+            UmbraCore.probeOnce(cand.text, port, cfg)
+        }.getOrNull()
+        if (out == null) {
+            return deadProbe(cand, port, params, RuntimeException("native probe failed"))
+        }
+        // debug lines first — they narrate the result that follows
+        out.optJSONArray("dbg")?.let { lines ->
+            for (i in 0 until lines.length()) {
+                sink.onDebug(lines.optString(i))
+            }
+        }
+        val hs = out.optInt("hs", 0)
+        val pings = out.optInt("png", 0)
+        val cookies = out.optInt("ck", 0)
+        val attempts = out.optInt("att", 1).coerceAtLeast(1)
+        val err = out.optString("err", "")
+        classifyWarpProbe(hs, pings, cookies, err.ifBlank { null })
+            ?.let { key -> warpFailures.merge(key, 1, Int::plus) }
+        return ScanResult(
+            ip = cand.text,
+            protocol = cand.protocol,
+            port = port,
+            latencyMs = if (out.isNull("rtt")) null else out.optDouble("rtt"),
+            jitterMs = if (out.isNull("jit")) null else out.optDouble("jit"),
+            packetLoss = runCatching { out.optDouble("loss", 1.0) }.getOrDefault(1.0),
+            tcpAttempts = attempts,
+            successfulAttempts = pings,
+            wgHandshakes = hs,
+            error = if (pings == 0) {
+                when {
+                    hs > 0 -> err.ifBlank { "handshake ok · no data plane" }
+                    cookies > 0 -> "cookie reply · endpoint alive under load"
+                    else -> err.ifBlank { "no handshake" }
+                }
+            } else null,
+            mode = params.mode,
+        )
+    }
+
+    /**
+     * v4: the GO clean-ip engine flow — replaces the Kotlin TCP/TLS/speed
+     * pipeline for EDGE/CUSTOM whenever the goclean AAR is live. The Go
+     * engine owns concurrency (goroutines), TLS validation against the
+     * platform trust store, the /cdn-cgi/trace zone filter and the
+     * /__down speed test; Kotlin only pumps the event stream.
+     */
+    private suspend fun runCleanIpGo(params: ScanParams, sink: ScanSink) = coroutineScope {
+        val ports = params.effectivePorts
+        val samples = params.samplesPerPrefix.coerceIn(1, 2000)
+        sink.onGenerated(samples * ports.size)
+        sink.onLog(
+            "clean-ip (go engine) · ${params.cidrs.size} cidrs · $samples samples x " +
+                "${ports.size} port(s) · sni=${params.speedSni}"
+        )
+
+        val cfg = GoClean.buildConfig(
+            cidrs = params.cidrs,
+            ports = ports,
+            samples = samples,
+            attempts = params.tcpAttempts,
+            timeoutMs = params.tcpTimeoutMs,
+            lanes = params.concurrency,
+            verifyTop = params.verifyTopN,
+            speedTop = params.speedTopN,
+            speedBytes = params.downloadBytes,
+            speedConcurrency = params.speedConcurrency,
+            sni = params.speedSni,
+            debug = debugEnabled,
+        )
+        val rc = runCatching { GoClean.startScan(cfg) }.getOrDefault(-1)
+        if (rc != 0) {
+            sink.onLog("go engine refused to start (rc=$rc) · scan aborted")
+            sink.onPhase(ScanPhase.DONE)
+            return@coroutineScope
+        }
+        sink.onPhase(ScanPhase.TCP)
+        var phaseAnnounced = ScanPhase.TCP
+        try {
+            while (true) {
+                currentCoroutineContext().ensureActive()
+                val payload = runCatching { GoClean.pollEvents() }.getOrNull()
+                if (payload != null && payload.length > 2) {
+                    val arr = runCatching { JSONArray(payload) }.getOrNull()
+                    if (arr != null) {
+                        for (i in 0 until arr.length()) {
+                            val ev = arr.optJSONObject(i) ?: continue
+                            dispatchGoEvent(ev, sink, params, phaseAnnounced)?.let { announced ->
+                                if (announced != phaseAnnounced) {
+                                    phaseAnnounced = announced
+                                    sink.onPhase(announced)
+                                }
+                            }
+                        }
+                    }
+                }
+                if (!GoClean.scanRunning()) {
+                    // final drain (the fin event rides the last payload)
+                    runCatching { GoClean.pollEvents() }?.let { tail ->
+                        val arr = runCatching { JSONArray(tail) }.getOrNull()
+                        if (arr != null) {
+                            for (i in 0 until arr.length()) {
+                                val ev = arr.optJSONObject(i) ?: continue
+                                dispatchGoEvent(ev, sink, params, phaseAnnounced)
+                            }
+                        }
+                    }
+                    break
+                }
+                delay(150)
+            }
+        } finally {
+            runCatching { GoClean.cancelScan() }
+        }
+        sink.onPhase(ScanPhase.DONE)
+    }
+
+    /** Maps one Go event onto the sink; returns the phase it announced. */
+    private fun dispatchGoEvent(
+        ev: JSONObject,
+        sink: ScanSink,
+        params: ScanParams,
+        currentPhase: ScanPhase,
+    ): ScanPhase? {
+        return when (ev.optString("t")) {
+            "log" -> {
+                sink.onLog(ev.optString("x"))
+                null
+            }
+            "dbg" -> {
+                sink.onDebug(ev.optString("x"))
+                null
+            }
+            "res" -> {
+                val ip = ev.optString("ip")
+                val v6 = ev.optBoolean("v6", false)
+                val err = ev.optString("err", "")
+                val result = ScanResult(
+                    ip = ip,
+                    protocol = if (v6) IpProtocol.IPv6 else IpProtocol.IPv4,
+                    port = ev.optInt("p", 443),
+                    latencyMs = if (ev.isNull("lat")) null else ev.optDouble("lat"),
+                    jitterMs = if (ev.isNull("jit")) null else ev.optDouble("jit"),
+                    packetLoss = if (ev.isNull("loss")) 0.0 else ev.optDouble("loss"),
+                    speedMbps = if (ev.isNull("mbps")) null else ev.optDouble("mbps"),
+                    downloadedBytes = ev.optLong("bytes", 0L),
+                    tcpAttempts = ev.optInt("tcpAtt", 0),
+                    successfulAttempts = ev.optInt("tcpOk", 0),
+                    tlsSuccess = ev.optBoolean("tlsOk", false),
+                    tlsHandshakeMs = if (ev.isNull("tlsMs")) null else ev.optDouble("tlsMs"),
+                    tlsSkipped = !params.tlsVerify,
+                    error = err.ifBlank { null },
+                    mode = params.mode,
+                )
+                sink.onResult(result)
+                // narrate verified rows on the main log too (colo = PoP proof)
+                if (result.tlsSuccess) {
+                    ev.optString("colo").takeIf { it.isNotBlank() }?.let { colo ->
+                        sink.onLog("clean · $ip · colo $colo · tls ${"%.0f".format(result.tlsHandshakeMs ?: 0.0)}ms")
+                    }
+                }
+                if (currentPhase == ScanPhase.TCP && ev.optBoolean("tlsOk", false)) ScanPhase.PROBE
+                else null
+            }
+            "prg" -> {
+                sink.onActive(ev.optInt("busy", 0))
+                null
+            }
+            "fin" -> {
+                if (ev.optBoolean("cancel", false)) sink.onLog("go engine · scan cancelled")
+                null
+            }
+            else -> null
+        }
+    }
+
     /**
      * One real witness/sweep round — returns the answering pairs (handshake
      * OR cookie-reply, the witness aliveness contract) sorted by RTT.
@@ -929,25 +1182,68 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
         // false-ABORT exactly the DPI-shaped networks the storm is tuned for
         // (false-pass is self-correcting: the storm just runs; false-abort
         // is the harmful direction).
+        val useNative = UmbraCore.loaded
         val witnessProbe = WarpProbe(
             acc,
             noise = UdpNoiseConfig(enabled = true, count = 3),
             dispatcher = witnessDispatcher,
         )
+        // v4: witness rounds run per-pair through the RUST core when embedded —
+        // the exact same probe the storm itself uses, so the gate's verdict
+        // can never disagree with the scan that follows it.
+        val nativeCfg = if (useNative) {
+            UmbraCore.buildConfig(
+                attempts = 1,
+                timeoutMs = budgetMs.coerceAtLeast(500),
+                interMs = 0,
+                noise = true,
+                noiseCount = 3,
+                lanes = 1,
+                debug = debugEnabled,
+                identity = UmbraCore.WgIdentity(
+                    priv = acc.privateKey, pub = acc.publicKey,
+                    peer = acc.responderPublicKey, v4 = acc.v4,
+                ),
+            )
+        } else null
         val hits = java.util.concurrent.ConcurrentLinkedQueue<WitnessHit>()
         val jobs = pairs.map { pair ->
             launch(witnessDispatcher) {
-                val st = runCatching {
-                    witnessProbe.probe(
-                        pair.candidate.bytes, pair.port,
-                        attempts = 1, timeoutMs = budgetMs, interAttemptDelayMs = 0,
-                    )
-                }.getOrNull()
-                if (st != null && (st.handshakes > 0 || st.cookieReplies > 0)) {
-                    val rtt = st.handshakeLatenciesMs.firstOrNull()
-                        ?: st.pingLatenciesMs.firstOrNull()
-                        ?: Double.MAX_VALUE
-                    hits.add(WitnessHit(pair, rtt))
+                if (useNative && nativeCfg != null) {
+                    val out = runCatching {
+                        UmbraCore.probeOnce(pair.candidate.text, pair.port, nativeCfg)
+                    }.getOrNull()
+                    if (out != null) {
+                        out.optJSONArray("dbg")?.let { lines ->
+                            // null-safe: the witness/sweep seams are also driven
+                            // directly by tests without a full run()
+                            val debugSink = _sink
+                            if (debugSink != null) {
+                                for (i in 0 until lines.length()) {
+                                    debugSink.onDebug(lines.optString(i))
+                                }
+                            }
+                        }
+                        val hs = out.optInt("hs", 0)
+                        val ck = out.optInt("ck", 0)
+                        if (hs > 0 || ck > 0) {
+                            val rtt = if (out.isNull("rtt")) Double.MAX_VALUE else out.optDouble("rtt")
+                            hits.add(WitnessHit(pair, rtt))
+                        }
+                    }
+                } else {
+                    val st = runCatching {
+                        witnessProbe.probe(
+                            pair.candidate.bytes, pair.port,
+                            attempts = 1, timeoutMs = budgetMs, interAttemptDelayMs = 0,
+                        )
+                    }.getOrNull()
+                    if (st != null && (st.handshakes > 0 || st.cookieReplies > 0)) {
+                        val rtt = st.handshakeLatenciesMs.firstOrNull()
+                            ?: st.pingLatenciesMs.firstOrNull()
+                            ?: Double.MAX_VALUE
+                        hits.add(WitnessHit(pair, rtt))
+                    }
                 }
             }
         }
