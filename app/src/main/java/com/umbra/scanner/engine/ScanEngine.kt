@@ -76,6 +76,16 @@ internal fun classifyWarpProbe(
 }
 
 /**
+ * v4.0.1 (locale hardening): compact RTT rendering for the engine's log
+ * lines. The default FORMAT locale renders extended Arabic-Indic digits
+ * (۰-۹) on فارسی devices — the app's primary audience — garbling the
+ * engine's otherwise-ASCII diagnostics ("recovery sweep · ۵ms").
+ * Locale.US pins ASCII. Pure — unit-tested against a fa default locale.
+ */
+internal fun formatRttCompact(ms: Double): String =
+    "%.0f".format(java.util.Locale.US, ms)
+
+/**
  * v3.8.1: the ENDPOINT probe pool — the census-verified seeds first, then the
  * random draw with any seed pair that the draw happened to reproduce REMOVED
  * (the draw deduplicates against itself, but a pinned-port 500-endpoint scan
@@ -943,7 +953,7 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
         } else {
             val best = hits.take(3).joinToString(" · ") {
                 "${it.pair.candidate.text}:${it.pair.port}" +
-                    (if (it.rttMs < Double.MAX_VALUE) " ${"%.0f".format(it.rttMs)}ms" else "")
+                    (if (it.rttMs < Double.MAX_VALUE) " ${formatRttCompact(it.rttMs)}ms" else "")
             }
             sink.onLog("recovery sweep · $label · ${hits.size}/${pairs.size} answered · $best")
         }
@@ -994,10 +1004,16 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
         if (out == null) {
             return deadProbe(cand, port, params, RuntimeException("native probe failed"))
         }
-        // debug lines first — they narrate the result that follows
-        out.optJSONArray("dbg")?.let { lines ->
-            for (i in 0 until lines.length()) {
-                sink.onDebug(lines.optString(i))
+        // debug lines first — they narrate the result that follows.
+        // v4.0.1: gated on the debug toggle — the Rust probeOnce always emits
+        // dbg lines (it force-enables debug for the DEEP probe), so without
+        // this gate every scan flooded the console with per-probe hex even
+        // with the toggle OFF, contradicting the persisted setting.
+        if (debugEnabled) {
+            out.optJSONArray("dbg")?.let { lines ->
+                for (i in 0 until lines.length()) {
+                    sink.onDebug(lines.optString(i))
+                }
             }
         }
         val hs = out.optInt("hs", 0)
@@ -1214,13 +1230,16 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
                         UmbraCore.probeOnce(pair.candidate.text, pair.port, nativeCfg)
                     }.getOrNull()
                     if (out != null) {
-                        out.optJSONArray("dbg")?.let { lines ->
-                            // null-safe: the witness/sweep seams are also driven
-                            // directly by tests without a full run()
-                            val debugSink = _sink
-                            if (debugSink != null) {
-                                for (i in 0 until lines.length()) {
-                                    debugSink.onDebug(lines.optString(i))
+                        // v4.0.1: gated on the debug toggle — see probeWarpNative.
+                        if (debugEnabled) {
+                            out.optJSONArray("dbg")?.let { lines ->
+                                // null-safe: the witness/sweep seams are also driven
+                                // directly by tests without a full run()
+                                val debugSink = _sink
+                                if (debugSink != null) {
+                                    for (i in 0 until lines.length()) {
+                                        debugSink.onDebug(lines.optString(i))
+                                    }
                                 }
                             }
                         }

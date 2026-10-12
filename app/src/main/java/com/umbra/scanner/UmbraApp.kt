@@ -30,7 +30,14 @@ class UmbraApp : Application() {
         netStatus = NetStatusCenter(settings) { controller.isRunning }
         // v3.2: both directions guarded — a scan also refuses to start while
         // NETSENSE is measuring (the reverse check exists above).
-        controller.startGate = { netStatus.measuring.value }
+        // v4.0.1: the guard is now BOTH-directions for diagnostics too — a
+        // scan starting mid-interrogation would race the witness probes and
+        // registration exactly like a NETSENSE measurement would (the v3.2
+        // lesson applied to the v3.12 diagnostics system).
+        controller.startGate = {
+            netStatus.measuring.value ||
+                DiagCenter.state.value is DiagCenter.DiagUi.Running
+        }
         // v3.3: disk-backed WARP identity — survives blocked registration APIs.
         // v3.8: the identity now powers the ENDPOINT scanner (silent internal
         // plumbing — the WARP mode itself is gone).

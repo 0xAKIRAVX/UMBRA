@@ -246,7 +246,10 @@ fun DebugScreen(app: UmbraApp) {
 }
 
 /** Runs one deep probe (WG or CLEAN) off the main thread and prints every
- *  debug round into the result panel. */
+ *  debug round into the result panel. v4.0.1: the whole probe is wrapped in
+ *  runCatching — the Compose scope has NO crash net, and an Error (OOM etc.)
+ *  escaping deepProbeWg/deepProbeClean would kill the process — the exact
+ *  class of failure CrashGuard exists to make survivable everywhere else. */
 private fun runDeepProbe(
     target: String,
     clean: Boolean,
@@ -258,7 +261,12 @@ private fun runDeepProbe(
     setLines(emptyList())
     scope.launch(Dispatchers.IO) {
         try {
-            val lines = if (clean) deepProbeClean(target) else deepProbeWg(target)
+            val lines = runCatching {
+                if (clean) deepProbeClean(target) else deepProbeWg(target)
+            }.getOrElse { e ->
+                listOf("probe crashed · ${e.javaClass.simpleName}" +
+                    (e.message?.let { ": $it" } ?: ""))
+            }
             withContext(Dispatchers.Main) { setLines(lines) }
         } finally {
             withContext(Dispatchers.Main) { setBusy(false) }
@@ -266,26 +274,33 @@ private fun runDeepProbe(
     }
 }
 
-/** Parses "ip" / "ip:port" / "[v6]:port" → (ip, port default). */
-private fun splitTarget(text: String): Pair<String, Int> {
+/** Parses "ip" / "ip:port" / "[v6]:port" → (ip, port default).
+ *  v4.0.1 fix: the default port is now PROBE-SPECIFIC — a bare IP typed into
+ *  the WG deep probe used to default to :443 (the clean-ip default) and the
+ *  probe then honestly reported a dead endpoint: WARP speaks 2408/894/928,
+ *  not 443. The split stays pure — unit-tested directly. */
+internal fun splitTarget(text: String, defaultPort: Int): Pair<String, Int> {
     val t = text.trim()
     return if (t.startsWith("[")) {
         val end = t.indexOf(']')
         if (end > 0 && t.getOrNull(end + 1) == ':') {
-            t.substring(0, end + 1) to (t.substring(end + 2).toIntOrNull() ?: 2408)
-        } else t to 2408
+            t.substring(0, end + 1) to (t.substring(end + 2).toIntOrNull() ?: defaultPort)
+        } else t to defaultPort
     } else if (t.count { it == ':' } == 1 && t.substringAfter(':').toIntOrNull() != null) {
         t.substringBefore(':') to t.substringAfter(':').toInt()
     } else {
-        t to (if (cleanDefaultPort(t)) 443 else 2408)
+        t to defaultPort
     }
 }
 
-private fun cleanDefaultPort(t: String): Boolean =
-    !t.contains(':') || t.startsWith("[")
+/** WG deep probes default to the canonical WARP port. */
+private const val WG_DEFAULT_PORT = 2408
+
+/** CLEAN-IP deep probes default to the HTTPS edge port. */
+private const val CLEAN_DEFAULT_PORT = 443
 
 private fun deepProbeWg(target: String): List<String> {
-    val (ip, port) = splitTarget(target)
+    val (ip, port) = splitTarget(target, WG_DEFAULT_PORT)
     val out = ArrayList<String>()
     if (!UmbraCore.loaded) {
         out.add("rust core not loaded — cannot run the native WG probe")
@@ -323,14 +338,14 @@ private fun deepProbeWg(target: String): List<String> {
     out.add(
         "verdict · handshakes ${res.optInt("hs", 0)}/${res.optInt("att", 0)} · " +
             "in-tunnel pings ${res.optInt("png", 0)} · rtt " +
-            (if (res.isNull("rtt")) "—" else "%.0f ms".format(res.optDouble("rtt"))) +
+            (if (res.isNull("rtt")) "—" else "%.0f ms".format(java.util.Locale.US, res.optDouble("rtt"))) +
             " · err ${res.optString("err", "")}",
     )
     return out
 }
 
 private fun deepProbeClean(target: String): List<String> {
-    val (ip, port) = splitTarget(target)
+    val (ip, port) = splitTarget(target, CLEAN_DEFAULT_PORT)
     val out = ArrayList<String>()
     if (!GoClean.loaded) {
         out.add("go clean-ip engine not loaded — cannot run the clean probe")
@@ -364,16 +379,16 @@ private fun deepProbeClean(target: String): List<String> {
     }
     out.add(
         "tcp · ${res.optInt("tcpOk", 0)}/${res.optInt("tcpAtt", 0)} attempts" +
-            (if (res.isNull("lat")) "" else " · lat %.0f ms".format(res.optDouble("lat"))) +
-            (if (res.isNull("jit")) "" else " · jitter %.0f ms".format(res.optDouble("jit"))),
+            (if (res.isNull("lat")) "" else " · lat %.0f ms".format(java.util.Locale.US, res.optDouble("lat"))) +
+            (if (res.isNull("jit")) "" else " · jitter %.0f ms".format(java.util.Locale.US, res.optDouble("jit"))),
     )
     out.add(
         "tls · " + (if (res.optBoolean("tlsOk")) "VERIFIED" else "failed") +
-            (if (res.isNull("tlsMs")) "" else " · handshake %.0f ms".format(res.optDouble("tlsMs"))) +
+            (if (res.isNull("tlsMs")) "" else " · handshake %.0f ms".format(java.util.Locale.US, res.optDouble("tlsMs"))) +
             (if (res.optBoolean("tlsOk")) " · colo ${res.optString("colo", "—")}" else " · ${res.optString("err", "")}"),
     )
     out.add(
-        "speed · " + (if (res.isNull("mbps")) "—" else "%.1f Mbps".format(res.optDouble("mbps"))) +
+        "speed · " + (if (res.isNull("mbps")) "—" else "%.1f Mbps".format(java.util.Locale.US, res.optDouble("mbps"))) +
             " · ${res.optLong("bytes", 0L)} bytes",
     )
     return out

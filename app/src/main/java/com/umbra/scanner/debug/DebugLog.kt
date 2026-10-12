@@ -123,7 +123,10 @@ data class DbgEntry(
  * strictly first.
  */
 internal fun inferLevel(line: String): DbgLevel {
-    val l = line.lowercase()
+    // v4.0.1 (locale hardening): Locale.ROOT — the default-locale lowercase
+    // turns "I" into dotless "ı" on Turkish devices, so an all-caps
+    // "IDENTITY FAILED" line failed to match its keyword and painted INFO.
+    val l = line.lowercase(java.util.Locale.ROOT)
     return when {
         ERROR_KEYWORDS.any { it in l } -> DbgLevel.ERROR
         WARN_KEYWORDS.any { it in l } -> DbgLevel.WARN

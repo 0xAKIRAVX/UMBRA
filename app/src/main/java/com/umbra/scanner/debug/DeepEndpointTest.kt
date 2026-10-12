@@ -388,7 +388,9 @@ object DeepEndpointTest {
     fun formatReport(r: DeepTestReport): String = buildString {
         append("UMBRA deep endpoint test · ").append(r.input).append('\n')
         append("target  ").append(r.ip ?: "?").append(':').append(r.port)
-            .append(" · ").append(r.family?.name?.lowercase() ?: "?").append('\n')
+            // v4.0.1: Locale.ROOT — enum names are ASCII; a Turkish default
+            // locale lowercased "IPv6" into "ıpv6" in shareable reports.
+            .append(" · ").append(r.family?.name?.lowercase(java.util.Locale.ROOT) ?: "?").append('\n')
         append("outcome ").append(r.outcome.name)
             .append(r.rttMs?.let { " · rtt ${it}ms" } ?: "").append('\n')
         append("detail  ").append(r.outcomeDetail).append('\n')

@@ -274,7 +274,10 @@ object DiagCenter {
                 val best = witness.mapNotNull { it.rttMs }.minOrNull()
                 DiagCheck("warp", "WARP WITNESS", DiagState.OK,
                     "${witness.size}/${witnessPairs.size} answered · best " +
-                        (best?.let { "%.0f ms".format(it) } ?: "rtt n/a") + " · " +
+                        // v4.0.1: Locale.US — the default format locale renders
+                        // Persian digits (۵ms) on فارسی devices inside this
+                        // otherwise-ASCII verdict line.
+                        (best?.let { "%.0f ms".format(java.util.Locale.US, it) } ?: "rtt n/a") + " · " +
                         witness.take(3).joinToString(" · ") { "${it.ip}:${it.port}" })
             }
         }

@@ -2,6 +2,7 @@ package com.umbra.scanner.vless
 
 import com.umbra.scanner.core.IpText
 import java.net.URLEncoder
+import java.util.Locale
 import java.util.UUID
 
 /**
@@ -35,9 +36,13 @@ object VlessGenerator {
         false
     }
 
-    /** True when the SNI is a usable (non test-only) host for proxying. */
+    /** True when the SNI is a usable (non test-only) host for proxying.
+     *  v4.0.1 (locale hardening): lowercase(Locale.ROOT) — the default-locale
+     *  lowercase turns "I" into dotless "ı" on Turkish devices, which made
+     *  an all-caps "SPEED.CLOUDFLARE.COM" slip past the test-only check and
+     *  forge a link that never proxies anything. Pure — unit-tested. */
     fun isTestOnlySni(sni: String): Boolean {
-        val s = sni.trim().lowercase()
+        val s = sni.trim().lowercase(Locale.ROOT)
         return s.isEmpty() || s == "speed.cloudflare.com" ||
             s == "www.speedtest.net" || s.endsWith(".speedtest.net")
     }

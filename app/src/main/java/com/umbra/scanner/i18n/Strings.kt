@@ -839,7 +839,9 @@ object AppLanguage {
 
     fun stringsFor(id: Int): AppStrings = if (id == PERSIAN) PersianStrings else EnglishStrings
 
-    /** Persian phones start in Persian, everyone else in English. */
+    /** Persian phones start in Persian, everyone else in English.
+     *  v4.0.1: lowercase(Locale.ROOT) — locale tags are ASCII by spec; the
+     *  default-locale lowercase was a latent trap only. */
     fun defaultFor(localeTag: String?): Int =
-        if (localeTag?.lowercase()?.startsWith("fa") == true) PERSIAN else ENGLISH
+        if (localeTag?.lowercase(java.util.Locale.ROOT)?.startsWith("fa") == true) PERSIAN else ENGLISH
 }

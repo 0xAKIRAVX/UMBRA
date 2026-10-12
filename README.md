@@ -9,12 +9,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v4.0.0-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
+  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v4.0.1-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
   <img src="https://img.shields.io/badge/platform-Android%208.0%2B-34d399?style=flat-square&labelColor=0d1420" alt="platform">
   <img src="https://img.shields.io/badge/Kotlin%20%2B%20Rust%20%2B%20Go-tri--lingual-7f52ff?style=flat-square&labelColor=0d1420" alt="languages">
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285f4?style=flat-square&labelColor=0d1420" alt="compose">
   <img src="https://img.shields.io/badge/APK-%E2%89%8845%20MB-f15bb5?style=flat-square&labelColor=0d1420" alt="size">
-  <img src="https://img.shields.io/badge/tests-257%2F257%20green%20%C2%B7%20live%20WG--validated%20endpoints-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
+  <img src="https://img.shields.io/badge/tests-268%2F268%20green%20%C2%B7%20live%20WG--validated%20endpoints-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-9b5de5?style=flat-square&labelColor=0d1420" alt="license">
 </p>
 
@@ -159,7 +159,7 @@ Grab the latest signed APK from the **[Releases](https://github.com/0xAKIRAVX/UM
 
 | | |
 | --- | --- |
-| Latest version | **v4.0.0** (build 27) |
+| Latest version | **v4.0.1** (build 28) |
 | Requirement | Android 8.0+ (API 26) |
 | Architecture | Universal (arm64 / armv7 / x86_64) |
 | Size | ~45 MB (three toolchains: Go runtime + Rust core, ×3 ABIs) |
@@ -243,6 +243,7 @@ Zero analytics. Zero trackers. Zero data collection. Scans, measurements and the
 
 | Version | Theme | Highlights |
 | --- | --- | --- |
+| **v4.0.1** | Locale hardening + gate fixes | Persian/Arabic digits out of the ASCII engine logs, Turkish lowercase traps closed, debug toggle now actually gates the per-probe stream, diagnostics ↔ scan both-direction guard, WG deep-probe default port |
 | **v4.0.0** | Tri-lingual rebuild | Rust WG core + Go clean-IP engine + Kotlin orchestration; DEBUG console with the live per-probe stream; ~45 MB |
 | **v3.12.0** | Diagnostics | DIAG tab — full network interrogation verdicts, single-endpoint deep test with annotated hex, app-wide debug journal |
 | **v3.11.0** | Bug-hunt polish | 6 defects fixed across engine, UI and i18n |
@@ -263,6 +264,15 @@ Zero analytics. Zero trackers. Zero data collection. Scans, measurements and the
 
 <details>
 <summary><strong>Full release notes</strong></summary>
+
+### v4.0.1 — locale hardening + gate fixes
+
+1. **Locale hardening (8 code paths).** The app's engine diagnostics are ASCII by design, but the default FORMAT locale had other plans: on فارسی devices (this app's primary audience) the recovery-sweep log line and the diagnostics verdict rendered **extended Arabic-Indic digits** ("۵ ms"); on Turkish devices the default `lowercase()` turned "IPv4" into "ıpv4" (dotless ı) in the scan session line, made an all-caps `SPEED.CLOUDFLARE.COM` slip past the VLESS test-only guard (forging a link that never proxies), and broke the debug journal's level-inference keywords ("IDENTITY FAILED" painted INFO instead of WARN). Every spot is now pinned to `Locale.US`/`Locale.ROOT` and locked with regression tests that force hostile default locales first.
+2. **The DEBUG toggle now actually gates the per-probe stream.** The Rust core's `probeOnce` always emits debug lines (it force-enables them for the deep probe), and the scan storm forwarded them unconditionally — every scan flooded the console with per-probe hex even with the toggle OFF, contradicting the persisted setting. The forwarding is now gated on the toggle; the deep probe keeps its full narration.
+3. **Diagnostics ↔ scan is now a both-direction gate.** A scan starting mid-diagnostics raced the witness probes and registration exactly the way a scan starting mid-NETSENSE did before v3.2 fixed that direction — `startGate` now refuses while the interrogation is running, with the same honest "deferred" notice.
+4. **WG deep-probe default port.** A bare IP typed into the WG deep probe defaulted to :443 (the clean-ip default) — WARP speaks 2408/894/928, so the probe honestly reported a dead endpoint for a live one. The default is now probe-specific (WG → 2408, CLEAN → 443).
+5. **Crash-hardening for the deep probe.** The Compose scope has no crash net; an `Error` (OOM etc.) escaping the probe would kill the process — the exact class of failure CrashGuard exists to make survivable. The probe is now wrapped, and a failure prints as a line in the result panel.
+6. 11 new regression tests (268/268 green), all live suites re-verified against production Cloudflare through both native cores.
 
 ### v4.0.0 — the tri-lingual rebuild (Rust + Go + Kotlin)
 

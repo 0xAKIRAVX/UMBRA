@@ -200,18 +200,7 @@ class ScanController(private val settings: UmbraSettings? = null) {
                 CrashGuard.handler("scan-engine") { line -> appendLog(line) }
         )
         scope = engineScope
-        appendLog(
-            "scan session started · mode ${p.mode.name}" +
-                if (p.mode == ScanMode.ENDPOINT) {
-                    " · ${p.endpointsCount} random ip:port endpoints + ${com.umbra.scanner.core.Presets.WARP_SEED_ENDPOINTS.size} seeds" +
-                        " · wireguard handshake ×${p.warpAttempts} · " +
-                        (if (p.port > 0) "port ${p.port}" else "random ports") +
-                        " · ${p.family.label.lowercase()}" +
-                        if (p.udpNoise) " · udp noise ×${p.noiseCount}" else ""
-                } else {
-                    " · ${p.tcpAttempts} attempts × ${p.tcpTimeoutMs} ms"
-                }
-        )
+        appendLog(sessionStartLine(p))
 
         tickerJob = engineScope.launch {
             while (isActive) {
@@ -558,3 +547,22 @@ internal fun slidingRatePerSec(
     val counted = events.count { it >= cutoff }
     return counted * 1000.0 / windowMs
 }
+
+/**
+ * v4.0.1 (locale hardening, extracted pure): the first line of every scan
+ * session's log. The family label used to pass through default-locale
+ * lowercase() — on a Turkish-locale device "IPv4" renders "ıpv4" (dotless ı)
+ * inside an otherwise-ASCII log line. Locale.ROOT pins ASCII.
+ * Pure function — unit-tested directly.
+ */
+internal fun sessionStartLine(p: ScanParams): String =
+    "scan session started · mode ${p.mode.name}" +
+        if (p.mode == ScanMode.ENDPOINT) {
+            " · ${p.endpointsCount} random ip:port endpoints + ${com.umbra.scanner.core.Presets.WARP_SEED_ENDPOINTS.size} seeds" +
+                " · wireguard handshake ×${p.warpAttempts} · " +
+                (if (p.port > 0) "port ${p.port}" else "random ports") +
+                " · ${p.family.label.lowercase(java.util.Locale.ROOT)}" +
+                if (p.udpNoise) " · udp noise ×${p.noiseCount}" else ""
+        } else {
+            " · ${p.tcpAttempts} attempts × ${p.tcpTimeoutMs} ms"
+        }
