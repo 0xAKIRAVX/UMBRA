@@ -1,6 +1,8 @@
 package com.umbra.scanner
 
 import android.app.Application
+import com.umbra.scanner.debug.DebugLog
+import com.umbra.scanner.debug.DiagCenter
 import com.umbra.scanner.engine.CrashGuard
 import com.umbra.scanner.engine.NetStatusCenter
 import com.umbra.scanner.engine.ScanController
@@ -33,5 +35,11 @@ class UmbraApp : Application() {
         // v3.6.2 → v3.8: the VPN sensor still feeds the ENDPOINT zero-result
         // diagnosis (an active VPN silently swallows every UDP probe).
         VpnSensor.attach(this)
+        // v3.12: the diagnostics center gets the same treatment — connectivity
+        // facts + runtime info from the app context, and a scan-running guard
+        // so a diagnostic interrogation never races the probe storm.
+        DiagCenter.attach(this)
+        DiagCenter.isScanRunning = { controller.isRunning }
+        DebugLog.info(DebugLog.TAG_DIAG, "umbra process up · debug journal armed")
     }
 }

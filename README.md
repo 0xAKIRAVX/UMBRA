@@ -9,12 +9,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.11.0-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
+  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v3.12.0-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
   <img src="https://img.shields.io/badge/platform-Android%208.0%2B-34d399?style=flat-square&labelColor=0d1420" alt="platform">
   <img src="https://img.shields.io/badge/Kotlin-2.0-7f52ff?style=flat-square&labelColor=0d1420" alt="kotlin">
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285f4?style=flat-square&labelColor=0d1420" alt="compose">
   <img src="https://img.shields.io/badge/APK-%E2%89%882.5%20MB-f15bb5?style=flat-square&labelColor=0d1420" alt="size">
-  <img src="https://img.shields.io/badge/tests-214%2F214%20green%20%C2%B7%20live%20WG--validated%20endpoints-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
+  <img src="https://img.shields.io/badge/tests-251%2F251%20green%20%C2%B7%20live%20WG--validated%20endpoints-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-9b5de5?style=flat-square&labelColor=0d1420" alt="license">
 </p>
 
@@ -29,6 +29,17 @@ Your connection to Cloudflare's edge is only as good as the *specific IP* your n
 No root. No Termux. No server. ~2 MB.
 
 ---
+
+## What's new in v3.12.0 — the DIAGNOSTICS release (a real debug system)
+
+*«تمام باگ‌های برنامه‌ام رو بگیر و تمام مشکلات شبکه و اتصال و هر مشکلی که برنامه داره رو بگیر و یه سیستم دیباگ بهش اضافه کن»* — fix every bug, every network/connectivity problem, and add a debug system. v3.11 shipped audit-clean; this round adds the missing instrument: **a new DIAG tab that interrogates the network, microscopes any single endpoint, and streams every internal event live.**
+
+1. **FULL DIAGNOSTICS — one button, the whole interrogation.** Connectivity (validated? **system VPN active?** — the #1 silent killer: a tcp-only proxy VPN swallows every UDP probe while the web works fine), DNS resolution of `api.cloudflareclient.com`, TCP egress to a Cloudflare edge, UDP egress (NTP round-trips, Cloudflare + external control), WARP identity availability, and live WireGuard handshakes against the census seeds (v4 **and** v6 twins). The result is a plain-words **verdict** naming the exact failure class — `NO USABLE NETWORK` / `SYSTEM VPN IS ACTIVE AND UDP IS DEAD INSIDE ITS TUNNEL` / `DNS BROKEN` / `UDP EGRESS BLOCKED — edge scans still work` / `WARP FILTERED — try IPv6 / another ISP` / `REGISTRATION BLOCKED` / `WARP PATH PROVEN — scans will work` — with an evidence check board underneath. The verdict tree is pure and unit-tested against every failure class UMBRA has shipped a fix for since v3.5.
+2. **DEEP ENDPOINT TEST — the single-endpoint microscope.** Type any `ip`, `ip:port`, `[v6]:port` or `host:port` and watch the exact WireGuard handshake attempt: per-stage timings (parse → resolve → identity → packet build → send → wait), the **raw hex dump of the 148-byte initiation packet annotated field-by-field** (type · sender index · ephemeral · encrypted static/timestamp · MAC1/MAC2), the reply's hex, and a byte-level classification: `HANDSHAKE_OK` (with AEAD verification), `COOKIE_REPLY` (alive under load), `SILENT`, `SOCKET_ERROR` (ICMP port-unreachable = the path actively rejected you), `REPLY_UNPARSEABLE` (a QUIC co-host answered). Shareable as a plain-text report — paste it into a GitHub issue and the exact failure is visible.
+3. **LIVE DEBUG CONSOLE — the app-wide journal.** One ordered stream every layer mirrors into: scan log lines (level auto-inferred from the engine's wording — aborts and failures paint red), crash-journal events, NETSENSE steps, update checks, diagnostics progress. Filterable by tag, color-coded by severity, copy/share the whole journal as text. Ring-capped at 800 entries, thread-safe across the engine's probe lanes.
+4. **Every instrument is honest by construction.** Diagnostics refuses to run mid-scan (witness probes and the storm would poison each other's RTTs), the deep test uses the exact same socket semantics as the production probe (noise to random destinations, connected WG socket, stray-datagram skipping), and every network operation is seam-injected — the whole system runs offline in the unit suite.
+
+> **251/251 unit tests green (29 new: journal cap/levels/dump, the full verdict decision tree, endpoint parsing/classification/hex, deep-test flows with injected exchanges), all live suites re-verified against production Cloudflare (WG handshakes + in-tunnel pings, pinned-IP registration, recovery sweep, census), DEX post-build verification passed. Install v3.12.0 over any v3.5.x–v3.11.0, same signature.**
 
 ## What's new in v3.11.0 — the full bug-hunt polish (6 fixes)
 
@@ -302,18 +313,15 @@ Real renders of the app's actual Compose UI — dark substrate, rare typefaces (
 | Scan configuration | NET CHECK · نت‌سنج card |
 | :---: | :---: |
 | ![Scan configuration](docs/screenshots/scan-config.png) | ![Net check](docs/screenshots/netcheck.png) |
-
 | Live scan · radar console | Results · smart picks + board |
 | :---: | :---: |
 | ![Live scan](docs/screenshots/scan-live.png) | ![Results](docs/screenshots/results.png) |
-
-| System settings | Update announcement |
+| Diagnostics · verdict + check board + debug console | System settings |
 | :---: | :---: |
-| ![Settings](docs/screenshots/settings.png) | ![Update dialog](docs/screenshots/update-dialog.png) |
-
-| VLESS generator · QR |
-| :---: |
-| ![VLESS](docs/screenshots/vless.png) |
+| ![Diagnostics](docs/screenshots/diagnostics.png) | ![Settings](docs/screenshots/settings.png) |
+| VLESS generator · QR | Update announcement |
+| :---: | :---: |
+| ![VLESS](docs/screenshots/vless.png) | ![Update dialog](docs/screenshots/update-dialog.png) |
 
 ---
 
@@ -349,7 +357,7 @@ Grab the latest signed APK from the **[Releases](https://github.com/0xAKIRAVX/UM
 
 | | |
 | --- | --- |
-| Latest version | **v3.11.0** (build 26) |
+| Latest version | **v3.12.0** (build 27) |
 | Requirement | Android 8.0+ (API 26) |
 | Architecture | Universal (all ABIs) |
 | Permissions | `INTERNET`, `FOREGROUND_SERVICE`, `POST_NOTIFICATIONS` — nothing else |

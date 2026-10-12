@@ -18,9 +18,13 @@ import com.umbra.scanner.core.ScanResult
 import com.umbra.scanner.core.ScanStats
 import com.umbra.scanner.core.ScanSummary
 import com.umbra.scanner.core.ScanUi
+import com.umbra.scanner.debug.DebugLog
+import com.umbra.scanner.debug.DiagCenter
+import com.umbra.scanner.debug.DbgLevel
 import com.umbra.scanner.engine.UpdateCenter
 import com.umbra.scanner.net.UpdateChecker
 import com.umbra.scanner.ui.components.UpdateDialog
+import com.umbra.scanner.ui.screens.DiagnosticsScreen
 import com.umbra.scanner.ui.screens.ResultsScreen
 import com.umbra.scanner.ui.screens.ScanScreen
 import com.umbra.scanner.ui.screens.SettingsScreen
@@ -221,5 +225,49 @@ class ScreenshotTest {
             }
         }
         shot("update-dialog.png")
+    }
+
+    @Test
+    fun `07 diagnostics tab`() {
+        // v3.12: the debug system — verdict banner + check board + live console
+        DebugLog.clear()
+        DebugLog.info(DebugLog.TAG_DIAG, "umbra process up · debug journal armed")
+        DebugLog.info(DebugLog.TAG_SCAN, "scan session started · mode ENDPOINT · 500 random ip:port endpoints + 4 seeds")
+        DebugLog.info(DebugLog.TAG_SCAN, "pre-flight witness · 3/16 answered · udp path live")
+        DebugLog.info(DebugLog.TAG_DIAG, "check · connectivity")
+        DebugLog.info(DebugLog.TAG_DIAG, "check · warp")
+        DebugLog.warn(DebugLog.TAG_NET, "netsense · measuring download…")
+        DiagCenter.debugInjectReport(
+            DiagCenter.DiagReport(
+                checks = listOf(
+                    DiagCenter.DiagCheck("connectivity", "CONNECTIVITY", DiagCenter.DiagState.OK,
+                        "network validated · no vpn detected"),
+                    DiagCenter.DiagCheck("dns", "DNS RESOLUTION", DiagCenter.DiagState.OK,
+                        "api.cloudflareclient.com → 104.16.192.82 · 104.16.24.84 · v4 2 · v6 0"),
+                    DiagCenter.DiagCheck("tcp", "TCP EGRESS · :443", DiagCenter.DiagState.OK,
+                        "cloudflare edge reachable over tcp (188.114.96.1:443) — edge-mode scanning works"),
+                    DiagCenter.DiagCheck("udp", "UDP EGRESS · NTP", DiagCenter.DiagState.OK,
+                        "udp round-trips work — cloudflare ntp + external ntp both answered"),
+                    DiagCenter.DiagCheck("identity", "WARP IDENTITY", DiagCenter.DiagState.OK,
+                        "registered key available (reused/cached) · tunnel 172.16.0.2"),
+                    DiagCenter.DiagCheck("warp", "WARP WITNESS", DiagCenter.DiagState.OK,
+                        "3/6 answered · best 24 ms · 188.114.96.1:2408 · 162.159.192.42:2408"),
+                    DiagCenter.DiagCheck("runtime", "RUNTIME", DiagCenter.DiagState.UNKNOWN,
+                        "umbra v3.12.0 · Google Pixel 8 · android 15 (api 35)"),
+                ),
+                verdict = "WARP PATH PROVEN — 3/6 census endpoints answered a real wg handshake " +
+                    "on this network. scans should work; if a scan still returns 0, run the deep " +
+                    "endpoint test on a seed (162.159.192.1:2408).",
+                level = DbgLevel.INFO,
+                witnessAnswered = 3,
+                witnessTotal = 6,
+                epochMs = System.currentTimeMillis(),
+            )
+        )
+        compose.mainClock.autoAdvance = false
+        compose.setContent { UmbraTheme(settings = app.settings) { DiagnosticsScreen(app) } }
+        shot("diagnostics.png")
+        DiagCenter.debugInjectReport(null)
+        DebugLog.clear()
     }
 }

@@ -76,6 +76,9 @@ class UpdateCenter(
     fun checkNow() {
         if (_state.value is State.Checking) return
         settings.setLastUpdateCheck(System.currentTimeMillis())
+        // v3.12: update checks ride the debug journal (Diagnostics tab)
+        runCatching { com.umbra.scanner.debug.DebugLog.info(
+            com.umbra.scanner.debug.DebugLog.TAG_UPDATE, "update check · contacting github…") }
         scope.launch {
             _state.value = State.Checking
             val release = UpdateChecker.fetchLatest()
@@ -87,6 +90,17 @@ class UpdateCenter(
                     State.Available(release, currentVersion)
 
                 else -> State.UpToDate(currentVersion, release.tag)
+            }
+            runCatching {
+                val dbg = com.umbra.scanner.debug.DebugLog
+                when (val st = _state.value) {
+                    is State.Unreachable -> dbg.warn(dbg.TAG_UPDATE, "update check · github unreachable")
+                    is State.Available -> dbg.info(dbg.TAG_UPDATE,
+                        "update check · ${st.release.tag} available (on $currentVersion)")
+                    is State.UpToDate -> dbg.info(dbg.TAG_UPDATE,
+                        "update check · up to date (latest ${st.latestTag})")
+                    else -> {}
+                }
             }
         }
     }

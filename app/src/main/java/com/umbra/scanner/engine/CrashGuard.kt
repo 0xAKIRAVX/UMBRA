@@ -119,10 +119,28 @@ object CrashGuard {
             append('\n').append(trace.trim())
         }
         write(entry)
+        // v3.12: mirror into the debug journal (Diagnostics tab console) —
+        // runCatching is CRITICAL here: CrashGuard is the last-resort net,
+        // its mirroring may never throw (DebugLog itself is guarded, but a
+        // class-init problem in the debug package must not break crash
+        // journaling).
+        runCatching {
+            com.umbra.scanner.debug.DebugLog.error(
+                com.umbra.scanner.debug.DebugLog.TAG_CRASH,
+                "$origin — ${throwable.javaClass.simpleName}" +
+                    (throwable.message?.let { ": $it" } ?: ""),
+            )
+        }
     }
 
     private fun appendNote(tag: String, message: String) {
         write("${timestamp()} · v$appVersion\n$deviceLabel · note[$tag]\n$message")
+        // v3.12: notes ride the debug journal too (WARN — a note is always
+        // something the user should see in the console).
+        runCatching {
+            com.umbra.scanner.debug.DebugLog.warn(
+                com.umbra.scanner.debug.DebugLog.TAG_CRASH, "$tag — $message")
+        }
     }
 
     private fun write(entry: String) {

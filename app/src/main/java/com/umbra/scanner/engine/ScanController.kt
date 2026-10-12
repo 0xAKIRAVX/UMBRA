@@ -384,6 +384,10 @@ class ScanController(private val settings: UmbraSettings? = null) {
         synchronized(logLock) {
             _log.value = listOf(line) + _log.value.take(29)
         }
+        // v3.12: mirror into the app-wide debug journal (Diagnostics tab) —
+        // the scan log is the single richest visibility stream the app has,
+        // and the debug console must carry it too.
+        runCatching { com.umbra.scanner.debug.DebugLog.mirrorScanLine(line) }
     }
 
     private fun publishStats() {

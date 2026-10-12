@@ -52,8 +52,17 @@ class NetStatusCenter(
         }
         scope.launch {
             try {
-                val p = NetQuality.measure { s -> _step.value = s }
+                val p = NetQuality.measure { s ->
+                    _step.value = s
+                    // v3.12: NETSENSE steps stream into the debug journal too
+                    runCatching { com.umbra.scanner.debug.DebugLog.info(
+                        com.umbra.scanner.debug.DebugLog.TAG_NET, "netsense · $s") }
+                }
                 settings.setNetworkProfile(p)
+                // v3.12: the finished profile is a first-class console line
+                runCatching { com.umbra.scanner.debug.DebugLog.info(
+                    com.umbra.scanner.debug.DebugLog.TAG_NET,
+                    "netsense done · ${com.umbra.scanner.net.NetQuality.describe(p)}") }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (_: Exception) {

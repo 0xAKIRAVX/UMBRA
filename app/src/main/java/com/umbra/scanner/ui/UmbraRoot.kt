@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Leaderboard
 import androidx.compose.material.icons.rounded.Radar
@@ -60,6 +61,7 @@ import com.umbra.scanner.i18n.LocalStrings
 import com.umbra.scanner.ui.components.AuroraBackground
 import com.umbra.scanner.ui.components.UpdateDialog
 import com.umbra.scanner.ui.components.bouncyClickable
+import com.umbra.scanner.ui.screens.DiagnosticsScreen
 import com.umbra.scanner.ui.screens.ResultsScreen
 import com.umbra.scanner.ui.screens.ScanScreen
 import com.umbra.scanner.ui.screens.SettingsScreen
@@ -79,6 +81,7 @@ private val DESTS = listOf(
     Dest({ it.navScan }, Icons.Rounded.Radar),
     Dest({ it.navResults }, Icons.Rounded.Leaderboard),
     Dest({ it.navVless }, Icons.Rounded.Key),
+    Dest({ it.navDiag }, Icons.Rounded.BugReport),
     Dest({ it.navSystem }, Icons.Rounded.Tune),
 )
 
@@ -114,6 +117,7 @@ fun UmbraRoot(app: UmbraApp) {
                     0 -> ScanScreen(app = app, onGoResults = { destIdx = 1 })
                     1 -> ResultsScreen(app = app, onGoScan = { destIdx = 0 }, onGoVless = { destIdx = 2 })
                     2 -> VlessScreen(app = app)
+                    3 -> DiagnosticsScreen(app = app)
                     else -> SettingsScreen(app = app)
                 }
             }
