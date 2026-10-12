@@ -12,20 +12,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
  * sentences are lambdas so translations control their own word order.
  */
 @Immutable
-data class AppStrings(
-    // ── brand / status ─────────────────────────────────────────────
-    val brandTagline: String,
-    val live: String,
-    val done: String,
-    val idle: String,
-
-    // ── nav ────────────────────────────────────────────────────────
-    val navScan: String,
-    val navResults: String,
-    val navVless: String,
-    val navSystem: String,
-
-    // ── v4 debug console ───────────────────────────────────────────
+data class DebugConsoleStrings(
     val navDebug: String,
     val debugTitle: String,
     val debugEngines: String,
@@ -40,6 +27,26 @@ data class AppStrings(
     val exportDebug: String,
     val clearDebug: String,
     val deepResultTitle: String,
+)
+
+@Immutable
+data class AppStrings(
+    // ── brand / status ─────────────────────────────────────────────
+    val brandTagline: String,
+    val live: String,
+    val done: String,
+    val idle: String,
+
+    // ── nav ────────────────────────────────────────────────────────
+    val navScan: String,
+    val navResults: String,
+    val navVless: String,
+    val navSystem: String,
+
+    // ── v4 debug console (nested: AppStrings is close to the JVM's
+    //    255-parameter constructor ceiling after the v3.12 diagnostics
+    //    strings — grouped to stay well clear) ─────────────────────
+    val debug: DebugConsoleStrings,
 
     // ── scan screen ────────────────────────────────────────────────
     val tested: String,
@@ -312,20 +319,22 @@ val EnglishStrings = AppStrings(
     navResults = "RESULTS",
     navVless = "VLESS",
     navSystem = "SYSTEM",
-    navDebug = "DEBUG",
-    debugTitle = "DEBUG CONSOLE",
-    debugEngines = "ENGINES",
-    debugStream = "LIVE PROBE STREAM",
-    debugEmpty = "no probe lines yet · run a scan with debug lines on",
-    debugToggle = "per-probe debug lines",
-    deepProbeTitle = "SINGLE ENDPOINT DEEP PROBE",
-    deepProbeHint = "ip or ip:port",
-    deepProbeWg = "WG PROBE",
-    deepProbeClean = "CLEAN PROBE",
-    deepProbeBusy = "probing…",
-    exportDebug = "EXPORT LOG",
-    clearDebug = "CLEAR",
-    deepResultTitle = "PROBE RESULT",
+    debug = DebugConsoleStrings(
+        navDebug = "DEBUG",
+        debugTitle = "DEBUG CONSOLE",
+        debugEngines = "ENGINES",
+        debugStream = "LIVE PROBE STREAM",
+        debugEmpty = "no probe lines yet · run a scan with debug lines on",
+        debugToggle = "per-probe debug lines",
+        deepProbeTitle = "SINGLE ENDPOINT DEEP PROBE",
+        deepProbeHint = "ip or ip:port",
+        deepProbeWg = "WG PROBE",
+        deepProbeClean = "CLEAN PROBE",
+        deepProbeBusy = "probing…",
+        exportDebug = "EXPORT LOG",
+        clearDebug = "CLEAR",
+        deepResultTitle = "PROBE RESULT",
+    ),
     tested = "TESTED",
     alive = "ALIVE",
     rate = "RATE",
@@ -570,20 +579,22 @@ val PersianStrings = AppStrings(
     navResults = "نتایج",
     navVless = "VLESS",
     navSystem = "سیستم",
-    navDebug = "دیباگ",
-    debugTitle = "کنسول دیباگ",
-    debugEngines = "موتورها",
-    debugStream = "جریان زنده پروب‌ها",
-    debugEmpty = "هنوز خطی نیست · یک اسکن با خطوط دیباگِ روشن اجرا کن",
-    debugToggle = "خطوط دیباگِ هر پروب",
-    deepProbeTitle = "بررسی عمیق یک اندپوینت",
-    deepProbeHint = "آی‌پی یا ip:port",
-    deepProbeWg = "پروب وایرگارد",
-    deepProbeClean = "پروب تمیز",
-    deepProbeBusy = "در حال بررسی…",
-    exportDebug = "خروجی لاگ",
-    clearDebug = "پاک کردن",
-    deepResultTitle = "نتیجه پروب",
+    debug = DebugConsoleStrings(
+        navDebug = "دیباگ",
+        debugTitle = "کنسول دیباگ",
+        debugEngines = "موتورها",
+        debugStream = "جریان زنده پروب‌ها",
+        debugEmpty = "هنوز خطی نیست · یک اسکن با خطوط دیباگِ روشن اجرا کن",
+        debugToggle = "خطوط دیباگِ هر پروب",
+        deepProbeTitle = "بررسی عمیق یک اندپوینت",
+        deepProbeHint = "آی‌پی یا ip:port",
+        deepProbeWg = "پروب وایرگارد",
+        deepProbeClean = "پروب تمیز",
+        deepProbeBusy = "در حال بررسی…",
+        exportDebug = "خروجی لاگ",
+        clearDebug = "پاک کردن",
+        deepResultTitle = "نتیجه پروب",
+    ),
     tested = "تست‌شده",
     alive = "فعال",
     rate = "نرخ",

@@ -84,7 +84,7 @@ fun DebugScreen(app: UmbraApp) {
             item {
                 Spacer(Modifier.height(56.dp))
                 Text(
-                    s.debugTitle,
+                    s.debug.debugTitle,
                     style = MaterialTheme.typography.headlineSmall,
                     fontFamily = FontFamily.Monospace,
                     color = MaterialTheme.colorScheme.onBackground,
@@ -94,7 +94,7 @@ fun DebugScreen(app: UmbraApp) {
             // engine status
             item {
                 NeonCard(Modifier.fillMaxWidth()) {
-                    SectionLabel(s.debugEngines)
+                    SectionLabel(s.debug.debugEngines)
                     Spacer(Modifier.height(6.dp))
                     Text(
                         controller.engineStatus,
@@ -103,7 +103,7 @@ fun DebugScreen(app: UmbraApp) {
                     )
                     Spacer(Modifier.height(10.dp))
                     ToggleRow(
-                        title = s.debugToggle,
+                        title = s.debug.debugToggle,
                         subtitle = null,
                         checked = debugOn,
                         onChange = {
@@ -118,13 +118,13 @@ fun DebugScreen(app: UmbraApp) {
             // deep probe
             item {
                 NeonCard(Modifier.fillMaxWidth()) {
-                    SectionLabel(s.deepProbeTitle)
+                    SectionLabel(s.debug.deepProbeTitle)
                     Spacer(Modifier.height(6.dp))
                     OutlinedTextField(
                         value = probeTarget,
                         onValueChange = { probeTarget = it },
                         singleLine = true,
-                        placeholder = { Text(s.deepProbeHint, style = MonoStyleSmall) },
+                        placeholder = { Text(s.debug.deepProbeHint, style = MonoStyleSmall) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                         modifier = Modifier.fillMaxWidth(),
                         textStyle = MonoStyleSmall,
@@ -132,7 +132,7 @@ fun DebugScreen(app: UmbraApp) {
                     Spacer(Modifier.height(10.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         GradientButton(
-                            text = if (probing) s.deepProbeBusy else s.deepProbeWg,
+                            text = if (probing) s.debug.deepProbeBusy else s.debug.deepProbeWg,
                             onClick = {
                                 runDeepProbe(
                                     target = probeTarget.trim(),
@@ -147,7 +147,7 @@ fun DebugScreen(app: UmbraApp) {
                             enabled = !probing && probeTarget.isNotBlank(),
                         )
                         GradientButton(
-                            text = if (probing) s.deepProbeBusy else s.deepProbeClean,
+                            text = if (probing) s.debug.deepProbeBusy else s.debug.deepProbeClean,
                             onClick = {
                                 runDeepProbe(
                                     target = probeTarget.trim(),
@@ -164,7 +164,7 @@ fun DebugScreen(app: UmbraApp) {
                     }
                     if (probeResult.isNotEmpty()) {
                         Spacer(Modifier.height(10.dp))
-                        SectionLabel(s.deepResultTitle)
+                        SectionLabel(s.debug.deepResultTitle)
                         Spacer(Modifier.height(4.dp))
                         probeResult.forEach { line ->
                             Text(
@@ -188,11 +188,11 @@ fun DebugScreen(app: UmbraApp) {
             // live stream
             item {
                 NeonCard(Modifier.fillMaxWidth()) {
-                    SectionLabel(s.debugStream)
+                    SectionLabel(s.debug.debugStream)
                     Spacer(Modifier.height(6.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         OutlineButton(
-                            text = s.exportDebug,
+                            text = s.debug.exportDebug,
                             onClick = {
                                 val text = controller.exportDebugLog()
                                 val send = Intent(Intent.ACTION_SEND).apply {
@@ -201,13 +201,13 @@ fun DebugScreen(app: UmbraApp) {
                                     putExtra(Intent.EXTRA_TITLE, "UMBRA debug log")
                                 }
                                 context.startActivity(
-                                    Intent.createChooser(send, s.exportDebug),
+                                    Intent.createChooser(send, s.debug.exportDebug),
                                 )
                             },
                             modifier = Modifier.weight(1f),
                         )
                         OutlineButton(
-                            text = s.clearDebug,
+                            text = s.debug.clearDebug,
                             onClick = { controller.clearDebugLog() },
                             modifier = Modifier.weight(1f),
                         )
@@ -218,7 +218,7 @@ fun DebugScreen(app: UmbraApp) {
             if (debugLines.isEmpty()) {
                 item {
                     Text(
-                        s.debugEmpty,
+                        s.debug.debugEmpty,
                         style = MonoStyleSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

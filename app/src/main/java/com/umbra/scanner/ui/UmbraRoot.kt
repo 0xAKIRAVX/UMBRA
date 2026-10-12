@@ -85,7 +85,7 @@ private val DESTS = listOf(
     Dest({ it.navResults }, Icons.Rounded.Leaderboard),
     Dest({ it.navVless }, Icons.Rounded.Key),
     Dest({ it.navDiag }, Icons.Rounded.MonitorHeart),
-    Dest({ it.navDebug }, Icons.Rounded.BugReport),
+    Dest({ it.debug.navDebug }, Icons.Rounded.BugReport),
     Dest({ it.navSystem }, Icons.Rounded.Tune),
 )
 
