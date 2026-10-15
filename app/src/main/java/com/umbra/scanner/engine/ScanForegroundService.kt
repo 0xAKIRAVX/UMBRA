@@ -122,9 +122,9 @@ class ScanForegroundService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val (text, candidates, tested) = when (stats) {
-            null -> Triple("warming up engine", 0, 0)
+            null -> Triple(notificationProgressText(null), 0, 0)
             else -> Triple(
-                "phase ${stats.phase.label.lowercase()} · tested ${stats.tested}/${stats.candidates} · alive ${stats.alive} · ${"%.1f".format(java.util.Locale.US, stats.ratePerSec)}/s",
+                notificationProgressText(stats),
                 stats.candidates,
                 stats.tested,
             )
@@ -206,3 +206,19 @@ class ScanForegroundService : Service() {
         nm.createNotificationChannel(channel)
     }
 }
+
+/**
+ * v4.0.2 (locale hardening, extracted pure): the foreground notification's
+ * progress line. The phase label used to pass through default-locale
+ * lowercase() — on a Turkish device "IDENTITY" rendered "ıdentıty" (dotless
+ * ı) inside the status-bar/lock-screen text, the exact bug class the v4.0.1
+ * sessionStartLine fix pinned (Locale.ROOT keeps enum labels ASCII).
+ * Pure function — unit-tested against hostile default locales (tr-TR, fa-IR).
+ */
+internal fun notificationProgressText(stats: com.umbra.scanner.core.ScanStats?): String =
+    when (stats) {
+        null -> "warming up engine"
+        else -> "phase ${stats.phase.label.lowercase(java.util.Locale.ROOT)} · " +
+            "tested ${stats.tested}/${stats.candidates} · alive ${stats.alive} · " +
+            "${"%.1f".format(java.util.Locale.US, stats.ratePerSec)}/s"
+    }

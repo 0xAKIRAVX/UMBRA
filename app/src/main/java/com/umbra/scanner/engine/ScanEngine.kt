@@ -1080,6 +1080,13 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
             sink.onPhase(ScanPhase.DONE)
             return@coroutineScope
         }
+        // v4.0.2: per-Go-scan event state — see [GoEventState]. The announced
+        // count is carried here because the Go sampler draws WITH replacement
+        // (unlike IpGenerator): duplicate ip:port pairs on small CIDRs would
+        // otherwise strand the progress counter below 100% forever (the
+        // v3.8.1 seed-dedup lesson, reborn on the Go path).
+        val announced = samples * ports.size
+        val goState = GoEventState(announced)
         sink.onPhase(ScanPhase.TCP)
         var phaseAnnounced = ScanPhase.TCP
         try {
@@ -1091,10 +1098,10 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
                     if (arr != null) {
                         for (i in 0 until arr.length()) {
                             val ev = arr.optJSONObject(i) ?: continue
-                            dispatchGoEvent(ev, sink, params, phaseAnnounced)?.let { announced ->
-                                if (announced != phaseAnnounced) {
-                                    phaseAnnounced = announced
-                                    sink.onPhase(announced)
+                            dispatchGoEvent(ev, sink, params, phaseAnnounced, goState)?.let { announced2 ->
+                                if (announced2 != phaseAnnounced) {
+                                    phaseAnnounced = announced2
+                                    sink.onPhase(announced2)
                                 }
                             }
                         }
@@ -1107,7 +1114,7 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
                         if (arr != null) {
                             for (i in 0 until arr.length()) {
                                 val ev = arr.optJSONObject(i) ?: continue
-                                dispatchGoEvent(ev, sink, params, phaseAnnounced)
+                                dispatchGoEvent(ev, sink, params, phaseAnnounced, goState)
                             }
                         }
                     }
@@ -1117,16 +1124,32 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
             }
         } finally {
             runCatching { GoClean.cancelScan() }
+            // v4.0.2: the Go engine reports ABSOLUTE busy counts — whatever
+            // the last prg said must never leak into the post-scan stats as a
+            // phantom ACTIVE value (the Done panel keeps rendering stats).
+            val residual = goState.flushBusy()
+            if (residual != 0) sink.onActive(-residual)
+        }
+        // v4.0.2: reconcile the announcement against the pool the Go engine
+        // actually probed (unique ip:port ids). Skipped on cancellation — a
+        // cancelled storm legitimately leaves targets unprobed, and the
+        // controller's finalize(cancelled=true) owns that story.
+        if (!goState.cancelled && goState.seenIds.size < announced) {
+            sink.onLog(goDuplicateDrawLine(announced, goState.seenIds.size))
+            sink.onGenerated(goState.seenIds.size)
         }
         sink.onPhase(ScanPhase.DONE)
     }
 
-    /** Maps one Go event onto the sink; returns the phase it announced. */
+    /** Maps one Go event onto the sink; returns the phase it announced.
+     *  v4.0.2: carries [goState] — the busy-lane absolute→delta converter and
+     *  the unique-target ledger (see [GoEventState]). */
     private fun dispatchGoEvent(
         ev: JSONObject,
         sink: ScanSink,
         params: ScanParams,
         currentPhase: ScanPhase,
+        goState: GoEventState,
     ): ScanPhase? {
         return when (ev.optString("t")) {
             "log" -> {
@@ -1139,12 +1162,14 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
             }
             "res" -> {
                 val ip = ev.optString("ip")
+                val port = ev.optInt("p", 443)
+                goState.observe(ip, port)
                 val v6 = ev.optBoolean("v6", false)
                 val err = ev.optString("err", "")
                 val result = ScanResult(
                     ip = ip,
                     protocol = if (v6) IpProtocol.IPv6 else IpProtocol.IPv4,
-                    port = ev.optInt("p", 443),
+                    port = port,
                     latencyMs = if (ev.isNull("lat")) null else ev.optDouble("lat"),
                     jitterMs = if (ev.isNull("jit")) null else ev.optDouble("jit"),
                     packetLoss = if (ev.isNull("loss")) 0.0 else ev.optDouble("loss"),
@@ -1162,23 +1187,80 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
                 // narrate verified rows on the main log too (colo = PoP proof)
                 if (result.tlsSuccess) {
                     ev.optString("colo").takeIf { it.isNotBlank() }?.let { colo ->
-                        sink.onLog("clean · $ip · colo $colo · tls ${"%.0f".format(result.tlsHandshakeMs ?: 0.0)}ms")
+                        sink.onLog(cleanColoLine(ip, colo, result.tlsHandshakeMs ?: 0.0))
                     }
                 }
                 if (currentPhase == ScanPhase.TCP && ev.optBoolean("tlsOk", false)) ScanPhase.PROBE
                 else null
             }
             "prg" -> {
-                sink.onActive(ev.optInt("busy", 0))
+                // v4.0.2: the Go engine reports the ABSOLUTE number of busy
+                // lanes; the sink's onActive contract is a DELTA (the Kotlin
+                // storm sends +1/-1 around each probe). Passing the absolute
+                // value straight through ADDED the whole busy count on every
+                // prg event (every 50 completions) — the ACTIVE stat climbed
+                // monotonically to nonsense for the entire CLEAN-IP scan, the
+                // user's primary mode.
+                val delta = goState.busyDelta(ev.optInt("busy", 0))
+                if (delta != 0) sink.onActive(delta)
                 null
             }
             "fin" -> {
-                if (ev.optBoolean("cancel", false)) sink.onLog("go engine · scan cancelled")
+                goState.cancelled = ev.optBoolean("cancel", false)
+                if (goState.cancelled) sink.onLog("go engine · scan cancelled")
                 null
             }
             else -> null
         }
     }
+
+    /**
+     * v4.0.2: per-Go-scan event state. Two jobs, both pure logic so the
+     * regression tests can pin them without a live Go runtime:
+     *  1. busy-lane ABSOLUTE→DELTA conversion (see the prg branch above);
+     *  2. the unique ip:port ledger — the Go sampler draws WITH replacement,
+     *     so a small-CIDR CUSTOM scan legitimately produces duplicate targets
+     *     that the result store merges; the announced candidate count is then
+     *     reconciled to the unique count at fin.
+     */
+    internal class GoEventState(val announced: Int) {
+        var lastBusy = 0
+            private set
+        var cancelled = false
+        val seenIds = HashSet<String>()
+
+        fun busyDelta(busy: Int): Int {
+            val d = busy - lastBusy
+            lastBusy = busy
+            return d
+        }
+
+        /** Returns the residual absolute busy count (the value to subtract). */
+        fun flushBusy(): Int {
+            val r = lastBusy
+            lastBusy = 0
+            return r
+        }
+
+        fun observe(ip: String, port: Int) {
+            seenIds.add("$ip:$port")
+        }
+    }
+
+    /** v4.0.2: the honest duplicate-draw reconcile log line. Pure. */
+    internal fun goDuplicateDrawLine(announced: Int, unique: Int): String =
+        "go engine · ${announced - unique} duplicate ip draw(s) merged into " +
+            "$unique unique endpoints · candidate count reconciled"
+
+    /**
+     * v4.0.2: the colo narration line for a TLS-verified CLEAN-IP result.
+     * Locale.US via [formatRttCompact] — the default FORMAT locale renders
+     * Persian/Arabic-Indic digits (۴۲) on fa/ar devices inside this otherwise
+     * ASCII engine log line (the v4.0.1 sweep fixed the recovery-sweep RTT;
+     * this call sits on the v4 Go-event path and was missed). Pure.
+     */
+    internal fun cleanColoLine(ip: String, colo: String, tlsMs: Double): String =
+        "clean · $ip · colo $colo · tls ${formatRttCompact(tlsMs)}ms"
 
     /**
      * One real witness/sweep round — returns the answering pairs (handshake

@@ -341,7 +341,11 @@ object DeepEndpointTest {
         DeepOutcome.IDENTITY_FAILED -> "no warp identity available"
     }
 
-    /** Offset-prefixed hex, 16 bytes per line. [maxBytes] caps the dump. */
+    /** Offset-prefixed hex, 16 bytes per line. [maxBytes] caps the dump.
+     *  v4.0.2: the "+N bytes" truncation marker is emitted ONCE at the end —
+     *  it used to ride inside the row loop, so a truncated (>maxBytes) dump
+     *  repeated the marker after every row (8 copies for a 148-byte reply
+     *  capped at 128). Pure. */
     internal fun hexDump(bytes: ByteArray, maxBytes: Int = 128): String {
         val shown = minOf(bytes.size, maxBytes)
         return buildString {
@@ -350,10 +354,10 @@ object DeepEndpointTest {
                 for (i in row until minOf(row + 16, shown)) {
                     append("%02x ".format(bytes[i]))
                 }
-                if (shown < bytes.size) {
-                    append("· +${bytes.size - shown} bytes")
-                }
                 append('\n')
+            }
+            if (shown < bytes.size) {
+                append("· +${bytes.size - shown} bytes\n")
             }
         }.trimEnd('\n')
     }

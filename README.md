@@ -9,12 +9,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v4.0.1-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
+  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v4.0.2-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
   <img src="https://img.shields.io/badge/platform-Android%208.0%2B-34d399?style=flat-square&labelColor=0d1420" alt="platform">
   <img src="https://img.shields.io/badge/Kotlin%20%2B%20Rust%20%2B%20Go-tri--lingual-7f52ff?style=flat-square&labelColor=0d1420" alt="languages">
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285f4?style=flat-square&labelColor=0d1420" alt="compose">
   <img src="https://img.shields.io/badge/APK-%E2%89%8845%20MB-f15bb5?style=flat-square&labelColor=0d1420" alt="size">
-  <img src="https://img.shields.io/badge/tests-268%2F268%20green%20%C2%B7%20live%20WG--validated%20endpoints-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
+  <img src="https://img.shields.io/badge/tests-284%2F284%20green%20%C2%B7%20live%20WG--validated%20endpoints-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-9b5de5?style=flat-square&labelColor=0d1420" alt="license">
 </p>
 
@@ -159,7 +159,7 @@ Grab the latest signed APK from the **[Releases](https://github.com/0xAKIRAVX/UM
 
 | | |
 | --- | --- |
-| Latest version | **v4.0.1** (build 28) |
+| Latest version | **v4.0.2** (build 29) |
 | Requirement | Android 8.0+ (API 26) |
 | Architecture | Universal (arm64 / armv7 / x86_64) |
 | Size | ~45 MB (three toolchains: Go runtime + Rust core, ×3 ABIs) |
@@ -177,7 +177,7 @@ Grab the latest signed APK from the **[Releases](https://github.com/0xAKIRAVX/UM
 git clone https://github.com/0xAKIRAVX/UMBRA.git
 cd UMBRA
 ./gradlew assembleRelease        # APK → app/build/outputs/apk/release/
-./gradlew test                   # 257 unit tests
+./gradlew test                   # 284 unit tests
 UMBRA_LIVE_TEST=1 ./gradlew test # + live-gated suites against production Cloudflare
 ```
 
@@ -243,6 +243,7 @@ Zero analytics. Zero trackers. Zero data collection. Scans, measurements and the
 
 | Version | Theme | Highlights |
 | --- | --- | --- |
+| **v4.0.2** | Go-path integrity pass | ACTIVE-lane counter poisoning fixed (Go's absolute busy counts were passed into a delta accumulator), duplicate-draw progress reconciliation on small CIDRs, Persian digits out of the colo log line, Turkish dotless-ı out of the notification, single hex-dump truncation marker, deep-test crash feedback |
 | **v4.0.1** | Locale hardening + gate fixes | Persian/Arabic digits out of the ASCII engine logs, Turkish lowercase traps closed, debug toggle now actually gates the per-probe stream, diagnostics ↔ scan both-direction guard, WG deep-probe default port |
 | **v4.0.0** | Tri-lingual rebuild | Rust WG core + Go clean-IP engine + Kotlin orchestration; DEBUG console with the live per-probe stream; ~45 MB |
 | **v3.12.0** | Diagnostics | DIAG tab — full network interrogation verdicts, single-endpoint deep test with annotated hex, app-wide debug journal |
@@ -264,6 +265,17 @@ Zero analytics. Zero trackers. Zero data collection. Scans, measurements and the
 
 <details>
 <summary><strong>Full release notes</strong></summary>
+
+### v4.0.2 — the Go-path integrity pass
+
+A second fresh-eyes audit over the whole tri-lingual codebase, aimed at the paths the v4 rebuild grew around the Go clean-IP engine:
+
+1. **The ACTIVE stat was poisoned on every CLEAN-IP scan.** The Go engine's `prg` events report the **absolute** number of busy goroutine lanes; the sink's `onActive` contract is a **delta** (the Kotlin storm sends +1/−1 around each probe). The pass-through added the whole busy count on every progress event — the ACTIVE figure on the stats card climbed monotonically to nonsense for the entire scan, on the app's primary mode. An absolute→delta converter now tracks the true lane count and flushes its residual to zero at scan end (cancellations included).
+2. **Duplicate draws stranded the progress bar below 100%.** The Go sampler draws candidates **with replacement** (unlike the Kotlin generator, which deduplicates): on small CIDRs — a pasted /24 in CUSTOM mode — duplicate `ip:port` targets were probed twice while the result store merged them, so `tested` could never reach the announced `candidates` and the completion line overcounted. The engine now keeps a unique-id ledger and reconciles the announcement at scan end with an honest "duplicate ip draws merged" line.
+3. **Two more locale traps closed.** The Go engine's colo narration line formatted its TLS time with the default locale (Persian digits inside the ASCII scan log on fa devices — the v4.0.1 sweep fixed the same class on the recovery sweep and missed this one), and the foreground notification lowercased the phase label with the default locale ("IDENTITY" → "ıdentıty" on Turkish devices, in the status bar of all places). Both pinned to `Locale.US`/`Locale.ROOT`.
+4. **Deep-test crash feedback.** A crash inside the Diagnostics deep endpoint test used to return `null` and the button silently un-busied. The console now carries an honest "deep test crashed" line (the same crash-net contract the Debug tab's deep probe already had).
+5. **Hex-dump truncation marker.** A truncated hex dump printed its "+N bytes" marker after **every** row; it now appears once, at the end.
+6. 14 new regression tests (284/284 green), all live suites re-verified against production Cloudflare through both native cores (real WG handshakes + in-tunnel pings through the Rust core, ghost-key control, census, endpoint scan).
 
 ### v4.0.1 — locale hardening + gate fixes
 

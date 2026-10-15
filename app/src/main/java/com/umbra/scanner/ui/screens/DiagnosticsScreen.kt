@@ -240,7 +240,21 @@ fun DiagnosticsScreen(app: UmbraApp) {
                         val report = withContext(Dispatchers.IO) {
                             runCatching {
                                 DeepEndpointTest.run(deepInput, timeoutMs = 3000, attempts = 2)
-                            }.getOrNull()
+                            }.getOrElse { e ->
+                                // v4.0.2: a crash inside the deep test is no
+                                // longer swallowed — the runCatching used to
+                                // return null and the button simply un-busied
+                                // with zero feedback. The console carries the
+                                // honest line instead (the Compose scope has no
+                                // CEH; this is the same crash-net contract
+                                // DebugScreen's deep probe already had).
+                                DebugLog.error(
+                                    DebugLog.TAG_DIAG,
+                                    "deep test crashed · ${e.javaClass.simpleName}" +
+                                        (e.message?.let { ": $it" } ?: ""),
+                                )
+                                null
+                            }
                         }
                         deepReport = report
                         deepBusy = false
