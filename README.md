@@ -37,9 +37,15 @@ architecture (real WireGuard handshake validation, pre-flight witness gate,
 recovery ladder, smart ranking, VLESS builder), EN + FA with full RTL, and
 byte-identical crypto: the shared `warp_vectors.json` reference vectors (the
 ones live-verified against production WARP endpoints) pass on BOTH
-platforms, so the iOS app speaks exactly the same wire protocol. Open
-`ios/UMBRA.xcodeproj` in Xcode 15+, pick your team, Cmd+R — no dependencies,
-no entitlements. See [`ios/README.md`](ios/README.md).
+platforms, so the iOS app speaks exactly the same wire protocol.
+
+**Installing on an iPhone without a Mac:** the repo's CI
+(`.github/workflows/ios-build.yml`) builds an unsigned IPA on a
+GitHub-hosted Mac — grab it from *Actions → iOS build (unsigned IPA) →
+Artifacts* and re-sign it with your Apple ID via Sideloadly/AltStore. The
+step-by-step guide (in Persian) is [`ios/INSTALL-FA.md`](ios/INSTALL-FA.md).
+With a Mac: open `ios/UMBRA.xcodeproj` in Xcode 15+, pick your team, Cmd+R —
+no dependencies, no entitlements. See [`ios/README.md`](ios/README.md).
 
 ---
 

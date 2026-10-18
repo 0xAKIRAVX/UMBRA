@@ -1,0 +1,128 @@
+name: iOS build (unsigned IPA)
+
+# Builds the Swift/SwiftUI port in `ios/` on a GitHub-hosted macOS runner:
+#   1. regenerates the Xcode project from project.yml (XcodeGen — immune to
+#      pbxproj drift),
+#   2. runs the full XCTest suite on an iPhone simulator (includes the
+#      byte-for-byte WireGuard reference-vector suite),
+#   3. archives UMBRA for generic iOS device WITHOUT code signing,
+#   4. packs Payload/ into an unsigned .ipa and uploads it as an artifact.
+#
+# The unsigned IPA is meant to be re-signed locally with your own Apple ID
+# via Sideloadly / AltStore — see ios/INSTALL-FA.md (فارسی) or ios/README.md.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-build.yml'
+
+concurrency:
+  group: ios-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Tests + unsigned IPA
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          xcrun simctl list runtimes | sed -n '1,20p'
+
+      - name: Install XcodeGen
+        run: |
+          brew update-reset >/dev/null 2>&1 || true
+          brew install xcodegen
+          xcodegen --version
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Pick an iPhone simulator
+        id: sim
+        working-directory: ios
+        run: |
+          # Prefer a numbered-generation iPhone (names never contain parens)
+          NAME=$(xcrun simctl list devices available \
+                 | grep -oE 'iPhone [0-9]+ (Pro Max|Pro|Plus|mini)?' | head -1 || true)
+          if [ -z "$NAME" ]; then
+            NAME=$(xcrun simctl list devices available \
+                   | grep 'iPhone' | head -1 \
+                   | sed -E 's/^ *([^()]+) \([0-9A-Fa-f-]{36}\).*/\1/' | xargs || true)
+          fi
+          if [ -z "$NAME" ]; then
+            echo "No iPhone simulator available on this runner" >&2
+            exit 1
+          fi
+          echo "Using simulator: $NAME"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Run unit tests (WG reference vectors included)
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project UMBRA.xcodeproj \
+            -scheme UMBRA \
+            -destination "platform=iOS Simulator,name=${{ steps.sim.outputs.name }}" \
+            2>&1 | tee tests.log
+
+      - name: Archive (unsigned, generic iOS device)
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project UMBRA.xcodeproj \
+            -scheme UMBRA \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/UMBRA.xcarchive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            2>&1 | tee archive.log
+
+      - name: Pack unsigned .ipa
+        working-directory: ios
+        run: |
+          set -e
+          APP="build/UMBRA.xcarchive/Products/Applications/UMBRA.app"
+          test -d "$APP"
+          mkdir -p build/Payload
+          rm -rf build/Payload/UMBRA.app
+          cp -R "$APP" build/Payload/
+          # strip extended attributes so the zip is clean for Sideloadly
+          xattr -cr build/Payload/UMBRA.app || true
+          cd build
+          rm -f UMBRA-unsigned.ipa
+          zip -qry UMBRA-unsigned.ipa Payload
+          unzip -l UMBRA-unsigned.ipa | sed -n '1,12p'
+          ls -lh UMBRA-unsigned.ipa
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: UMBRA-unsigned-ipa
+          if-no-files-found: error
+          path: ios/build/UMBRA-unsigned.ipa
+
+      - name: Upload logs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ci-logs
+          path: |
+            ios/tests.log
+            ios/archive.log
+          if-no-files-found: ignore
