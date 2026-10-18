@@ -20,7 +20,9 @@ final class CoreTests: XCTestCase {
     func testLiteralToBytesV6() {
         let d0 = IpText.literalToBytes("2606:4700:d0::")
         XCTAssertNotNil(d0)
-        XCTAssertEqual([0x26, 0x06, 0x47, 0x00, 0x0d, 0x00], Array(d0!.prefix(6)))
+        // hextet "d0" == 0x00d0 (byte-pair 00 d0) — identical to the Kotlin
+        // parser's Integer.parseInt(seg, 16); NOT 0x0d00.
+        XCTAssertEqual([0x26, 0x06, 0x47, 0x00, 0x00, 0xd0], Array(d0!.prefix(6)))
         XCTAssertEqual([UInt8](repeating: 0, count: 10), Array(d0!.suffix(10)))
 
         XCTAssertEqual("2606:4700:d0::a29f:c001",
