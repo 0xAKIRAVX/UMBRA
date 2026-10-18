@@ -1,15 +1,17 @@
 # UMBRA iOS — build & run
 
-## No Mac? Install the CI-built IPA (the fast path)
+## No Mac, no computer at all? (the fast path)
 
 The repo ships a GitHub Actions workflow (`.github/workflows/ios-build.yml`)
-that builds this app on a GitHub-hosted Mac, runs the test suite, and uploads
-an **unsigned `.ipa`** as an artifact: *Actions → “iOS build (unsigned IPA)” →
-latest green run → Artifacts → `UMBRA-unsigned-ipa`* (or press **Run
-workflow** if there is no recent run). Re-sign that IPA with your own Apple ID
-using **Sideloadly / AltStore** — the full walkthrough (in Persian) lives in
-[`INSTALL-FA.md`](INSTALL-FA.md). Free Apple ID = 7-day signing; a $99
-developer account = 1 year / TestFlight.
+that builds this app on a GitHub-hosted Mac, runs the test suite, and
+publishes an **unsigned `.ipa`** to the rolling
+[`ios-latest` release](https://github.com/0xAKIRAVX/UMBRA/releases) —
+download it in Safari and sign & install **on the iPhone itself** with
+**Esign / Scarlet** (no computer needed; the full Persian walkthrough is
+[`INSTALL-FA.md`](INSTALL-FA.md)). The same IPA is also attached to every
+green run as the `UMBRA-unsigned-ipa` artifact for the Sideloadly /
+AltStore (computer) path. Free Apple ID = 7-day signing; a $99 developer
+account = 1 year / TestFlight.
 
 ## Requirements (local build path)
 

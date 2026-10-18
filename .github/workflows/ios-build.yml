@@ -23,6 +23,12 @@ concurrency:
   group: ios-build-${{ github.ref }}
   cancel-in-progress: true
 
+# contents: write lets the GITHUB_TOKEN publish the rolling `ios-latest`
+# release so the .ipa can be downloaded directly in Safari on the iPhone
+# (no computer, no unzip — the artifact path needs the GitHub app + unzip).
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Tests + unsigned IPA
@@ -116,6 +122,17 @@ jobs:
           name: UMBRA-unsigned-ipa
           if-no-files-found: error
           path: ios/build/UMBRA-unsigned.ipa
+
+      - name: Publish rolling ios-latest release (direct Safari download)
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete ios-latest --cleanup-tag --yes || true
+          gh release create ios-latest ios/build/UMBRA-unsigned.ipa \
+            --title "UMBRA iOS — sideload build" \
+            --prerelease \
+            --notes-file .github/IOS_RELEASE_NOTES.md
 
       - name: Upload logs (on failure)
         if: failure()

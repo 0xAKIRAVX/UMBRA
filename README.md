@@ -39,13 +39,18 @@ byte-identical crypto: the shared `warp_vectors.json` reference vectors (the
 ones live-verified against production WARP endpoints) pass on BOTH
 platforms, so the iOS app speaks exactly the same wire protocol.
 
-**Installing on an iPhone without a Mac:** the repo's CI
+**Installing on an iPhone with NO computer:** the repo's CI
 (`.github/workflows/ios-build.yml`) builds an unsigned IPA on a
-GitHub-hosted Mac — grab it from *Actions → iOS build (unsigned IPA) →
-Artifacts* and re-sign it with your Apple ID via Sideloadly/AltStore. The
-step-by-step guide (in Persian) is [`ios/INSTALL-FA.md`](ios/INSTALL-FA.md).
-With a Mac: open `ios/UMBRA.xcodeproj` in Xcode 15+, pick your team, Cmd+R —
-no dependencies, no entitlements. See [`ios/README.md`](ios/README.md).
+GitHub-hosted Mac and publishes it to the rolling
+[`ios-latest` release](https://github.com/0xAKIRAVX/UMBRA/releases) —
+download `UMBRA-unsigned.ipa` in Safari, then sign & install **on the
+iPhone itself** with **Esign / Scarlet** (on-device signing, free
+certificates; 7-day validity for a personal Apple ID — re-sign the same
+IPA after that). The step-by-step guide (in Persian) is
+[`ios/INSTALL-FA.md`](ios/INSTALL-FA.md). With a computer:
+*Actions → Artifacts* + Sideloadly/AltStore works too. With a Mac: open
+`ios/UMBRA.xcodeproj` in Xcode 15+, pick your team, Cmd+R — no
+dependencies, no entitlements. See [`ios/README.md`](ios/README.md).
 
 ---
 
