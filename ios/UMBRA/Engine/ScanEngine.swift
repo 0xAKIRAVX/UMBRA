@@ -53,18 +53,16 @@ final class ScanEngine {
         let rttMs: Double
     }
 
-    companion object {
-        /// v3.3 guard: extreme settings could queue a multi-hour storm.
-        static let probeCap = 120_000
-        /// v3.9: pre-flight witness budget.
-        static let witnessTimeoutMs = 2000
-        /// v3.9: witness pool size (seeds + this many random pairs).
-        static let witnessRandom = 12
-        /// v3.10: recovery-sweep budget per probe.
-        static let sweepTimeoutMs = 1500
-        /// v3.10: drawn pool IPs riding the sweep alongside the seeds.
-        static let sweepExtraPoolIps = 2
-    }
+    /// v3.3 guard: extreme settings could queue a multi-hour storm.
+    static let probeCap = 120_000
+    /// v3.9: pre-flight witness budget.
+    static let witnessTimeoutMs = 2000
+    /// v3.9: witness pool size (seeds + this many random pairs).
+    static let witnessRandom = 12
+    /// v3.10: recovery-sweep budget per probe.
+    static let sweepTimeoutMs = 1500
+    /// v3.10: drawn pool IPs riding the sweep alongside the seeds.
+    static let sweepExtraPoolIps = 2
 
     /// v3.6: per-scan tally of WHY warp probes failed.
     private let failureLock = NSLock()

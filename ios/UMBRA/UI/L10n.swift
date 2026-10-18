@@ -18,7 +18,7 @@ struct Str {
     }
 
     private var l: (_ en: String, _ fa: String) -> String {
-        isFa ? $1 : $0
+        { isFa ? $1 : $0 }
     }
 
     // brand / status
