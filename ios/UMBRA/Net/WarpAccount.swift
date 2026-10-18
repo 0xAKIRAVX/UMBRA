@@ -61,6 +61,21 @@ struct WarpAccount: Codable, Equatable {
         authToken = try? c.decode(String.self, forKey: .authToken)
     }
 
+    /// The byte fields travel as base64 STRINGS (same JSON the Kotlin side
+    /// writes and reads). The synthesized encoder would emit them as JSON
+    /// number arrays — which this decoder rejects — so encode explicitly.
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(Data(privateKey).base64EncodedString(), forKey: .privateKey)
+        try c.encode(Data(publicKey).base64EncodedString(), forKey: .publicKey)
+        try c.encode(Data(reserved).base64EncodedString(), forKey: .reserved)
+        try c.encode(v6, forKey: .v6)
+        try c.encode(v4, forKey: .v4)
+        try c.encode(Data(responderPublicKey).base64EncodedString(), forKey: .responderPublicKey)
+        try c.encodeIfPresent(accountId, forKey: .accountId)
+        try c.encodeIfPresent(authToken, forKey: .authToken)
+    }
+
     /// Structurally valid? (same acceptance rule as the Kotlin parser)
     var isValid: Bool {
         privateKey.count == 32 && publicKey.count == 32

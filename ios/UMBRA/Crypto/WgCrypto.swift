@@ -62,7 +62,10 @@ enum WgCrypto {
             using: SymmetricKey(data: Data(key)),
             nonce: n,
             authenticating: Data(aad)) else { return nil }
-        return [UInt8](sealed.combined)
+        // WireGuard wire format: ciphertext || tag (NO nonce prefix — the
+        // nonce is implicit/zero on the wire). 'sealed.combined' would
+        // prepend the 12-byte nonce and break every packet layout.
+        return [UInt8](sealed.ciphertext) + [UInt8](sealed.tag)
     }
 
     static func chacha20Poly1305Open(
@@ -70,7 +73,10 @@ enum WgCrypto {
     ) -> [UInt8]? {
         guard key.count == 32, nonce.count == 12,
               let n = try? ChaChaPoly.Nonce(data: Data(nonce)) else { return nil }
-        guard let box = try? ChaChaPoly.SealedBox(combined: Data(ctAndTag)) else { return nil }
+        guard ctAndTag.count >= 16 else { return nil }
+        let ct = Data(ctAndTag.dropLast(16))
+        let tag = Data(ctAndTag.suffix(16))
+        guard let box = try? ChaChaPoly.SealedBox(nonce: n, ciphertext: ct, tag: tag) else { return nil }
         guard let pt = try? ChaChaPoly.open(
             box,
             using: SymmetricKey(data: Data(key)),

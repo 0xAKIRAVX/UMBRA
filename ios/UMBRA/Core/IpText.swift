@@ -62,19 +62,15 @@ enum IpText {
         if head.contains("::") {
             let pieces = head.components(separatedBy: "::")
             guard pieces.count == 2 else { return nil }
-            for g in pieces[0].split(separator: ":", omittingEmptySubsequences: false) {
-                guard let v = parseHexGroup(String(g)) else { return nil }
-                headGroups.append(v)
-            }
-            for g in pieces[1].split(separator: ":", omittingEmptySubsequences: false) {
-                guard let v = parseHexGroup(String(g)) else { return nil }
-                tailGroups.append(v)
-            }
+            // "" is the empty side of "::" (0 groups); a piece like ":"
+            // (stray colon) is malformed -> nil
+            guard let hg = parseGroups(pieces[0]),
+                  let tg = parseGroups(pieces[1]) else { return nil }
+            headGroups = hg
+            tailGroups = tg
         } else {
-            for g in head.split(separator: ":", omittingEmptySubsequences: false) {
-                guard let v = parseHexGroup(String(g)) else { return nil }
-                headGroups.append(v)
-            }
+            guard let hg = parseGroups(head) else { return nil }
+            headGroups = hg
         }
 
         let embedded = headGroups.count + tailGroups.count + v4TailGroups.count
@@ -106,6 +102,18 @@ enum IpText {
     private static func parseHexGroup(_ s: String) -> UInt16? {
         guard !s.isEmpty, s.count <= 4, s.allSatisfy({ $0.isHexDigit }) else { return nil }
         return UInt16(s, radix: 16)
+    }
+
+    /// Parses a "::"-free hextet run. "" -> [] (the empty side of "::");
+    /// any interior empty group (a stray colon) is malformed -> nil.
+    private static func parseGroups(_ piece: String) -> [UInt16]? {
+        if piece.isEmpty { return [] }
+        var out: [UInt16] = []
+        for g in piece.split(separator: ":", omittingEmptySubsequences: false) {
+            guard let v = parseHexGroup(String(g)) else { return nil }
+            out.append(v)
+        }
+        return out
     }
 
     /// Compact RFC-5952-ish rendering of raw address bytes.
