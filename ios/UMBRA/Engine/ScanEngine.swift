@@ -438,7 +438,7 @@ final class ScanEngine {
         let loss = total == 0 ? 1.0 : Double(t.failures) / Double(total)
         return ScanResult(
             ip: cand.text,
-            protocol: cand.ipProtocol,
+            ipProtocol: cand.ipProtocol,
             port: port,
             latencyMs: lat.min(),
             jitterMs: TcpProbe.jitterOf(lat),
@@ -483,7 +483,7 @@ final class ScanEngine {
         }
         return ScanResult(
             ip: cand.text,
-            protocol: cand.ipProtocol,
+            ipProtocol: cand.ipProtocol,
             port: port,
             latencyMs: t.avgPingMs ?? t.avgHandshakeMs,
             jitterMs: t.jitterMs,
