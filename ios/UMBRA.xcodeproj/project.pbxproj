@@ -1,0 +1,599 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	objectVersion = 56;
+	classes = {
+	};
+	objects = {
+
+/* Begin PBXBuildFile section */
+		039DE3AEDB7DD8AFFCC171E6 /* chakra_petch_medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 846647381580EFE73EC35787 /* chakra_petch_medium.ttf */; };
+		0A2AEF911555AB27E7AA958E /* vazirmatn_bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 19BDC099D1AD78A139A68360 /* vazirmatn_bold.ttf */; };
+		0D1AB829F89582CE2CD69D96 /* chakra_petch_regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = E502F44A7F1163F89DB4A384 /* chakra_petch_regular.ttf */; };
+		1235AB37E2167E38D5A4EB6B /* VlessGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D949EBE670841476763DB333 /* VlessGenerator.swift */; };
+		22E39DD73ACBFD2975B7FF49 /* Blake2s.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD1FAF379E783B77701BD10D /* Blake2s.swift */; };
+		4078B738918AC0AF81B96BF8 /* CoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E415C43B27B9A99C218B0696 /* CoreTests.swift */; };
+		44732FB057F0F9A4DDAC7059 /* Fmt.swift in Sources */ = {isa = PBXBuildFile; fileRef = B83EC40ED72011892153D275 /* Fmt.swift */; };
+		4766DFE24482DFF22CBD3422 /* ScanView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0075CD4F143E6ED4E332B42 /* ScanView.swift */; };
+		4F5F26C542669D0CB4901F84 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1303B023FD898860C38D9D9E /* SettingsView.swift */; };
+		50B8A5C79565208844A4C47E /* WgCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19BF04F7140E12A70FB3733 /* WgCrypto.swift */; };
+		525B56433EF903A23D458EE0 /* vazirmatn_regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 5A38AB87072103C49C1F6688 /* vazirmatn_regular.ttf */; };
+		616222EBE46DF88F715A3C6E /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0FAEED40C837806D2E9F36B /* Theme.swift */; };
+		647A8AE79B855B2971A17B40 /* NoiseBurst.swift in Sources */ = {isa = PBXBuildFile; fileRef = E53BA3FBF7E29E065FCF60AE /* NoiseBurst.swift */; };
+		671A32F2B5F8FBE7BD78F662 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7BCEBE4CE14B0AD0A58F45D /* RootView.swift */; };
+		67A071D461513E2ABECA570E /* NetQuality.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52DDB700749515B0A5275AE6 /* NetQuality.swift */; };
+		67A998236484B9484FC6B0D2 /* chakra_petch_semibold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 0B080272525E68D3DCDA2861 /* chakra_petch_semibold.ttf */; };
+		692E861B6F25EFE69FCED8A6 /* WgVectorsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29943510E07B10119CEB13B8 /* WgVectorsTests.swift */; };
+		695E8EAC5725F09B42532107 /* Ranking.swift in Sources */ = {isa = PBXBuildFile; fileRef = 593CA8DED60E802B88A44655 /* Ranking.swift */; };
+		79D08C737B0A9DE4C248403D /* Exporters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 489DF782D93308EAC347454C /* Exporters.swift */; };
+		8405135456010A36E1B0B08B /* WarpProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 385385357A5F65AF6BCAE83B /* WarpProbe.swift */; };
+		84F055AFB37BBB8785186237 /* vazirmatn_medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 9874C91B6BE5FF82AD560DB5 /* vazirmatn_medium.ttf */; };
+		86353275FD98DA70AF3A1FE4 /* Model.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CD377A1145E303CA2BA451A /* Model.swift */; };
+		885CF0C48FB095047A5DEF66 /* ResultsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AC799F7F2A662BE5D7CBFAF /* ResultsView.swift */; };
+		89FF82C4787F01C56049B76B /* ScanController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 864F0592CD328EBF440655FE /* ScanController.swift */; };
+		90D61E345400518E4169CDDE /* UdpLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = E282A5920BD0E69B3B4D62F7 /* UdpLink.swift */; };
+		A15A3BDBCF8053335D27924A /* L10n.swift in Sources */ = {isa = PBXBuildFile; fileRef = 696E62DE55197CA65894DEC3 /* L10n.swift */; };
+		A81EDDA15A94C3C1CA17B56E /* WarpAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C640F0EE7B4AA01A158E455 /* WarpAccount.swift */; };
+		AFE450B4657FE97587FA054A /* WgProtocolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 312B506855C1E46145EC8801 /* WgProtocolTests.swift */; };
+		B2834AEB30634A760F594C62 /* Presets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FC7FDC8B160DC8CB575BAFD /* Presets.swift */; };
+		B56ECCE28BA39B8C5FBC28C6 /* VlessView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 210C4944D1E8FA549ABE9AF5 /* VlessView.swift */; };
+		BBE9E48D00B3CEB033878CAB /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99638470CB286E728B6BDC45 /* SettingsStore.swift */; };
+		C7E285DC31E57AFE18A42F6B /* TcpProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CF913533A88551F3A7EA209 /* TcpProbe.swift */; };
+		CB6004EBE147C02C24C0F4CC /* ExactIpHttps.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37A453D42D7DDB54C85AB8C2 /* ExactIpHttps.swift */; };
+		CF566B146C1BDF2B847CD1EE /* Cidr.swift in Sources */ = {isa = PBXBuildFile; fileRef = B217AA5A4E091477B03AD211 /* Cidr.swift */; };
+		D8435E378205019B09A9D8E7 /* UdpEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 165D10C5D5FB107275F591A9 /* UdpEvidence.swift */; };
+		DFF451C57C0E9C09A450A091 /* UMBRAApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7B791848584CC6FF13C58E7 /* UMBRAApp.swift */; };
+		E3768D4A9EE027E2F0F51376 /* IpText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 505C50B7D62580B411CA2AFE /* IpText.swift */; };
+		ED6166D2BD288DA4F06D8770 /* WgVectors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85E98ECCD442DC9A75F057BA /* WgVectors.swift */; };
+		F30EE567D23AEAD2C9E04737 /* ScanEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F122DA373C8E501532EDB51 /* ScanEngine.swift */; };
+		F35A5800729581B896B75543 /* WgProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0560F338FC9C80F13E6D1957 /* WgProtocol.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		0560F338FC9C80F13E6D1957 /* WgProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WgProtocol.swift; sourceTree = "<group>"; };
+		0B080272525E68D3DCDA2861 /* chakra_petch_semibold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = chakra_petch_semibold.ttf; sourceTree = "<group>"; };
+		0F122DA373C8E501532EDB51 /* ScanEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanEngine.swift; sourceTree = "<group>"; };
+		1303B023FD898860C38D9D9E /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		165D10C5D5FB107275F591A9 /* UdpEvidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UdpEvidence.swift; sourceTree = "<group>"; };
+		19BDC099D1AD78A139A68360 /* vazirmatn_bold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = vazirmatn_bold.ttf; sourceTree = "<group>"; };
+		210C4944D1E8FA549ABE9AF5 /* VlessView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VlessView.swift; sourceTree = "<group>"; };
+		24C3A59CAD6510428F023483 /* UMBRA.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = UMBRA.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		29943510E07B10119CEB13B8 /* WgVectorsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WgVectorsTests.swift; sourceTree = "<group>"; };
+		312B506855C1E46145EC8801 /* WgProtocolTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WgProtocolTests.swift; sourceTree = "<group>"; };
+		37A453D42D7DDB54C85AB8C2 /* ExactIpHttps.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExactIpHttps.swift; sourceTree = "<group>"; };
+		385385357A5F65AF6BCAE83B /* WarpProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WarpProbe.swift; sourceTree = "<group>"; };
+		489DF782D93308EAC347454C /* Exporters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Exporters.swift; sourceTree = "<group>"; };
+		505C50B7D62580B411CA2AFE /* IpText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IpText.swift; sourceTree = "<group>"; };
+		52DDB700749515B0A5275AE6 /* NetQuality.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetQuality.swift; sourceTree = "<group>"; };
+		593CA8DED60E802B88A44655 /* Ranking.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Ranking.swift; sourceTree = "<group>"; };
+		5A38AB87072103C49C1F6688 /* vazirmatn_regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = vazirmatn_regular.ttf; sourceTree = "<group>"; };
+		696E62DE55197CA65894DEC3 /* L10n.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = L10n.swift; sourceTree = "<group>"; };
+		6CD377A1145E303CA2BA451A /* Model.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Model.swift; sourceTree = "<group>"; };
+		6CF913533A88551F3A7EA209 /* TcpProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TcpProbe.swift; sourceTree = "<group>"; };
+		7AC799F7F2A662BE5D7CBFAF /* ResultsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsView.swift; sourceTree = "<group>"; };
+		7FC7FDC8B160DC8CB575BAFD /* Presets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Presets.swift; sourceTree = "<group>"; };
+		846647381580EFE73EC35787 /* chakra_petch_medium.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = chakra_petch_medium.ttf; sourceTree = "<group>"; };
+		85E98ECCD442DC9A75F057BA /* WgVectors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WgVectors.swift; sourceTree = "<group>"; };
+		864F0592CD328EBF440655FE /* ScanController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanController.swift; sourceTree = "<group>"; };
+		8C640F0EE7B4AA01A158E455 /* WarpAccount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WarpAccount.swift; sourceTree = "<group>"; };
+		8E563CB5E5C88C017B17D245 /* UMBRATests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = UMBRATests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		9874C91B6BE5FF82AD560DB5 /* vazirmatn_medium.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = vazirmatn_medium.ttf; sourceTree = "<group>"; };
+		99638470CB286E728B6BDC45 /* SettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStore.swift; sourceTree = "<group>"; };
+		A7BCEBE4CE14B0AD0A58F45D /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		AD1FAF379E783B77701BD10D /* Blake2s.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Blake2s.swift; sourceTree = "<group>"; };
+		B19BF04F7140E12A70FB3733 /* WgCrypto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WgCrypto.swift; sourceTree = "<group>"; };
+		B217AA5A4E091477B03AD211 /* Cidr.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Cidr.swift; sourceTree = "<group>"; };
+		B83EC40ED72011892153D275 /* Fmt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Fmt.swift; sourceTree = "<group>"; };
+		C0075CD4F143E6ED4E332B42 /* ScanView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanView.swift; sourceTree = "<group>"; };
+		D7B791848584CC6FF13C58E7 /* UMBRAApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UMBRAApp.swift; sourceTree = "<group>"; };
+		D949EBE670841476763DB333 /* VlessGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VlessGenerator.swift; sourceTree = "<group>"; };
+		DE059DE2753EF8C7D8072B82 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		E282A5920BD0E69B3B4D62F7 /* UdpLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UdpLink.swift; sourceTree = "<group>"; };
+		E415C43B27B9A99C218B0696 /* CoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreTests.swift; sourceTree = "<group>"; };
+		E502F44A7F1163F89DB4A384 /* chakra_petch_regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = chakra_petch_regular.ttf; sourceTree = "<group>"; };
+		E53BA3FBF7E29E065FCF60AE /* NoiseBurst.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoiseBurst.swift; sourceTree = "<group>"; };
+		F0FAEED40C837806D2E9F36B /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXContainerItemProxy section */
+		99CB7B1DA345A8348BE0CF21 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A8E1420C70643C2F856A12BC /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = CF9FD99C5E86FD5DA223FE35;
+			remoteInfo = UMBRA;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		7FF864F3711FEA7A4AEA342A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E3BEA1F36633A00C6750BC70 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		2FBC6BD0B9A4336978E1E0EF /* main */ = {
+			isa = PBXGroup;
+			children = (
+				7AE39837D4E95031D74C1399 /* UMBRA */,
+				484DE218B880CA118EDE0560 /* UMBRATests */,
+				43931CF8D8FF624E4C75AE32 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		7AE39837D4E95031D74C1399 /* UMBRA */ = {
+			isa = PBXGroup;
+			children = (
+				D7B791848584CC6FF13C58E7 /* UMBRAApp.swift */,
+				DE059DE2753EF8C7D8072B82 /* Info.plist */,
+				EF557DBB87AD1D2EFEA4E101 /* Core */,
+				271CCF18D3C7139DDBA4DA32 /* Crypto */,
+				4666F7912CE225E5C30F3A55 /* Net */,
+				C4DF9BE914B3BC9256953BC1 /* Engine */,
+				8D12C59D6FC96256D711668B /* Settings */,
+				E0CF0CECEC50A4705FD3FA27 /* Vless */,
+				BAA95F6FBF6F626EFEEFB5CE /* Export */,
+				3E6BD9F987E24A5843ADB364 /* UI */,
+				29DE0C814F988015A4357570 /* Fonts */,
+			);
+			path = UMBRA;
+			sourceTree = "<group>";
+		};
+		EF557DBB87AD1D2EFEA4E101 /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				B217AA5A4E091477B03AD211 /* Cidr.swift */,
+				B83EC40ED72011892153D275 /* Fmt.swift */,
+				505C50B7D62580B411CA2AFE /* IpText.swift */,
+				6CD377A1145E303CA2BA451A /* Model.swift */,
+				7FC7FDC8B160DC8CB575BAFD /* Presets.swift */,
+				593CA8DED60E802B88A44655 /* Ranking.swift */,
+			);
+			path = Core;
+			sourceTree = "<group>";
+		};
+		271CCF18D3C7139DDBA4DA32 /* Crypto */ = {
+			isa = PBXGroup;
+			children = (
+				AD1FAF379E783B77701BD10D /* Blake2s.swift */,
+				B19BF04F7140E12A70FB3733 /* WgCrypto.swift */,
+			);
+			path = Crypto;
+			sourceTree = "<group>";
+		};
+		4666F7912CE225E5C30F3A55 /* Net */ = {
+			isa = PBXGroup;
+			children = (
+				37A453D42D7DDB54C85AB8C2 /* ExactIpHttps.swift */,
+				52DDB700749515B0A5275AE6 /* NetQuality.swift */,
+				E53BA3FBF7E29E065FCF60AE /* NoiseBurst.swift */,
+				6CF913533A88551F3A7EA209 /* TcpProbe.swift */,
+				165D10C5D5FB107275F591A9 /* UdpEvidence.swift */,
+				E282A5920BD0E69B3B4D62F7 /* UdpLink.swift */,
+				8C640F0EE7B4AA01A158E455 /* WarpAccount.swift */,
+				385385357A5F65AF6BCAE83B /* WarpProbe.swift */,
+				0560F338FC9C80F13E6D1957 /* WgProtocol.swift */,
+			);
+			path = Net;
+			sourceTree = "<group>";
+		};
+		C4DF9BE914B3BC9256953BC1 /* Engine */ = {
+			isa = PBXGroup;
+			children = (
+				864F0592CD328EBF440655FE /* ScanController.swift */,
+				0F122DA373C8E501532EDB51 /* ScanEngine.swift */,
+			);
+			path = Engine;
+			sourceTree = "<group>";
+		};
+		8D12C59D6FC96256D711668B /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				99638470CB286E728B6BDC45 /* SettingsStore.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		E0CF0CECEC50A4705FD3FA27 /* Vless */ = {
+			isa = PBXGroup;
+			children = (
+				D949EBE670841476763DB333 /* VlessGenerator.swift */,
+			);
+			path = Vless;
+			sourceTree = "<group>";
+		};
+		BAA95F6FBF6F626EFEEFB5CE /* Export */ = {
+			isa = PBXGroup;
+			children = (
+				489DF782D93308EAC347454C /* Exporters.swift */,
+			);
+			path = Export;
+			sourceTree = "<group>";
+		};
+		3E6BD9F987E24A5843ADB364 /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				696E62DE55197CA65894DEC3 /* L10n.swift */,
+				7AC799F7F2A662BE5D7CBFAF /* ResultsView.swift */,
+				A7BCEBE4CE14B0AD0A58F45D /* RootView.swift */,
+				C0075CD4F143E6ED4E332B42 /* ScanView.swift */,
+				1303B023FD898860C38D9D9E /* SettingsView.swift */,
+				F0FAEED40C837806D2E9F36B /* Theme.swift */,
+				210C4944D1E8FA549ABE9AF5 /* VlessView.swift */,
+			);
+			path = UI;
+			sourceTree = "<group>";
+		};
+		29DE0C814F988015A4357570 /* Fonts */ = {
+			isa = PBXGroup;
+			children = (
+				47D0DDA66CAE43DD6B204B60 /* Fonts/Vazirmatn */,
+				14B567D618D22204A46E766F /* Fonts/ChakraPetch */,
+			);
+			path = Fonts;
+			sourceTree = "<group>";
+		};
+		47D0DDA66CAE43DD6B204B60 /* Fonts/Vazirmatn */ = {
+			isa = PBXGroup;
+			children = (
+				19BDC099D1AD78A139A68360 /* vazirmatn_bold.ttf */,
+				9874C91B6BE5FF82AD560DB5 /* vazirmatn_medium.ttf */,
+				5A38AB87072103C49C1F6688 /* vazirmatn_regular.ttf */,
+			);
+			path = Vazirmatn;
+			sourceTree = "<group>";
+		};
+		14B567D618D22204A46E766F /* Fonts/ChakraPetch */ = {
+			isa = PBXGroup;
+			children = (
+				846647381580EFE73EC35787 /* chakra_petch_medium.ttf */,
+				E502F44A7F1163F89DB4A384 /* chakra_petch_regular.ttf */,
+				0B080272525E68D3DCDA2861 /* chakra_petch_semibold.ttf */,
+			);
+			path = ChakraPetch;
+			sourceTree = "<group>";
+		};
+		484DE218B880CA118EDE0560 /* UMBRATests */ = {
+			isa = PBXGroup;
+			children = (
+				E415C43B27B9A99C218B0696 /* CoreTests.swift */,
+				312B506855C1E46145EC8801 /* WgProtocolTests.swift */,
+				85E98ECCD442DC9A75F057BA /* WgVectors.swift */,
+				29943510E07B10119CEB13B8 /* WgVectorsTests.swift */,
+			);
+			path = UMBRATests;
+			sourceTree = "<group>";
+		};
+		43931CF8D8FF624E4C75AE32 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				24C3A59CAD6510428F023483 /* UMBRA.app */,
+				8E563CB5E5C88C017B17D245 /* UMBRATests.xctest */,
+			);
+			path = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		CF9FD99C5E86FD5DA223FE35 /* UMBRA */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7B2F0E633F827DD4257C7A11 /* Build configuration list for PBXNativeTarget "UMBRA" */;
+			buildPhases = (
+				919D2F6ED80ABAFAC3F5A8B0 /* Sources */,
+				7FF864F3711FEA7A4AEA342A /* Frameworks */,
+				123DCC98947D66E77F012BEA /* Resources */,
+			);
+			name = UMBRA;
+			productName = UMBRA;
+			productReference = 24C3A59CAD6510428F023483 /* UMBRA.app */;
+			productType = "com.apple.product-type.application";
+		};
+		30199EC1ABE6D09ADC63C363 /* UMBRATests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 27903C9E995CECF3BA30AE10 /* Build configuration list for PBXNativeTarget "UMBRATests" */;
+			buildPhases = (
+				3F3EBC1E8559568DBFE6A3F6 /* Sources */,
+				E3BEA1F36633A00C6750BC70 /* Frameworks */,
+			);
+			dependencies = (
+				661E8929A4B647B1571425E2 /* PBXTargetDependency */,
+			);
+			name = UMBRATests;
+			productName = UMBRATests;
+			productReference = 8E563CB5E5C88C017B17D245 /* UMBRATests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A8E1420C70643C2F856A12BC /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 1540;
+				TargetAttributes = {
+					30199EC1ABE6D09ADC63C363 = {
+						TestTargetType = 2;
+					};
+				};
+			};
+			buildConfigurationList = FB71138AD31B0629EBDFB955 /* Build configuration list for PBXProject "UMBRA" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				fa,
+				Base,
+			);
+			mainGroup = 2FBC6BD0B9A4336978E1E0EF;
+			productRefGroup = 43931CF8D8FF624E4C75AE32 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				CF9FD99C5E86FD5DA223FE35 /* UMBRA */,
+				30199EC1ABE6D09ADC63C363 /* UMBRATests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		123DCC98947D66E77F012BEA /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				039DE3AEDB7DD8AFFCC171E6 /* chakra_petch_medium.ttf in Resources */,
+				0A2AEF911555AB27E7AA958E /* vazirmatn_bold.ttf in Resources */,
+				0D1AB829F89582CE2CD69D96 /* chakra_petch_regular.ttf in Resources */,
+				525B56433EF903A23D458EE0 /* vazirmatn_regular.ttf in Resources */,
+				67A998236484B9484FC6B0D2 /* chakra_petch_semibold.ttf in Resources */,
+				84F055AFB37BBB8785186237 /* vazirmatn_medium.ttf in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		919D2F6ED80ABAFAC3F5A8B0 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1235AB37E2167E38D5A4EB6B /* VlessGenerator.swift in Sources */,
+				22E39DD73ACBFD2975B7FF49 /* Blake2s.swift in Sources */,
+				4078B738918AC0AF81B96BF8 /* CoreTests.swift in Sources */,
+				44732FB057F0F9A4DDAC7059 /* Fmt.swift in Sources */,
+				4766DFE24482DFF22CBD3422 /* ScanView.swift in Sources */,
+				4F5F26C542669D0CB4901F84 /* SettingsView.swift in Sources */,
+				50B8A5C79565208844A4C47E /* WgCrypto.swift in Sources */,
+				616222EBE46DF88F715A3C6E /* Theme.swift in Sources */,
+				647A8AE79B855B2971A17B40 /* NoiseBurst.swift in Sources */,
+				671A32F2B5F8FBE7BD78F662 /* RootView.swift in Sources */,
+				67A071D461513E2ABECA570E /* NetQuality.swift in Sources */,
+				692E861B6F25EFE69FCED8A6 /* WgVectorsTests.swift in Sources */,
+				695E8EAC5725F09B42532107 /* Ranking.swift in Sources */,
+				79D08C737B0A9DE4C248403D /* Exporters.swift in Sources */,
+				8405135456010A36E1B0B08B /* WarpProbe.swift in Sources */,
+				86353275FD98DA70AF3A1FE4 /* Model.swift in Sources */,
+				885CF0C48FB095047A5DEF66 /* ResultsView.swift in Sources */,
+				89FF82C4787F01C56049B76B /* ScanController.swift in Sources */,
+				90D61E345400518E4169CDDE /* UdpLink.swift in Sources */,
+				A15A3BDBCF8053335D27924A /* L10n.swift in Sources */,
+				A81EDDA15A94C3C1CA17B56E /* WarpAccount.swift in Sources */,
+				AFE450B4657FE97587FA054A /* WgProtocolTests.swift in Sources */,
+				B2834AEB30634A760F594C62 /* Presets.swift in Sources */,
+				B56ECCE28BA39B8C5FBC28C6 /* VlessView.swift in Sources */,
+				BBE9E48D00B3CEB033878CAB /* SettingsStore.swift in Sources */,
+				C7E285DC31E57AFE18A42F6B /* TcpProbe.swift in Sources */,
+				CB6004EBE147C02C24C0F4CC /* ExactIpHttps.swift in Sources */,
+				CF566B146C1BDF2B847CD1EE /* Cidr.swift in Sources */,
+				D8435E378205019B09A9D8E7 /* UdpEvidence.swift in Sources */,
+				DFF451C57C0E9C09A450A091 /* UMBRAApp.swift in Sources */,
+				E3768D4A9EE027E2F0F51376 /* IpText.swift in Sources */,
+				ED6166D2BD288DA4F06D8770 /* WgVectors.swift in Sources */,
+				F30EE567D23AEAD2C9E04737 /* ScanEngine.swift in Sources */,
+				F35A5800729581B896B75543 /* WgProtocol.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		3F3EBC1E8559568DBFE6A3F6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		661E8929A4B647B1571425E2 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = CF9FD99C5E86FD5DA223FE35 /* UMBRA */;
+			targetProxy = 99CB7B1DA345A8348BE0CF21 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		0D79015CF54A4AE2D751ACDB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SDKROOT = iphoneos;
+				SWIFT_OPTIMIZATION_LEVEL = -Onone;
+			};
+			name = Debug;
+		};
+		E475EC72957D26BCA0F97A6C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf-with-dsym;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = -O;
+			};
+			name = Release;
+		};
+		BEC002FF1ADBAA213AE74F1B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_ASSET_PATHS = ;
+				DEVELOPMENT_TEAM = ;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = UMBRA/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = ""$(inherited) @executable_path/Frameworks"";
+				MARKETING_VERSION = 3.11.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.umbra.scanner.ios;
+				PRODUCT_NAME = ""$(TARGET_NAME)"";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_OPTIMIZATION_LEVEL = -Onone;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = ""1,2"";
+			};
+			name = Debug;
+		};
+		9301AB78F7E5FE73E6807D23 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf-with-dsym;
+				DEVELOPMENT_ASSET_PATHS = ;
+				DEVELOPMENT_TEAM = ;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_TESTABILITY = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = UMBRA/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = ""$(inherited) @executable_path/Frameworks"";
+				MARKETING_VERSION = 3.11.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.umbra.scanner.ios;
+				PRODUCT_NAME = ""$(TARGET_NAME)"";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_OPTIMIZATION_LEVEL = -O;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = ""1,2"";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		13DACBDCE674724EB191F119 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = ""$(TEST_HOST)"";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_TESTABILITY = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MARKETING_VERSION = 3.11.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.umbra.scanner.ios.tests;
+				PRODUCT_NAME = ""$(TARGET_NAME)"";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_OPTIMIZATION_LEVEL = -Onone;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = ""1,2"";
+				TEST_HOST = ""$(BUILT_PRODUCTS_DIR)/UMBRA.app/UMBRA"";
+				TEST_TARGET_NAME = UMBRA;
+			};
+			name = Debug;
+		};
+		D261E7A991C1CE662B55BC87 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = ""$(TEST_HOST)"";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_TESTABILITY = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MARKETING_VERSION = 3.11.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.umbra.scanner.ios.tests;
+				PRODUCT_NAME = ""$(TARGET_NAME)"";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_OPTIMIZATION_LEVEL = -O;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = ""1,2"";
+				TEST_HOST = ""$(BUILT_PRODUCTS_DIR)/UMBRA.app/UMBRA"";
+				TEST_TARGET_NAME = UMBRA;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		FB71138AD31B0629EBDFB955 /* Build configuration list for PBXProject "UMBRA" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0D79015CF54A4AE2D751ACDB /* Debug */,
+				E475EC72957D26BCA0F97A6C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7B2F0E633F827DD4257C7A11 /* Build configuration list for PBXNativeTarget "UMBRA" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BEC002FF1ADBAA213AE74F1B /* Debug */,
+				9301AB78F7E5FE73E6807D23 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		27903C9E995CECF3BA30AE10 /* Build configuration list for PBXNativeTarget "UMBRATests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				13DACBDCE674724EB191F119 /* Debug */,
+				D261E7A991C1CE662B55BC87 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+	};
+	rootObject = A8E1420C70643C2F856A12BC /* Project object */;
+}

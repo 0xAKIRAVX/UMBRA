@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v4.0.2-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
-  <img src="https://img.shields.io/badge/platform-Android%208.0%2B-34d399?style=flat-square&labelColor=0d1420" alt="platform">
+  <img src="https://img.shields.io/badge/platform-Android%208.0%2B%20%2F%20iOS%2016%2B-34d399?style=flat-square&labelColor=0d1420" alt="platform">
   <img src="https://img.shields.io/badge/Kotlin%20%2B%20Rust%20%2B%20Go-tri--lingual-7f52ff?style=flat-square&labelColor=0d1420" alt="languages">
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285f4?style=flat-square&labelColor=0d1420" alt="compose">
   <img src="https://img.shields.io/badge/APK-%E2%89%8845%20MB-f15bb5?style=flat-square&labelColor=0d1420" alt="size">
@@ -20,6 +20,7 @@
 
 ---
 
+
 ## Why UMBRA
 
 Your connection to Cloudflare's edge is only as good as the *specific IP* your network happens to reach. Some Cloudflare IPs answer in 15 ms with zero loss; others sit behind congested routes and quietly throttle your throughput. Cloudflare's own client never tells you which IP you got — and never lets you choose.
@@ -27,6 +28,18 @@ Your connection to Cloudflare's edge is only as good as the *specific IP* your n
 **UMBRA flips the table.** It samples the live Cloudflare and WARP address space directly from *your* device, measures what your network *actually* delivers to each candidate — latency, packet loss, a real WireGuard handshake, an in-tunnel ping, real download speed — ranks everything for you, and generates a VLESS config bound to the winner.
 
 No root. No Termux. No server.
+
+
+## iOS sibling (new)
+
+The **Swift / SwiftUI port** now lives in [`ios/`](ios/) — same engine
+architecture (real WireGuard handshake validation, pre-flight witness gate,
+recovery ladder, smart ranking, VLESS builder), EN + FA with full RTL, and
+byte-identical crypto: the shared `warp_vectors.json` reference vectors (the
+ones live-verified against production WARP endpoints) pass on BOTH
+platforms, so the iOS app speaks exactly the same wire protocol. Open
+`ios/UMBRA.xcodeproj` in Xcode 15+, pick your team, Cmd+R — no dependencies,
+no entitlements. See [`ios/README.md`](ios/README.md).
 
 ---
 

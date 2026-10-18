@@ -1,0 +1,74 @@
+name: UMBRA
+options:
+  bundleIdPrefix: com.umbra
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MARKETING_VERSION: "3.11.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+targets:
+  UMBRA:
+    type: application
+    platform: iOS
+    sources:
+      - path: UMBRA
+        excludes:
+          - "Info.plist"
+    resources:
+      - path: UMBRA/Fonts
+      - path: UMBRA/Assets.xcassets
+    info:
+      path: UMBRA/Info.plist
+      properties:
+        CFBundleDisplayName: UMBRA
+        UILaunchScreen:
+          UIColorName: AccentColor
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UIAppFonts:
+          - vazirmatn_regular.ttf
+          - vazirmatn_medium.ttf
+          - vazirmatn_bold.ttf
+          - chakra_petch_regular.ttf
+          - chakra_petch_semibold.ttf
+          - chakra_petch_medium.ttf
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.umbra.scanner.ios
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        TARGETED_DEVICE_FAMILY: "1,2"
+        INFOPLIST_FILE: UMBRA/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        ENABLE_PREVIEWS: YES
+  UMBRATests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - UMBRATests
+    dependencies:
+      - target: UMBRA
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.umbra.scanner.ios.tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/UMBRA.app/UMBRA"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        TEST_TARGET_NAME: UMBRA
+schemes:
+  UMBRA:
+    build:
+      targets:
+        UMBRA: all
+        UMBRATests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - UMBRATests
