@@ -293,7 +293,7 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(.fair,
                        NetQuality.gradeOf(latencyMs: 200, jitterMs: 30, packetLoss: 0.08, downloadMbps: 4))
         // DPI fake-accept caps the grade at GOOD
-        var p = NetworkProfile(latencyMs: 30, jitterMs: 2, packetLoss: 0, downloadMbps: 50, dpiSuspected: true)
+        var p = NetworkProfile(latencyMs: 30, jitterMs: 2, packetLoss: 0, dpiSuspected: true, downloadMbps: 50)
         XCTAssertEqual(.good, p.grade)
         p.dpiSuspected = false
         XCTAssertEqual(.excellent, p.grade)
