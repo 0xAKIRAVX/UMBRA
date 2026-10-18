@@ -278,7 +278,7 @@ enum WarpRegistration {
                 } catch let e as CancellationError {
                     throw e
                 } catch {
-                    lastError = e
+                    lastError = error
                 }
                 // the API is rate-limited per source IP — a short backoff
                 // lets the window slide and the retry actually land

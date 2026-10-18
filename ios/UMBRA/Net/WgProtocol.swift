@@ -223,7 +223,7 @@ enum WgProtocol {
         packet.replaceSubrange(116..<132, with: mac1)
         // mac2 stays zero (no cookie)
 
-        return (packet, PendingHandshake(ephPriv: ephPriv, hash: h, chainKey: ck, senderIndex: senderIndex))
+        return (packet, PendingHandshake(ephPriv: ephemeralPriv, hash: h, chainKey: ck, senderIndex: senderIndex))
     }
 
     /// Consumes a handshake response on the initiator side. Returns the

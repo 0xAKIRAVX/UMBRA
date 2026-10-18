@@ -62,7 +62,7 @@ enum VpnSensor {
 
     /// Short English hint for the evidence line, or nil.
     static func hint() async -> String? {
-        let hasVpn: Bool? = await withCheckedContinuation { cont in
+        let hasVpn: Bool? = await withCheckedContinuation { (cont: CheckedContinuation<Bool?, Never>) in
             let monitor = NWPathMonitor()
             let box = OnceBox<Bool?>(cont)
             let work = DispatchWorkItem {

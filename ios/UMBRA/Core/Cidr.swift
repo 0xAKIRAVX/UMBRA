@@ -133,7 +133,7 @@ struct CidrBlock: Equatable {
                         let last = i & 0xFF
                         if last == 0 || last == 255 { continue }
                     }
-                    out.append(CidrBlock.addOffset(base, i))
+                    out.append(CidrBlock.addOffset(base, UInt64(i)))
                 }
                 return
             }

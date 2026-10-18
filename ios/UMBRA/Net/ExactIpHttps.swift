@@ -265,7 +265,7 @@ final class TlsLink {
             var error: CFError?
             let ok = SecTrustEvaluateWithError(trust, &error)
             complete(ok)
-        }, nil)
+        }, queue)
         let params = NWParameters(tls: tls)
         conn = NWConnection(
             host: NWEndpoint.Host(host),

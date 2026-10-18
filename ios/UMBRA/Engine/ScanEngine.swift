@@ -146,7 +146,7 @@ final class ScanEngine {
             } catch let e as CancellationError {
                 throw e
             } catch {
-                await sink.onLog("identity failed — \(errorDescription(e))")
+                await sink.onLog("identity failed — \(errorDescription(error))")
                 account = nil
             }
             if account == nil {
@@ -286,7 +286,7 @@ final class ScanEngine {
         // concurrent UDP exchanges with ZERO blocked threads (the Android
         // v3.9 "elastic lanes" fix, achieved structurally).
         let stormQueue = StormQueue(endpointPairs ?? cartesianPairs(candidates: candidates, ports: ports))
-        try await withTaskGroup(of: Void.self) { group in
+        try await withThrowingTaskGroup(of: Void.self) { group in
             for _ in 0..<lanes {
                 group.addTask {
                     while let pair = await stormQueue.next() {
@@ -445,8 +445,8 @@ final class ScanEngine {
             packetLoss: loss,
             tcpAttempts: total,
             successfulAttempts: lat.count,
-            error: lat.isEmpty ? (t.lastError ?? "unreachable") : nil,
             tlsSkipped: !params.tlsVerify,
+            error: lat.isEmpty ? (t.lastError ?? "unreachable") : nil,
             mode: params.mode)
     }
 
@@ -499,7 +499,8 @@ final class ScanEngine {
     static func deadProbe(_ cand: Candidate, port: Int, params: ScanParams, reason: String) -> ScanResult {
         ScanResult(ip: cand.text, ipProtocol: cand.ipProtocol, port: port,
                    packetLoss: 1.0, tcpAttempts: 1, successfulAttempts: 0,
-                   error: reason, tlsSkipped: !params.tlsVerify, mode: params.mode)
+                   tlsSkipped: !params.tlsVerify,
+                   error: reason, mode: params.mode)
     }
 
     // MARK: - witness / sweep / re-aim (pure + shared)
@@ -510,7 +511,7 @@ final class ScanEngine {
     static func buildWitnessPool(_ pool: [EndpointPair]) -> [EndpointPair] {
         let seedCount = Presets.warpSeedEndpoints.count
         let seeds = pool.prefix(seedCount)
-        let rest = pool.drop(seedCount)
+        let rest = pool.dropFirst(seedCount)
         let v4 = rest.filter { $0.candidate.ipProtocol == .IPv4 }
         let v6 = rest.filter { $0.candidate.ipProtocol == .IPv6 }
         if v4.isEmpty { return Array(seeds) + v6.prefix(witnessRandom) }
@@ -524,7 +525,7 @@ final class ScanEngine {
     static func buildSweepPool(_ pool: [EndpointPair], v6: Bool) -> [EndpointPair] {
         let seedIps = Presets.warpSeedV4.compactMap { IpText.literalToBytes($0) }
         let seedTexts = Set(seedIps.map { IpText.format($0) })
-        let poolIps = pool.drop(Presets.warpSeedEndpoints.count)
+        let poolIps = pool.dropFirst(Presets.warpSeedEndpoints.count)
             .filter { $0.candidate.ipProtocol == .IPv4 }
             .map { $0.candidate }
             .filter { !seedTexts.contains($0.text) }
@@ -608,7 +609,7 @@ final class ScanEngine {
                                         budgetMs: Int) async -> [WitnessHit] {
         // v3.10: up to 128 lanes so the sweep grid never queues behind a few
         // 2-second waits (the recovery ladder must not itself freeze)
-        let probe = WarpProbe(acc, noise: UdpNoiseConfig(enabled: true, count: 3))
+        let probe = WarpProbe(account: acc, noise: UdpNoiseConfig(enabled: true, count: 3))
         let sem = AsyncSemaphore(value: min(128, max(4, pairs.count)))
         return await withTaskGroup(of: WitnessHit?.self) { group in
             for pair in pairs {
