@@ -73,7 +73,13 @@ enum VpnSensor {
             monitor.pathUpdateHandler = { path in
                 switch path.status {
                 case .satisfied, .unsatisfied:
-                    let vpn = path.usesInterfaceType(.vpn)
+                    // NWInterface.InterfaceType has NO public .vpn case —
+                    // VPN tunnels surface as utun/tap/ppp interfaces of type
+                    // .other, so detect them by interface name.
+                    let vpn = path.availableInterfaces.contains { i in
+                        let name = String(describing: i).lowercased()
+                        return name.contains("tun") || name.contains("tap") || name.contains("ppp")
+                    }
                     monitor.cancel()
                     work.cancel()
                     box.resume(vpn)
