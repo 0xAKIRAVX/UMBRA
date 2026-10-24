@@ -110,9 +110,14 @@ object WarpRegistration {
      * Registration transport seam — production posts to the domain first and
      * falls back to the pinned SNI-routed IPs; tests inject offline behavior.
      * Throws (never returns null) — the reason rides the exception message.
+     * v4.1.1: [defaultApiPoster] is kept beside it so tests can RESTORE the
+     * production transport after replacing the seam (object-level seams
+     * otherwise leak into later test classes sharing the sandbox).
      */
-    internal var apiPoster: suspend (payload: String) -> String =
+    internal val defaultApiPoster: suspend (payload: String) -> String =
         { payload -> postRegistration(payload) }
+
+    internal var apiPoster: suspend (payload: String) -> String = defaultApiPoster
 
     private suspend fun postRegistration(payload: String): String = withContext(Dispatchers.IO) {
         // 1. the domain, as always
@@ -154,7 +159,7 @@ object WarpRegistration {
             if (body != null) return@withContext body
         }
         throw java.io.IOException(
-            "registration api unreachable — domain failed " +
+            "$UNREACHABLE_MARKER — domain failed " +
                 "(${cause?.javaClass?.simpleName ?: "unknown"}) and every pinned ip failed " +
                 "(dns poisoned or cloudflare tcp blocked on this network)",
         )
@@ -180,8 +185,12 @@ object WarpRegistration {
     @Volatile private var prefs: SharedPreferences? = null
 
     fun attach(context: Context) {
-        if (prefs == null) prefs =
-            context.getSharedPreferences("warp_identity", Context.MODE_PRIVATE)
+        // v4.1.1: unconditional — re-attaching with the SAME context is a
+        // no-op in production (getSharedPreferences returns the same
+        // instance), and Robolectric tests re-attach each method's fresh
+        // application so the persisted-identity store always follows the
+        // live context.
+        prefs = context.getSharedPreferences("warp_identity", Context.MODE_PRIVATE)
     }
 
     private fun persist(account: WarpAccount) {
@@ -333,6 +342,12 @@ object WarpRegistration {
             }.getOrDefault(false)
         }
 
+    /** v4.1.1: message prefix postRegistration uses for TRANSPORT-level
+     *  unreachable verdicts — register() fast-fails the retry loop on it
+     *  (retrying cannot change the network; HTTP-level rejections keep their
+     *  backoff retries because rate-limit windows slide). */
+    private const val UNREACHABLE_MARKER = "registration api unreachable"
+
     /**
      * Registers a new account (or reuses the cached identity within its TTL).
      * Falls back to the last persisted identity when the API is unreachable —
@@ -348,6 +363,28 @@ object WarpRegistration {
      * when the current identity fails the seed check). A failure never
      * disturbs the existing caches, so an API-blocked network keeps its
      * persisted identity intact.
+     *
+     * v4.1.1 (THE frozen-IDENTITY-phase fix): the PERSISTED identity is now
+     * the PRIMARY source, consulted BEFORE any network call — BPB's warp.json
+     * semantics. The old order (API first, disk only as the last fallback)
+     * burned up to 3 × (10 s domain connect + 4 × 4 s pinned connects) ≈
+     * 50–80 s of SILENT identity phase on exactly the API-blocked networks
+     * this app is built for — even when a perfectly valid identity was
+     * already on disk. That is the same "frozen scan" symptom class as
+     * v3.5.2/v3.9/v3.10: phase bar stuck on IDENTITY, 0/0 tested, 0.0/s,
+     * elapsed ticking. A stale disk identity is self-healed by the engine's
+     * witness gate (fresh re-registration + recovery sweep) — exactly the
+     * machinery that exists for it — so nothing is lost on healthy networks
+     * either, and the API is hit only when there is no stored identity at
+     * all, or when the witness explicitly asked for a fresh one. Bonus: the
+     * rate limiter is no longer poked with a fresh registration every 15 min
+     * on networks where the API does work.
+     *
+     * v4.1.1 (fast-fail): a TRANSPORT-level unreachable verdict is a property
+     * of the network, not of the attempt — the three 700 ms-apart retries
+     * exist for HTTP-level rate limiting (fast failures); re-running them
+     * against a black-holed API only multiplied the silent wait. Unreachable
+     * now aborts the retry loop after ONE attempt.
      */
     suspend fun register(
         licenseKey: String? = null,
@@ -355,10 +392,21 @@ object WarpRegistration {
         fresh: Boolean = false,
     ): WarpAccount = withContext(Dispatchers.IO) {
         var account: WarpAccount? = if (fresh) null else cached()
+        if (account == null && !fresh) {
+            // v4.1.1: disk identity FIRST (see the doc above) — an instant
+            // start for every scan after the first, on every network. It also
+            // enters the in-process TTL cache so auto-tune and a scan in the
+            // same session share it without any re-read.
+            account = loadPersisted()?.also {
+                cachedAccount = it
+                cachedAtMs = System.currentTimeMillis()
+            }
+        }
         var lastError: Exception? = null
         if (account == null) {
+            var transportUnreachable = false
             repeat(attempts) { i ->
-                if (account != null) return@repeat // already registered — skip
+                if (account != null || transportUnreachable) return@repeat
                 try {
                     val (priv, pub) = newIdentity()
                     val pubB64 = Base64.encodeToString(pub, Base64.NO_WRAP)
@@ -376,18 +424,22 @@ object WarpRegistration {
                     throw e
                 } catch (e: Exception) {
                     lastError = e
+                    // v4.1.1 fast-fail: retrying cannot heal a black-holed API.
+                    // (HTTP-level rejections — rate limits — keep the retries.)
+                    if (e.message?.startsWith(UNREACHABLE_MARKER) == true) {
+                        transportUnreachable = true
+                    }
                 }
                 // v3.1.1 fix: the API is rate-limited per source IP — three instant
                 // back-to-back retries all hit the same limiter window and all fail.
                 // A short backoff lets the window slide and the retry actually land.
-                if (account == null && i < attempts - 1) delay(700)
+                if (account == null && !transportUnreachable && i < attempts - 1) delay(700)
             }
-            // v3.3: API unreachable / rate-limited → reuse the last working
-            // identity instead of aborting the scan. If the endpoint later rejects
-            // it (403 / handshake failure) the user sees honest probe errors.
-            // v3.6 [fresh]: NO fallback — the caller asked for a brand-new
-            // identity or nothing (pre-flight gate); keep the old caches intact.
-            if (account == null && !fresh) account = loadPersisted()
+            // v3.3 note: the disk fallback USED to happen here — after the full
+            // 3-attempt API gauntlet. It now runs before any of it (see above);
+            // reaching this point with no account means there was no stored
+            // identity either, and register() throws below. [fresh]: never
+            // falls back — the caller asked for a brand-new identity or nothing.
         }
         val acc = account ?: throw IllegalStateException(
             "WARP registration failed: ${lastError?.message ?: "unknown"}", lastError)

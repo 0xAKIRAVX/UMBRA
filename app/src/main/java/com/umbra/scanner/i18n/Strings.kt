@@ -4,6 +4,22 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 
 /**
+ * v4.1.1: notification strings live in their own nested class — AppStrings
+ * is already at the JVM method-descriptor ceiling (the v4.0.0 split moved
+ * the debug console strings out for the same reason: the data class
+ * constructor + its copy$default synthetic cannot grow past ~245 params).
+ */
+@Immutable
+data class NotificationStrings(
+    val warming: String,
+    val progress: (String, Int, Int, Int, String) -> String,
+    val doneTitle: String,
+    val stoppedTitle: String,
+    val doneBody: (Int, Int, Int, String) -> String,
+    val best: (String, String) -> String,
+)
+
+/**
  * UMBRA i18n — every user-facing string of the app, English + فارسی.
  *
  * Technical tokens (IP, TLS, WG, WARP, VLESS, UUID, SNI, CSV …) stay Latin in
@@ -175,6 +191,21 @@ data class AppStrings(
     val vlessCopiedToast: String,
     val shareVlessChooser: String,
     val crashCountLabel: (Int) -> String,
+
+    // ── v4.1.1: the scan notification's CONTENT used to be hardcoded English
+    // while its title / action / channel were localized — Persian users saw
+    // a half-English notification in the shade (same leak class as v3.11's
+    // toasts). The final "best" line also shows the FULL [ip]:port endpoint
+    // now (v3.11 fixed every OTHER surface; with random ports — the endpoint
+    // default — a bare IP identifies nothing usable). Nested class: AppStrings
+    // is at the JVM constructor ceiling (see NotificationStrings). ──
+    val notif: NotificationStrings,
+    /** v4.1.1: chooser title for sharing the plain-text results report (the
+     *  last hardcoded English chooser — Exporters.shareText's "Share via"). */
+    val shareResultsChooser: String,
+    /** v4.1.1: chooser title for sharing the debug journal (was the hardcoded
+     *  English "UMBRA debug journal"). */
+    val shareJournalChooser: String,
 
     // ── vless ──────────────────────────────────────────────────────
     val vlessForge: String,
@@ -451,6 +482,21 @@ val EnglishStrings = AppStrings(
     vlessCopiedToast = "vless link copied",
     shareVlessChooser = "Share vless link",
     crashCountLabel = { n -> "$n recorded · latest:" },
+    // v4.1.1: notification content (was hardcoded English in the shade)
+    notif = NotificationStrings(
+        warming = "warming up engine",
+        progress = { phase, tested, candidates, alive, rate ->
+            "phase $phase · tested $tested/$candidates · alive $alive · $rate/s"
+        },
+        doneTitle = "UMBRA · Scan Complete",
+        stoppedTitle = "UMBRA · Scan Stopped",
+        doneBody = { alive, tested, candidates, seconds ->
+            "alive $alive · tested $tested/$candidates · $seconds"
+        },
+        best = { endpoint, rtt -> "best $endpoint · $rtt" },
+    ),
+    shareResultsChooser = "Share results",
+    shareJournalChooser = "Share debug journal",
     vlessForge = "VLESS FORGE",
     vlessTagline = "exact-IP vless links · IPv6 auto-bracketed · tls + ws",
     identity = "IDENTITY",
@@ -715,6 +761,22 @@ val PersianStrings = AppStrings(
     vlessCopiedToast = "لینک VLESS کپی شد",
     shareVlessChooser = "اشتراک لینک VLESS",
     crashCountLabel = { n -> "$n مورد ثبت شده · آخرین:" },
+    // v4.1.1: محتوای نوتیفیکیشن — قبلاً انگلیسی ثابت بود و فقط عنوان و دکمه‌اش
+    // فارسی می‌شد (همان نشت رشته‌ای نسخهٔ ۳٫۱۱، این بار در سایهٔ اعلان‌ها)
+    notif = NotificationStrings(
+        warming = "در حال آماده‌سازی موتور",
+        progress = { phase, tested, candidates, alive, rate ->
+            "فاز $phase · تست‌شده $tested/$candidates · فعال $alive · $rate/ث"
+        },
+        doneTitle = "UMBRA · اسکن کامل شد",
+        stoppedTitle = "UMBRA · اسکن متوقف شد",
+        doneBody = { alive, tested, candidates, seconds ->
+            "فعال $alive · تست‌شده $tested/$candidates · $seconds"
+        },
+        best = { endpoint, rtt -> "بهترین $endpoint · $rtt" },
+    ),
+    shareResultsChooser = "اشتراک‌گذاری نتایج",
+    shareJournalChooser = "اشتراک ژورنال دیباگ",
     vlessForge = "آهنگرِ VLESS",
     vlessTagline = "لینک‌های VLESS با IP مستقیم · براکت خودکار IPv6 · tls + ws",
     identity = "هویت",

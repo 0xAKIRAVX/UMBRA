@@ -19,7 +19,11 @@ import androidx.compose.ui.graphics.toArgb
 import com.umbra.scanner.MainActivity
 import com.umbra.scanner.R
 import com.umbra.scanner.UmbraApp
+import com.umbra.scanner.core.IpText
 import com.umbra.scanner.core.ScanUi
+import com.umbra.scanner.i18n.AppLanguage
+import com.umbra.scanner.i18n.EnglishStrings
+import com.umbra.scanner.i18n.NotificationStrings
 import com.umbra.scanner.ui.theme.ACCENTS
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -45,6 +49,12 @@ class ScanForegroundService : Service() {
 
     private lateinit var scope: CoroutineScope
     private val controller: ScanController by lazy { (application as UmbraApp).controller }
+
+    /** v4.1.1: the notification body follows the app language — it used to be
+     *  hardcoded English while the title / action / channel were localized,
+     *  so Persian users saw a half-English notification in the shade. */
+    private val strings: NotificationStrings
+        get() = AppLanguage.stringsFor((application as UmbraApp).settings.language.value).notif
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -122,9 +132,11 @@ class ScanForegroundService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val (text, candidates, tested) = when (stats) {
-            null -> Triple(notificationProgressText(null), 0, 0)
+            null -> Triple(strings.warming, 0, 0)
             else -> Triple(
-                notificationProgressText(stats),
+                // v4.1.1: localized (phase labels stay Latin technical tokens,
+                // exactly like the in-app phase bar; Locale hardening kept)
+                notificationProgressText(stats, strings),
                 stats.candidates,
                 stats.tested,
             )
@@ -154,14 +166,23 @@ class ScanForegroundService : Service() {
     private fun buildFinalNotification(done: ScanUi.Done): Notification {
         val s = done.summary
         val best = s.best
-        val title = if (s.cancelled) "UMBRA · Scan Stopped" else "UMBRA · Scan Complete"
+        // v4.1.1: localized titles/body (was hardcoded English) — the channel
+        // name, notification title and STOP action were already localized
+        // through res/values-fa; the CONTENT lines now follow the app
+        // language too.
+        val title = if (s.cancelled) strings.stoppedTitle else strings.doneTitle
         val text = buildString {
-            append("alive ").append(s.alive)
-            append(" · tested ").append(s.tested).append('/').append(s.candidates)
-            append(" · ").append("${s.elapsedMs / 1000}s")
+            append(strings.doneBody(s.alive, s.tested, s.candidates, "${s.elapsedMs / 1000}s"))
             if (best != null) {
-                append("\nbest ").append(best.ip)
-                best.latencyMs?.let { append(" · ").append("%.0f".format(java.util.Locale.US, it)).append(" ms") }
+                // v4.1.1: the FULL endpoint ([ip]:port, IPv6 bracketed) — with
+                // random ports (the ENDPOINT default) a bare IP identifies
+                // nothing usable. Every other surface (live board, Done panel,
+                // smart picks) was fixed in v3.8.1/v3.11; the notification was
+                // the last one showing the bare IP.
+                append('\n').append(strings.best(
+                    "${IpText.forUrl(best.ip)}:${best.port}",
+                    best.latencyMs?.let { "%.0f ms".format(java.util.Locale.US, it) } ?: "—",
+                ))
             }
         }
         val contentIntent = PendingIntent.getActivity(
@@ -214,11 +235,20 @@ class ScanForegroundService : Service() {
  * ı) inside the status-bar/lock-screen text, the exact bug class the v4.0.1
  * sessionStartLine fix pinned (Locale.ROOT keeps enum labels ASCII).
  * Pure function — unit-tested against hostile default locales (tr-TR, fa-IR).
+ *
+ * v4.1.1: [s] localizes the surrounding words (same leak class as the v3.11
+ * toast fixes — the notification's title/action/channel were localized but
+ * its content lines were hardcoded English). Defaults to English so the
+ * v4.0.2 locale-hardening tests keep pinning the ASCII contract unchanged.
  */
-internal fun notificationProgressText(stats: com.umbra.scanner.core.ScanStats?): String =
-    when (stats) {
-        null -> "warming up engine"
-        else -> "phase ${stats.phase.label.lowercase(java.util.Locale.ROOT)} · " +
-            "tested ${stats.tested}/${stats.candidates} · alive ${stats.alive} · " +
-            "${"%.1f".format(java.util.Locale.US, stats.ratePerSec)}/s"
-    }
+internal fun notificationProgressText(
+    stats: com.umbra.scanner.core.ScanStats?,
+    s: NotificationStrings = EnglishStrings.notif,
+): String = when (stats) {
+    null -> s.warming
+    else -> s.progress(
+        stats.phase.label.lowercase(java.util.Locale.ROOT),
+        stats.tested, stats.candidates, stats.alive,
+        "%.1f".format(java.util.Locale.US, stats.ratePerSec),
+    )
+}

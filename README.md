@@ -9,12 +9,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v4.1.0-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
+  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v4.1.1-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
   <img src="https://img.shields.io/badge/platform-Android%208.0%2B%20%2F%20iOS%2016%2B-34d399?style=flat-square&labelColor=0d1420" alt="platform">
   <img src="https://img.shields.io/badge/Kotlin%20%2B%20Rust%20%2B%20Go-tri--lingual-7f52ff?style=flat-square&labelColor=0d1420" alt="languages">
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285f4?style=flat-square&labelColor=0d1420" alt="compose">
   <img src="https://img.shields.io/badge/APK-%E2%89%8845%20MB-f15bb5?style=flat-square&labelColor=0d1420" alt="size">
-  <img src="https://img.shields.io/badge/tests-296%2F296%20green%20%C2%B7%20live%20WG--validated%20endpoints-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
+  <img src="https://img.shields.io/badge/tests-309%2F309%20green%20%C2%B7%20live%20WG--validated%20endpoints-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-9b5de5?style=flat-square&labelColor=0d1420" alt="license">
 </p>
 
@@ -185,7 +185,7 @@ Grab the latest signed APK from the **[Releases](https://github.com/0xAKIRAVX/UM
 
 | | |
 | --- | --- |
-| Latest version | **v4.1.0** (build 30) |
+| Latest version | **v4.1.1** (build 31) |
 | Requirement | Android 8.0+ (API 26) |
 | Architecture | Universal (arm64 / armv7 / x86_64) |
 | Size | ~45 MB (three toolchains: Go runtime + Rust core, ×3 ABIs) |
@@ -269,6 +269,7 @@ Zero analytics. Zero trackers. Zero data collection. Scans, measurements and the
 
 | Version | Theme | Highlights |
 | --- | --- | --- |
+| **v4.1.1** | Bug hunt round 3 | Frozen-IDENTITY fix (disk identity primary — 50–80 s silent wait gone on API-blocked networks; unreachable fast-fail), notification content localized EN+FA with `[ip]:port` best endpoint, last two English share choosers localized |
 | **v4.1.0** | AKAMAI scanner | A second CDN: 19+3 published Akamai edge blocks, TCP `:443` storm, strict-TLS validation for `www.akamai.com` (SNI-routed edges only), latency-ranked with the speed phase honestly skipped, third smart-pick bucket, CUSTOM `/32` generation fix |
 | **v4.0.2** | Go-path integrity pass | ACTIVE-lane counter poisoning fixed (Go's absolute busy counts were passed into a delta accumulator), duplicate-draw progress reconciliation on small CIDRs, Persian digits out of the colo log line, Turkish dotless-ı out of the notification, single hex-dump truncation marker, deep-test crash feedback |
 | **v4.0.1** | Locale hardening + gate fixes | Persian/Arabic digits out of the ASCII engine logs, Turkish lowercase traps closed, debug toggle now actually gates the per-probe stream, diagnostics ↔ scan both-direction guard, WG deep-probe default port |
@@ -292,6 +293,18 @@ Zero analytics. Zero trackers. Zero data collection. Scans, measurements and the
 
 <details>
 <summary><strong>Full release notes</strong></summary>
+
+### v4.1.1 — round three of the bug hunt (3 fixes)
+
+*«تمام باگ‌های برنامه رو بگیر»* — a fresh-eyes audit of the whole v4.1.0 tri-lingual codebase (engine, controller, service, both native bridges, the debug system, every screen, i18n parity) found **3 real defects**, all fixed and pinned with 13 new regression tests:
+
+1. **THE frozen-IDENTITY-phase fix** (the same "frozen scan" class as v3.5.2/v3.9/v3.10). On a network where `api.cloudflareclient.com` is blocked or DNS-poisoned — exactly the networks this app is built for — the scan sat in a **silent IDENTITY phase for 50–80 seconds** (phase bar stuck, 0/0 tested, 0.0/s, elapsed ticking) *even when a perfectly valid WARP identity was already stored on disk*: registration tried the API up to 3 times (each attempt = 10 s domain connect + 4 × 4 s pinned-IP connects) and only *then* fell back to the stored identity. The stored identity is now the **primary source**, consulted *before* any network call (BPB's `warp.json` semantics): every scan after the first starts instantly, on every network. A stale stored identity is still self-healed by the witness gate (fresh re-registration + recovery sweep), and a transport-level unreachable API now **fast-fails after one attempt** instead of burning three (the 700 ms backoff retries remain for HTTP-level rate limiting, where they actually help). Bonus: the registration API is no longer poked with a fresh account every 15 minutes on networks where it works.
+2. **The notification shade was half-English.** The scan notification's *title*, *STOP action* and *channel* were localized — but its *content* was hardcoded English ("warming up engine", "phase identity · tested 504/508 · alive 25", "UMBRA · Scan Complete", "alive 25 · tested 504/508 · 12s"). Persian users saw a half-English notification on every scan. All content lines now follow the app language (EN + FA; the v4.0.2 locale-hardening contract — ASCII phase labels and digits under tr/fa default locales — is preserved and re-pinned).
+3. **The notification's "best" endpoint wasn't an endpoint — and the last English choosers.** The final notification showed the bare best **IP** — in random-port mode (the ENDPOINT default) that identifies nothing usable, and a bare IPv6 is ambiguous. It now shows the full `[ip]:port` endpoint (IPv6 bracketed) — the notification was the *last* surface showing a bare IP (live board v3.8.1, Done panel v3.8.1, smart picks v3.11 — all fixed before). And `Exporters.shareText`'s hardcoded English choosers ("Share via" on the results board, "UMBRA debug journal" on the diagnostics tab) were the last untranslated choosers — both now localized.
+
+> Engineering note: AppStrings is at the JVM constructor ceiling (241 flat params + the `copy$default` synthetic with multi-int masks) — the new notification strings live in their own nested `NotificationStrings` class, the same escape hatch the v4.0.0 split used for the debug console.
+
+> **309/309 unit tests green (13 new: disk-identity-first contract, fresh-bypass, unreachable fast-fail vs HTTP-retry persistence, identity persistence, notification formats EN+FA under hostile locales, bracketed best endpoint, both chooser localizations), all live suites re-verified against production (WG handshakes + in-tunnel pings through the NEW registration path on both the Kotlin and Rust cores, endpoint scan, Akamai live scan, ghost-key control, census). DEX verification passed. Install v4.1.1 over any v3.2+ / v4.0.x / v4.1.0, same signature.**
 
 ### v4.1.0 — the AKAMAI scanner (a second CDN)
 

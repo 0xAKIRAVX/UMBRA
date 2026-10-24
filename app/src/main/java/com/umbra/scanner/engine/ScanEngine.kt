@@ -260,7 +260,11 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
         var account: WarpAccount? = null
         if (params.mode == ScanMode.ENDPOINT) {
             sink.onPhase(ScanPhase.REGISTER)
-            sink.onLog("warp identity · api.cloudflareclient.com (silent · reused 15 min · disk fallback)")
+            // v4.1.1: the identity log line now states the REAL order — the
+            // disk identity is the primary (instant), the API is consulted
+            // only when no identity exists yet or the witness proved the
+            // stored one dead (see WarpRegistration.register v4.1.1).
+            sink.onLog("warp identity · disk identity reused when present (instant) · api.cloudflareclient.com only when needed")
             account = try {
                 registrationProvider(null, false)
             } catch (e: kotlinx.coroutines.CancellationException) {

@@ -133,12 +133,20 @@ object Exporters {
             }
         }
 
-    fun shareText(context: Context, text: String, title: String = "UMBRA scan results") {
+    /**
+     * v4.1.1: [chooserTitle] is required and must come from the caller's
+     * localized strings (ResultsScreen passes s.shareResultsChooser, the
+     * diagnostics screen s.shareJournalChooser) — the chooser title and the
+     * EXTRA_TITLE used to be hardcoded English ("Share via" / "UMBRA scan
+     * results" / "UMBRA debug journal"), the last untranslated share choosers
+     * in the Persian UI (same leak class as the v3.11 chooser fixes).
+     */
+    fun shareText(context: Context, text: String, chooserTitle: String) {
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_TEXT, text)
-            putExtra(Intent.EXTRA_TITLE, title)
+            putExtra(Intent.EXTRA_TITLE, chooserTitle)
         }
-        context.startActivity(Intent.createChooser(intent, "Share via"))
+        context.startActivity(Intent.createChooser(intent, chooserTitle))
     }
 }

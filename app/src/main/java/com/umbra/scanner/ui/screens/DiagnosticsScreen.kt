@@ -315,7 +315,8 @@ fun DiagnosticsScreen(app: UmbraApp) {
                 )
                 OutlineButton(
                     text = s.diagShare,
-                    onClick = { Exporters.shareText(context, DebugLog.dump(), "UMBRA debug journal") },
+                    // v4.1.1: chooser title localized (was hardcoded English)
+                    onClick = { Exporters.shareText(context, DebugLog.dump(), s.shareJournalChooser) },
                     modifier = Modifier.weight(1f),
                 )
                 OutlineButton(

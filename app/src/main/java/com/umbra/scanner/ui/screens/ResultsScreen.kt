@@ -317,7 +317,9 @@ fun ResultsScreen(
             OutlineButton("TXT", { txtLauncher.launch(stampName("txt")) }, Modifier.weight(1f), height = 38.dp)
             OutlineButton("JSON", { jsonLauncher.launch(stampName("json")) }, Modifier.weight(1f), height = 38.dp)
             OutlineButton(s.share, {
-                Exporters.shareText(context, Exporters.txt(filtered.take(60), params))
+                // v4.1.1: chooser title localized — was Exporters' hardcoded
+                // English "Share via" (the last untranslated chooser)
+                Exporters.shareText(context, Exporters.txt(filtered.take(60), params), s.shareResultsChooser)
             }, Modifier.weight(1f), height = 38.dp)
         }
 
