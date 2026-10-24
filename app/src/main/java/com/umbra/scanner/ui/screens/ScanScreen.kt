@@ -344,6 +344,16 @@ private fun PhaseBar(current: ScanPhase, mode: ScanMode) {
             ScanPhase.SPEED,
             ScanPhase.DONE,
         )
+        // v4.1: akamai scan — TCP storm + strict TLS verification, ranked by
+        // latency (no SPEED segment: akamai has no metered throughput
+        // endpoint; a segment that never lights would be a lie).
+        ScanMode.AKAMAI -> listOf(
+            ScanPhase.GENERATING,
+            ScanPhase.TCP,
+            ScanPhase.PROBE,
+            ScanPhase.RANKING,
+            ScanPhase.DONE,
+        )
         else -> listOf(
             ScanPhase.GENERATING,
             ScanPhase.TCP,

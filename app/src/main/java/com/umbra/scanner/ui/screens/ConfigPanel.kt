@@ -92,7 +92,10 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
     // validation machinery lives INSIDE endpoint mode now. ScanMode's enum
     // ordinals are persisted via the v3.8 migration; this list only drives
     // the segmented control.
-    val uiModes = listOf(ScanMode.ENDPOINT, ScanMode.CF_EDGE, ScanMode.CUSTOM)
+    // v4.1: AKAMAI joins the selector as a fourth tile (user request — a
+    // fastest-Akamai-IP scanner); the enum ordinal is 3, appended AFTER the
+    // persisted 0..2, so no stored mode shifts meaning.
+    val uiModes = listOf(ScanMode.ENDPOINT, ScanMode.CF_EDGE, ScanMode.AKAMAI, ScanMode.CUSTOM)
     var modeIdx by rememberSaveable {
         mutableIntStateOf(uiModes.indexOf(saved.mode).let { if (it < 0) 0 else it })
     }
@@ -181,7 +184,7 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
         Text(s.mode, style = MaterialTheme.typography.labelSmall, color = Fade)
         Spacer(Modifier.height(7.dp))
         Segmented(
-            options = listOf(s.modeEndpoint, s.modeCfEdge, s.modeCustom),
+            options = listOf(s.modeEndpoint, s.modeCfEdge, s.modeAkamai, s.modeCustom),
             selected = modeIdx,
             onSelect = { i ->
                 val m = uiModes[i]
@@ -211,6 +214,7 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
                 ScanMode.CF_EDGE -> s.taglineCfEdge
                 ScanMode.CUSTOM -> s.taglineCustom
                 ScanMode.ENDPOINT -> s.taglineEndpoint
+                ScanMode.AKAMAI -> s.taglineAkamai
             },
             style = MaterialTheme.typography.bodySmall,
             color = Fade,
@@ -226,6 +230,19 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
                 style = MaterialTheme.typography.bodySmall,
                 color = OkMint,
                 maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (mode == ScanMode.AKAMAI) {
+            Spacer(Modifier.height(6.dp))
+            // v4.1: the akamai trust line — same honest contract as the
+            // endpoint one: only TLS-cert-proven edges are reported, and the
+            // user learns WHICH host these IPs are proven for.
+            Text(
+                s.akamaiValidationHint,
+                style = MaterialTheme.typography.bodySmall,
+                color = OkMint,
+                maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
             )
         }
@@ -542,24 +559,34 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
                         valueText = verifyTopN.toString(),
                     )
                 }
-                LabeledSlider(s.speedTopN, speedTopN, { speedTopN = it }, 5..300, valueText = speedTopN.toString())
-                LabeledSlider(s.speedLanes, speedConc, { speedConc = it }, 1..8, valueText = s.retryLabel(speedConc))
+                // v4.1: AKAMAI has no throughput phase (no Akamai equivalent of
+                // CF's metered /__down endpoint exists) — the speed sliders and
+                // toggle are inert in this mode, so they are not rendered.
+                if (mode != ScanMode.AKAMAI) {
+                    LabeledSlider(s.speedTopN, speedTopN, { speedTopN = it }, 5..300, valueText = speedTopN.toString())
+                    LabeledSlider(s.speedLanes, speedConc, { speedConc = it }, 1..8, valueText = s.retryLabel(speedConc))
+                }
                 ToggleRow(
                     title = s.tlsVerify,
                     subtitle = s.tlsVerifyHint,
                     checked = tlsOn,
                     onChange = { tlsOn = it },
                 )
-                ToggleRow(
-                    title = s.speedTest,
-                    subtitle = when (mode) {
-                        ScanMode.ENDPOINT -> s.speedTestHintEndpoint
-                        else -> s.speedTestHintEdge
-                    },
-                    checked = speedOn,
-                    onChange = { speedOn = it },
-                )
-                if (speedOn) {
+                if (mode != ScanMode.AKAMAI) {
+                    ToggleRow(
+                        title = s.speedTest,
+                        subtitle = when (mode) {
+                            ScanMode.ENDPOINT -> s.speedTestHintEndpoint
+                            else -> s.speedTestHintEdge
+                        },
+                        checked = speedOn,
+                        onChange = { speedOn = it },
+                    )
+                }
+                // v4.1: the download-size chips belong to the (hidden in
+                // AKAMAI) speed pass — a stale speedOn=true from a previous
+                // mode must not render inert controls here.
+                if (speedOn && mode != ScanMode.AKAMAI) {
                     Spacer(Modifier.height(8.dp))
                     SectionLabel(s.downloadSize)
                     Spacer(Modifier.height(7.dp))

@@ -213,7 +213,10 @@ object AutoTune {
         }
         // v3.7: endpoint mode ships as a pure latency scan (BPB parity) —
         // no TLS phase exists there and the throughput pass stays opt-in.
-        val speedTest = !endpointMode
+        // v4.1: AKAMAI has no metered download endpoint either — its ranking
+        // is latency + jitter + loss + TLS, so the throughput pass stays off
+        // there too. TLS verification stays ON (it is the mode's alive filter).
+        val speedTest = mode != ScanMode.ENDPOINT && mode != ScanMode.AKAMAI
         val tlsVerify = !endpointMode
         val speedConcurrency = if (c.lowRam) 2 else if (mbps != null && mbps < 2.0) 3 else 4
         notes.add(
@@ -250,7 +253,13 @@ object AutoTune {
                     "endpoints are never reported (they do not work in wireguard)"
             )
         } else {
-            notes.add("every result is tls-cert-verified — dpi fake endpoints are discarded")
+            notes.add(
+                if (mode == ScanMode.AKAMAI) {
+                    "akamai scan · tls-cert-verified against www.akamai.com · ranked by latency (no throughput pass)"
+                } else {
+                    "every result is tls-cert-verified — dpi fake endpoints are discarded"
+                }
+            )
         }
 
         return TuneResult(

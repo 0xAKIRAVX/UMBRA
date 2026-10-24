@@ -5,16 +5,16 @@
 <h1 align="center">U M B R A</h1>
 
 <p align="center">
-  <strong>A native Android scanner that hunts for the fastest Cloudflare &amp; WARP endpoints on your network — and turns the winner into a ready-to-use VLESS config.</strong>
+  <strong>A native Android scanner that hunts for the fastest Cloudflare, Akamai and WARP endpoints on your network — and turns the winner into a ready-to-use VLESS config.</strong>
 </p>
 
 <p align="center">
-  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v4.0.2-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
+  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v4.1.0-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
   <img src="https://img.shields.io/badge/platform-Android%208.0%2B%20%2F%20iOS%2016%2B-34d399?style=flat-square&labelColor=0d1420" alt="platform">
   <img src="https://img.shields.io/badge/Kotlin%20%2B%20Rust%20%2B%20Go-tri--lingual-7f52ff?style=flat-square&labelColor=0d1420" alt="languages">
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285f4?style=flat-square&labelColor=0d1420" alt="compose">
   <img src="https://img.shields.io/badge/APK-%E2%89%8845%20MB-f15bb5?style=flat-square&labelColor=0d1420" alt="size">
-  <img src="https://img.shields.io/badge/tests-284%2F284%20green%20%C2%B7%20live%20WG--validated%20endpoints-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
+  <img src="https://img.shields.io/badge/tests-296%2F296%20green%20%C2%B7%20live%20WG--validated%20endpoints-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-9b5de5?style=flat-square&labelColor=0d1420" alt="license">
 </p>
 
@@ -91,8 +91,9 @@ identity ─▶ witness gate ─▶ recovery ladder ─▶ probe storm ─▶ va
 | Mode | Probes | Proven by |
 | --- | --- | --- |
 | **ENDPOINT** *(default)* | Random `ip:port` pairs from the Cloudflare WARP pools — `162.159.19x` / `188.114.9x` / `8.x` /24s plus their `2606:4700:d0::/d1::` IPv6 twins — each endpoint with its own random port from the 55-port canonical list (or one pinned port) | Real WireGuard handshake + in-tunnel ping (Rust core) |
-| **EDGE** | Random samples of 14 IPv4 + 7 IPv6 Cloudflare edge CIDRs | Go clean-IP engine: TCP + TLS + colo trace (zone-routing filter) + exact-IP speed test |
-| **CUSTOM** | Your own pasted CIDR list, any family | Same as EDGE |
+| **CLEAN IP** | Random samples of 14 IPv4 + 7 IPv6 Cloudflare edge CIDRs | Go clean-IP engine: TCP + TLS + colo trace (zone-routing filter) + exact-IP speed test |
+| **AKAMAI** *(v4.1)* | Random samples of **19 IPv4 + 3 IPv6 published Akamai edge blocks** (~13.7M addresses: `23.32.0.0/11`, `104.64.0.0/10`, `184.x`, `2.16.0.0/13`, …) | Kotlin core: TCP `:443` storm + strict TLS — only IPs serving a **valid certificate for `www.akamai.com`** pass (Akamai's edge routes strictly by SNI; DPI fakes and non-serving IPs die at the filter). Latency-ranked — no throughput phase (Akamai has no metered endpoint), speed column honestly carries `—` |
+| **CUSTOM** | Your own pasted CIDR list, any family | Same as CLEAN IP |
 
 ---
 
@@ -133,6 +134,7 @@ The **DIAG** and **DEBUG** tabs turn the app into its own microscope:
 | Capability | Detail |
 | --- | --- |
 | **Native tri-lingual cores** | Rust WireGuard engine + Go clean-IP engine + Kotlin orchestration, with an honest pure-Kotlin fallback when a core is missing |
+| **Akamai CDN scan** *(v4.1)* | Samples Akamai's published edge network (19 IPv4 + 3 IPv6 blocks), storms TCP `:443`, TLS-verifies every candidate for `www.akamai.com`, ranks by latency — only edges that really serve the property are reported, in their own smart-pick bucket |
 | **WARP endpoint scan** | Random `ip:port` endpoints from 14 BPB-verified ranges — the classic `162.159.192.0/24` family **plus the newer `8.x` WARP space** many ISPs haven't throttled yet |
 | **Real WireGuard validation** | Full **Noise_IKpsk2 handshake over UDP** + **ICMP echo inside the encrypted tunnel** for every reported endpoint (native Rust core) |
 | **Clean-IP engine (Go)** | TCP latency, real TLS validation against the platform trust store, colo tracing with the **zone-routing filter** (error-1034 anycast IPs discarded), `/__down` speed tests |
@@ -183,7 +185,7 @@ Grab the latest signed APK from the **[Releases](https://github.com/0xAKIRAVX/UM
 
 | | |
 | --- | --- |
-| Latest version | **v4.0.2** (build 29) |
+| Latest version | **v4.1.0** (build 30) |
 | Requirement | Android 8.0+ (API 26) |
 | Architecture | Universal (arm64 / armv7 / x86_64) |
 | Size | ~45 MB (three toolchains: Go runtime + Rust core, ×3 ABIs) |
@@ -267,6 +269,7 @@ Zero analytics. Zero trackers. Zero data collection. Scans, measurements and the
 
 | Version | Theme | Highlights |
 | --- | --- | --- |
+| **v4.1.0** | AKAMAI scanner | A second CDN: 19+3 published Akamai edge blocks, TCP `:443` storm, strict-TLS validation for `www.akamai.com` (SNI-routed edges only), latency-ranked with the speed phase honestly skipped, third smart-pick bucket, CUSTOM `/32` generation fix |
 | **v4.0.2** | Go-path integrity pass | ACTIVE-lane counter poisoning fixed (Go's absolute busy counts were passed into a delta accumulator), duplicate-draw progress reconciliation on small CIDRs, Persian digits out of the colo log line, Turkish dotless-ı out of the notification, single hex-dump truncation marker, deep-test crash feedback |
 | **v4.0.1** | Locale hardening + gate fixes | Persian/Arabic digits out of the ASCII engine logs, Turkish lowercase traps closed, debug toggle now actually gates the per-probe stream, diagnostics ↔ scan both-direction guard, WG deep-probe default port |
 | **v4.0.0** | Tri-lingual rebuild | Rust WG core + Go clean-IP engine + Kotlin orchestration; DEBUG console with the live per-probe stream; ~45 MB |
@@ -289,6 +292,21 @@ Zero analytics. Zero trackers. Zero data collection. Scans, measurements and the
 
 <details>
 <summary><strong>Full release notes</strong></summary>
+
+### v4.1.0 — the AKAMAI scanner (a second CDN)
+
+*«CDN آکامای رو اسکن کن و پرسرعت‌ترین IPها رو بده»* — scan the **Akamai CDN** and hand over its fastest IPs. A fourth mode tile samples **Akamai's published edge network** and applies the same honesty contract the app already enforces on Cloudflare:
+
+1. **Alive means TLS-cert-verified for `www.akamai.com`.** Akamai's shared edge routes **strictly by SNI** (live-verified from an open network: a random edge IP either presents the valid property certificate *or resets the connection* — there is no catch-all default). So a bare TCP connect proves nothing on Akamai either: DPI fake-accepts and non-serving IPs die at the strict-TLS filter, and every reported IP genuinely carries Akamai's own property — directly usable in v2rayNG/Hiddify configs with `host = www.akamai.com` or your own Akamai-fronted domain.
+2. **It runs on the Kotlin core, on purpose.** The Go clean-IP engine's verify phase demands a 200 from `/cdn-cgi/trace` — THE Cloudflare zone filter, an endpoint no Akamai edge can ever answer. Routing Akamai through Go would discard 100% of genuinely-good edges, so the engine dispatch excludes AKAMAI from the Go path and runs the Kotlin TCP + strict-TLS pipeline (`ExactIpHttps.tlsProbe` — pure certificate verification, no trace requirement).
+3. **Latency-ranked, honestly.** Akamai has no equivalent of Cloudflare's metered `speed.cloudflare.com/__down` endpoint, so v4.1 does **not** pretend to measure throughput: the download phase is skipped with a visible log line, the phase bar drops its SPEED segment, ranking rides **TCP RTT + TLS handshake + jitter + loss**, and results carry `—` for speed instead of a fabricated number.
+4. **A third results bucket.** Akamai rows persist to their **own** smart-pick bucket (`AKAMAI` row, cloud icon) — an Akamai edge is never presented as a Cloudflare edge (and vice versa); the smart-pick board shows WARP / CF EDGE / AKAMAI side by side, each pick labeled with what its IPs actually are.
+5. **Zero-result scans name their contract** — the verdict explains the SNI-routing law and the remedies (raise samples, widen family, another network) instead of staying silent.
+6. **CUSTOM-mode bonus fix found by the live run:** the candidate generator's v4 network/broadcast guard **swallowed every `/32` whole** — a user pasting exact IPs (`104.16.1.1/32`) got *zero candidates* with no hint why. The guard now applies only when the host part spans the full last octet; a pinned `/32` generates its one address, and the estimate agrees with what generation emits.
+
+Live-verified against **production Akamai** from an open network: 192 candidates → 70 TCP-alive → **12–16 TLS-verified edges** per run (58 discarded by the SNI filter — the anti-fake filter doing its job), with verified edges drawn from `23.0.0.0/12`, `104.64.0.0/10`, `184.x`, `69.192.0.0/16`, `96.17.x`, `92.123.x`, `173.223.x` — the pool spans the whole Akamai edge network, not one PoP. All other live suites re-verified (WARP handshakes + in-tunnel pings, endpoint scans, census, ghost-key control — one transient control flake passed on rerun).
+
+> **296/296 unit tests green (12 new AkamaiModeTest cases + live AkamaiScanLiveTest), DEX verification passed. Install v4.1.0 over any v3.2+ / v4.0.x, same signature.**
 
 ### v4.0.2 — the Go-path integrity pass
 

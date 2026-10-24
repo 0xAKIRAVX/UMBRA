@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Verified
@@ -49,16 +50,19 @@ import com.umbra.scanner.ui.theme.SlateLine
  * SMART PICK BOARD (v3.1) — the answer to «پرسرعت‌ترین · پایدارترین · کمترین
  * پینگ، با توجه به نت من».
  *
- * One row per family (WARP + CF EDGE), each carrying the four picks computed
- * with the measured network profile: adaptive BEST, lowest PING, most STABLE,
- * and FASTEST. Tapping a pick opens its full detail sheet. When both buckets
- * have data the user sees the best of BOTH worlds on one screen.
+ * One row per family (WARP + CF EDGE + AKAMAI), each carrying the four picks
+ * computed with the measured network profile: adaptive BEST, lowest PING,
+ * most STABLE, and FASTEST. Tapping a pick opens its full detail sheet. When
+ * several buckets have data the user sees the best of ALL worlds on one
+ * screen — each row labeled with what its IPs actually are (an Akamai edge
+ * is never presented as a Cloudflare edge, and vice versa).
  */
 @Composable
 fun SmartPickBoard(
     profile: NetworkProfile?,
     warpResults: List<ScanResult>,
     edgeResults: List<ScanResult>,
+    akamaiResults: List<ScanResult> = emptyList(),
     onPick: (ScanResult) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -70,7 +74,8 @@ fun SmartPickBoard(
     // derived picks were not). Memoize on the exact same inputs.
     val warpPicks = remember(warpResults, profile) { SmartRanking.picks(warpResults, profile) }
     val edgePicks = remember(edgeResults, profile) { SmartRanking.picks(edgeResults, profile) }
-    if (warpPicks.best == null && edgePicks.best == null) return
+    val akamaiPicks = remember(akamaiResults, profile) { SmartRanking.picks(akamaiResults, profile) }
+    if (warpPicks.best == null && edgePicks.best == null && akamaiPicks.best == null) return
 
     Column(modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -106,6 +111,18 @@ fun SmartPickBoard(
                 title = "WARP",
                 icon = Icons.Rounded.Verified,
                 picks = warpPicks,
+                profile = profile,
+                onPick = onPick,
+            )
+            Spacer(Modifier.height(8.dp))
+        }
+        if (akamaiPicks.best != null) {
+            // v4.1: the Akamai row — its own bucket, its own label; never
+            // mixed into the CF edge row.
+            PickRow(
+                title = "AKAMAI",
+                icon = Icons.Rounded.Cloud,
+                picks = akamaiPicks,
                 profile = profile,
                 onPick = onPick,
             )

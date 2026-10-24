@@ -49,6 +49,11 @@ class StringsTest {
         Triple("modeEndpoint", EnglishStrings.modeEndpoint, PersianStrings.modeEndpoint),
         Triple("taglineEndpoint", EnglishStrings.taglineEndpoint, PersianStrings.taglineEndpoint),
         Triple("endpointValidationHint", EnglishStrings.endpointValidationHint, PersianStrings.endpointValidationHint),
+        // v4.1: AKAMAI scan mode strings
+        Triple("modeAkamai", EnglishStrings.modeAkamai, PersianStrings.modeAkamai),
+        Triple("taglineAkamai", EnglishStrings.taglineAkamai, PersianStrings.taglineAkamai),
+        Triple("akamaiValidationHint", EnglishStrings.akamaiValidationHint, PersianStrings.akamaiValidationHint),
+        Triple("akamaiProfile", EnglishStrings.akamaiProfile, PersianStrings.akamaiProfile),
         Triple("endpointsCountLabel", EnglishStrings.endpointsCountLabel, PersianStrings.endpointsCountLabel),
         Triple("randomPortLabel", EnglishStrings.randomPortLabel, PersianStrings.randomPortLabel),
         Triple("endpointPortHint", EnglishStrings.endpointPortHint, PersianStrings.endpointPortHint),

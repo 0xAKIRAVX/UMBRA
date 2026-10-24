@@ -75,12 +75,18 @@ data class AppStrings(
     val modeCustom: String,
     // v3.7: ENDPOINT scan mode (BPB-style endpoint scanner)
     val modeEndpoint: String,
+    // v4.1: AKAMAI scan mode (fastest Akamai CDN IPs)
+    val modeAkamai: String,
     val taglineCfEdge: String,
     val taglineCustom: String,
     val taglineEndpoint: String,
+    val taglineAkamai: String,
     /** v3.8: trust line under the endpoint tagline — the handshake-validation
      *  promise (the answer to the v3.7 "fake endpoints" complaint). */
     val endpointValidationHint: String,
+    /** v4.1: trust line under the akamai tagline — only edges serving a
+     *  valid www.akamai.com certificate pass the TLS filter. */
+    val akamaiValidationHint: String,
     /** v3.7: how many random ip:port endpoints the endpoint scan tests. */
     val endpointsCountLabel: String,
     /** v3.7: the RANDOM chip in the ENDPOINT port row. */
@@ -140,6 +146,8 @@ data class AppStrings(
     val revealMore: (Int) -> String,
     val warpProfile: String,
     val edgeProfile: String,
+    /** v4.1: detail-sheet label for AKAMAI rows (Akamai edge IPs). */
+    val akamaiProfile: String,
     val latency: String,
     val jitter: String,
     val wgHs: String,
@@ -358,10 +366,13 @@ val EnglishStrings = AppStrings(
     modeCfEdge = "CF EDGE",
     modeCustom = "CUSTOM",
     modeEndpoint = "ENDPOINT",
+    modeAkamai = "AKAMAI",
     taglineCfEdge = "Cloudflare edge · speed.cloudflare.com",
     taglineCustom = "Your own CIDR list",
     taglineEndpoint = "WARP ranges · random ip:port · IPv4 + IPv6 · real WireGuard handshake",
+    taglineAkamai = "Akamai CDN · 19 edge ranges · IPv4 + IPv6 · TLS-verified · fastest edges for www.akamai.com",
     endpointValidationHint = "every endpoint is proven by a real WireGuard handshake — only endpoints that answer are reported, so they work in WireGuard / v2rayNG / Hiddify",
+    akamaiValidationHint = "only edge IPs serving a valid certificate for www.akamai.com are reported — dpi fakes and non-serving IPs are discarded; use with host www.akamai.com or your own akamai-fronted domain (no throughput endpoint exists on akamai — ranking is latency)",
     endpointsCountLabel = "ENDPOINTS TO TEST",
     randomPortLabel = "RANDOM",
     endpointPortHint = "random: each endpoint draws its own port from the 55 canonical WARP ports — or pin one",
@@ -415,6 +426,7 @@ val EnglishStrings = AppStrings(
     revealMore = { n -> "REVEAL 150 MORE · $n HIDDEN" },
     warpProfile = "WARP ENDPOINT PROFILE",
     edgeProfile = "EDGE ENDPOINT PROFILE",
+    akamaiProfile = "AKAMAI CDN PROFILE",
     latency = "LATENCY",
     jitter = "JITTER",
     wgHs = "WG HS",
@@ -618,10 +630,13 @@ val PersianStrings = AppStrings(
     modeCfEdge = "CF EDGE",
     modeCustom = "سفارشی",
     modeEndpoint = "اندپوینت",
+    modeAkamai = "آکامای",
     taglineCfEdge = "ادج کلادفلر · speed.cloudflare.com",
     taglineCustom = "لیست CIDR خودتان",
     taglineEndpoint = "محدوده‌های WARP · ip:port تصادفی · IPv4 + IPv6 · هندشیک واقعی WireGuard",
+    taglineAkamai = "CDN آکامای · ۱۹ محدوده ادج · IPv4 + IPv6 · تأییدشده با TLS · سریع‌ترین ادج‌های www.akamai.com",
     endpointValidationHint = "هر اندپوینت با هندشیک واقعی WireGuard اثبات می‌شود — فقط اندپوینت‌هایی که جواب می‌دهند گزارش می‌شوند؛ پس در WireGuard / v2rayNG / Hiddify کار می‌کنند",
+    akamaiValidationHint = "فقط IPهایی که گواهی معتبر www.akamai.com را سرو می‌دهند گزارش می‌شوند — IPهای جعلیِ DPI و بدون سرویس حذف می‌شوند؛ با host مقدار www.akamai.com یا دامنه اختصاصی پشت آکامای خودتان استفاده کنید (در آکامای اندپوینتِ سنجش سرعت وجود ندارد — رتبه‌بندی بر پایه تأخیر است)",
     endpointsCountLabel = "تعداد اندپوینت",
     randomPortLabel = "تصادفی",
     endpointPortHint = "تصادفی: هر اندپوینت یک پورت از ۵۵ پورت استاندارد WARP می‌گیرد — یا یک پورت ثابت انتخاب کنید",
@@ -675,6 +690,7 @@ val PersianStrings = AppStrings(
     revealMore = { n -> "۱۵۰ مورد بیشتر · $n مخفی" },
     warpProfile = "پروفایل اندپوینت WARP",
     edgeProfile = "پروفایل اندپوینت ادج",
+    akamaiProfile = "پروفایل CDN آکامای",
     latency = "تأخیر",
     jitter = "جیتر",
     wgHs = "هندشیک WG",

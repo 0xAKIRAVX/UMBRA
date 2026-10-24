@@ -187,7 +187,14 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
         sink.onLog(engineStatusLine())
         // v4: CLEAN-IP (EDGE/CUSTOM) scans run on the GO engine when embedded —
         // TCP latency + real TLS + trace + speed, all in Go's goroutines.
-        if (params.mode != ScanMode.ENDPOINT && GoClean.loaded) {
+        // v4.1: AKAMAI is EXCLUDED from the Go path — the Go verify phase
+        // demands a 200 from /cdn-cgi/trace (THE clean-ip zone filter), a
+        // Cloudflare-only endpoint no Akamai edge can ever answer; routing
+        // Akamai through Go would discard 100% of genuinely-good edges.
+        // Akamai scans run the Kotlin TCP + strict-TLS pipeline instead
+        // (ExactIpHttps.tlsProbe — pure certificate verification, no trace
+        // requirement, live-proven against production Akamai).
+        if (params.mode != ScanMode.ENDPOINT && params.mode != ScanMode.AKAMAI && GoClean.loaded) {
             runCleanIpGo(params, sink)
             return@coroutineScope
         }
@@ -597,6 +604,18 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
                     "tls verify done · $verified real of ${pool.size} tcp-alive" +
                         (if (skipped > 0) " · $skipped skipped (cap ${params.verifyTopN})" else "")
                 )
+                // v4.1: Akamai's edge routes STRICTLY by SNI — a random edge
+                // IP that does not serve the requested property RESETS the
+                // connection (live-verified against production edges). When a
+                // whole AKAMAI scan verifies zero, name the contract so zero
+                // reads as evidence, not silence (the zero-result honesty rule).
+                if (verified == 0 && params.mode == ScanMode.AKAMAI) {
+                    sink.onLog(
+                        "akamai edges route by sni · only ips serving a valid " +
+                            "www.akamai.com certificate pass — raise samples, widen the " +
+                            "family, or try another network/isp"
+                    )
+                }
             }
         }
 
@@ -605,7 +624,21 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
         // normal CF edge there, while speed.cloudflare.com is never served on
         // the WARP ports. (Opt-in for endpoint mode; it is a bonus edge
         // measurement, not the validation itself.)
-        if (params.speedTest) {
+        // v4.1: AKAMAI never runs the download phase — the metered
+        // /__down?bytes= endpoint is a Cloudflare construct and no Akamai
+        // equivalent exists (www.akamai.com serves a normal page). The mode
+        // is latency-ranked; say so instead of silently skipping.
+        if (params.speedTest && !params.runsSpeedPhase) {
+            // the bar still walks through RANKING — the ranking IS the final
+            // board build (SmartRanking in the controller), and a phase the
+            // engine announces keeps the segment order honest.
+            sink.onPhase(ScanPhase.RANKING)
+            sink.onLog(
+                "speed phase skipped · akamai has no metered throughput endpoint · " +
+                    "ranking = latency + jitter + loss + tls"
+            )
+        }
+        if (params.speedTest && params.runsSpeedPhase) {
             sink.onPhase(ScanPhase.RANKING)
             val pool = sink.snapshot().filter { it.alive }
                 .sortedBy { it.latencyMs ?: Double.MAX_VALUE }

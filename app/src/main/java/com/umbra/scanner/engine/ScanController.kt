@@ -89,9 +89,13 @@ class ScanController(private val settings: UmbraSettings? = null) {
         // Hydrate the board from the persisted bucket of the last scan's mode.
         // v3.8: ENDPOINT rows live in the warp bucket (they ARE warp
         // endpoints); EDGE/CUSTOM in the edge bucket.
+        // v4.1: AKAMAI rows live in their own bucket (Akamai edge IPs are
+        // never Cloudflare edges — a mixed bucket would present one as the
+        // other on the smart-pick board).
         if (settings != null) {
             val saved = when (settings.lastScanMode()) {
                 ScanMode.ENDPOINT -> settings.savedWarpResults.value
+                ScanMode.AKAMAI -> settings.savedAkamaiResults.value
                 else -> settings.savedEdgeResults.value
             }
             if (saved.isNotEmpty()) {

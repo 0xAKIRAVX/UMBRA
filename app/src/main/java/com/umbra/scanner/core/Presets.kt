@@ -57,6 +57,46 @@ object Presets {
         "2606:4700:d1::/48",
     )
 
+    /** v4.1: Akamai's edge network (IPv4) — the union of Akamai's own
+     *  published range lists (Origin IP ACL / SIA source-IP binding, both on
+     *  techdocs.akamai.com) and the space announced by AS20940/AS16625,
+     *  deduplicated and non-overlapping. 19 prefixes · ~13.7M addresses.
+     *  A stale or non-serving address is HARMLESS: the AKAMAI scan only
+     *  reports IPs that complete a real TLS handshake for www.akamai.com
+     *  (the same "never validate, never report" contract as the WARP pool).
+     *  Live-recon 2026-10-23: random addresses inside 23.0.0.0/12 answer and
+     *  serve the valid www.akamai.com certificate; www.akamai.com itself
+     *  resolves into 184.50.0.0/15 and 23.192.0.0/11. */
+    val AKAMAI_V4: List<String> = listOf(
+        "2.16.0.0/13",
+        "23.0.0.0/12",
+        "23.32.0.0/11",
+        "23.64.0.0/14",
+        "23.72.0.0/13",
+        "23.192.0.0/11",
+        "69.192.0.0/16",
+        "72.246.0.0/15",
+        "88.221.0.0/16",
+        "92.122.0.0/15",
+        "95.100.0.0/15",
+        "96.6.0.0/15",
+        "96.16.0.0/15",
+        "104.64.0.0/10",
+        "172.224.0.0/12",
+        "173.222.0.0/15",
+        "184.24.0.0/13",
+        "184.50.0.0/15",
+        "184.84.0.0/14",
+    )
+
+    /** v4.1: Akamai's edge network (IPv6) — from Akamai's published
+     *  ipv4_ipv6 CIDR list (techdocs.akamai.com, property-manager zip). */
+    val AKAMAI_V6: List<String> = listOf(
+        "2405:9600::/32",
+        "2600:1400::/24",
+        "2a02:26f0::/32",
+    )
+
     val CF_EDGE_PORTS: List<Int> = listOf(443, 8443, 2053, 2083, 2087, 2096)
 
     /** Quick-pick ports shown as chips for WARP mode. */
@@ -118,6 +158,11 @@ object Presets {
             NetFamily.V4 -> WARP_V4
             NetFamily.V6 -> WARP_V6
         }
+        ScanMode.AKAMAI -> when (family) {
+            NetFamily.BOTH -> AKAMAI_V4 + AKAMAI_V6
+            NetFamily.V4 -> AKAMAI_V4
+            NetFamily.V6 -> AKAMAI_V6
+        }
         ScanMode.CUSTOM -> emptyList()
     }
 
@@ -131,6 +176,10 @@ object Presets {
 
     fun portsFor(mode: ScanMode): List<Int> = when (mode) {
         ScanMode.ENDPOINT -> WARP_PORTS
+        // v4.1: Akamai's shared edge serves TLS on :443 — that is the one
+        // port the AKAMAI scan validates (80 carries no TLS proof, and the
+        // Akamai alternates of the CF world do not exist here).
+        ScanMode.AKAMAI -> listOf(443)
         else -> CF_EDGE_PORTS
     }
 }

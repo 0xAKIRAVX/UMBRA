@@ -16,6 +16,9 @@ enum class NetFamily(val label: String) {
  * (CF_EDGE=0, CUSTOM=1, ENDPOINT=2) and every persisted p_mode value is
  * migrated through [UmbraSettings] (old WARP(1) and ENDPOINT(3) → ENDPOINT,
  * old CUSTOM(2) → CUSTOM).
+ * v4.1: AKAMAI is APPENDED as ordinal 3 — the persisted 0..2 keep their
+ * meaning, so no stored mode shifts; the pre-v3.8 bridge above still maps
+ * raw 3 → ENDPOINT for installs that predate this member entirely.
  */
 enum class ScanMode(val label: String, val tagline: String) {
     CF_EDGE("CLEAN IP", "Cloudflare clean-IP · go engine · real TLS + speed"),
@@ -25,7 +28,19 @@ enum class ScanMode(val label: String, val tagline: String) {
      *  handshake over UDP and ranked by round-trip time. This is the only
      *  honest definition of "endpoint works" — a TCP connect proves
      *  nothing (v3.7's fake-endpoint lesson). */
-    ENDPOINT("ENDPOINT", "WARP ranges · random ip:port · IPv4 + IPv6 · real WireGuard handshake");
+    ENDPOINT("ENDPOINT", "WARP ranges · random ip:port · IPv4 + IPv6 · real WireGuard handshake"),
+    /** v4.1: Akamai CDN scanner — samples Akamai's published edge ranges,
+     *  storms TCP :443, then TLS-verifies against SNI=www.akamai.com on the
+     *  KOTLIN core (the Go clean-ip engine is CF-bound: its verify phase
+     *  demands a 200 from /cdn-cgi/trace, which Akamai edges can never
+     *  answer — a trace-hardcoded filter would kill every real Akamai IP).
+     *  Akamai's shared edge routes STRICTLY by SNI (live-verified: an edge
+     *  IP either serves the valid property certificate or resets), so only
+     *  IPs genuinely serving Akamai's own property pass — DPI fake-accepts
+     *  and non-serving IPs die at the TLS filter. Ranked by latency +
+     *  jitter + loss; no Akamai metered throughput endpoint exists, so the
+     *  download phase is skipped and results honestly carry "—" for speed. */
+    AKAMAI("AKAMAI", "Akamai CDN · TLS-verified · latency-ranked");
 
     companion object {
         /** v3.8 persistence bridge: maps a PRE-v3.8 stored p_mode ordinal
@@ -90,9 +105,9 @@ data class ScanParams(
     /** ENDPOINT only: noise packets per burst. */
     val noiseCount: Int = 5,
 ) {
-    val edgeSni: String get() = "speed.cloudflare.com"
+    val edgeSni: String get() = if (mode == ScanMode.AKAMAI) "www.akamai.com" else "speed.cloudflare.com"
     val warpSni: String get() = "engage.cloudflareclient.com"
-    val speedSni: String get() = "speed.cloudflare.com"
+    val speedSni: String get() = if (mode == ScanMode.AKAMAI) "www.akamai.com" else "speed.cloudflare.com"
 
     /** WARP endpoints never serve speed.cloudflare.com on their scan port — the
      *  throughput check always rides 443, where every WARP IP is a normal edge.
@@ -103,13 +118,23 @@ data class ScanParams(
         else -> port
     }
 
-    /** EDGE/CUSTOM scans ALWAYS TLS-verify their TCP-alive candidates: on
+    /** EDGE/CUSTOM/AKAMAI scans ALWAYS TLS-verify their TCP-alive candidates: on
      *  heavily-filtered networks (e.g. Iran) DPI boxes complete the TCP
      *  handshake for any destination, so TCP-alive alone means nothing. Only
-     *  an IP serving a valid certificate for a real Cloudflare host is real.
+     *  an IP serving a valid certificate for a real CDN host (speed.cloudflare.com
+     *  / www.akamai.com) is real.
      *  v3.8: ENDPOINT needs no TLS phase — its proof is the WireGuard
-     *  handshake itself. */
+     *  handshake itself.
+     *  v4.1: AKAMAI has no speed.cloudflare.com-style metered endpoint
+     *  (www.akamai.com serves a normal page, not a byte-metered file), so
+     *  the engine skips the download phase there — ranking is latency +
+     *  jitter + loss + TLS, and speedMbps stays null (rendered "—"). */
     val needsTlsPhase: Boolean get() = tlsVerify && mode != ScanMode.ENDPOINT
+
+    /** v4.1: AKAMAI is a latency-ranked mode — the exact-IP HTTPS download
+     *  phase only exists for Cloudflare-backed modes (its URL is CF's
+     *  /__down?bytes= metered endpoint) and the ENDPOINT :443 bonus. */
+    val runsSpeedPhase: Boolean get() = mode != ScanMode.AKAMAI
     val downloadMbLabel: Int get() = (downloadBytes / (1024 * 1024)).toInt()
 
     /** Every (ip, port) pair the TCP storm will probe (v3.8: the WARP port

@@ -60,15 +60,21 @@ class UmbraSettings(context: Context) {
         prefs.edit().putString("net_profile_v1", NetQuality.profileToJson(p)).apply()
     }
 
-    // ── netsense: last verified results per bucket (WARP endpoints / CF-EDGE)
-    //    so the smart-pick board can recommend BOTH families at once.
+    // ── netsense: last verified results per bucket (WARP endpoints / CF-EDGE
+    //    / AKAMAI) so the smart-pick board can recommend ALL families at once.
     //    v3.8: the "warp" bucket is fed by ENDPOINT scans (they ARE warp
-    //    endpoints — handshake-validated); the WARP mode itself is gone. ──
+    //    endpoints — handshake-validated); the WARP mode itself is gone.
+    //    v4.1: the akamai bucket is fed by AKAMAI scans (TLS-verified Akamai
+    //    edge IPs) — kept SEPARATE from the edge bucket so the smart-pick
+    //    board never presents an Akamai IP as a Cloudflare edge. ──
     private val _savedWarpResults = MutableStateFlow(loadSaved("saved_warp_v1"))
     val savedWarpResults = _savedWarpResults.asStateFlow()
 
     private val _savedEdgeResults = MutableStateFlow(loadSaved("saved_edge_v1"))
     val savedEdgeResults = _savedEdgeResults.asStateFlow()
+
+    private val _savedAkamaiResults = MutableStateFlow(loadSaved("saved_akamai_v1"))
+    val savedAkamaiResults = _savedAkamaiResults.asStateFlow()
 
     private fun loadSaved(key: String): List<ScanResult> =
         ResultCodec.fromJsonList(prefs.getString(key, null))
@@ -87,12 +93,13 @@ class UmbraSettings(context: Context) {
         }
     }
 
-    /** v3.1.1: wipes BOTH persisted buckets — the clear-board button must
+    /** v3.1.1: wipes ALL persisted buckets — the clear-board button must
      *  actually clear the board, not just the in-memory list. */
     fun clearSavedResults() {
         _savedWarpResults.value = emptyList()
         _savedEdgeResults.value = emptyList()
-        prefs.edit().remove("saved_warp_v1").remove("saved_edge_v1").apply()
+        _savedAkamaiResults.value = emptyList()
+        prefs.edit().remove("saved_warp_v1").remove("saved_edge_v1").remove("saved_akamai_v1").apply()
     }
 
     fun saveScanResults(mode: ScanMode, results: List<ScanResult>) {
@@ -103,6 +110,13 @@ class UmbraSettings(context: Context) {
             ScanMode.ENDPOINT -> {
                 _savedWarpResults.value = capped
                 prefs.edit().putString("saved_warp_v1", ResultCodec.toJsonList(capped)).apply()
+            }
+            // v4.1: AKAMAI rows are Akamai edge IPs — their own bucket, so a
+            // CF-EDGE pick can never present an Akamai address (and vice
+            // versa); each row carries its mode and renders its own profile.
+            ScanMode.AKAMAI -> {
+                _savedAkamaiResults.value = capped
+                prefs.edit().putString("saved_akamai_v1", ResultCodec.toJsonList(capped)).apply()
             }
             else -> { // CF_EDGE + CUSTOM both land in the edge bucket
                 _savedEdgeResults.value = capped

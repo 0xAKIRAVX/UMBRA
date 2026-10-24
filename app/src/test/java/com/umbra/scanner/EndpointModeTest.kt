@@ -41,7 +41,11 @@ class EndpointModeTest {
         check(ScanMode.fromLegacyOrdinal(1) == ScanMode.ENDPOINT) { "old WARP lands on ENDPOINT" }
         check(ScanMode.fromLegacyOrdinal(2) == ScanMode.CUSTOM) { "old CUSTOM stays CUSTOM" }
         check(ScanMode.fromLegacyOrdinal(3) == ScanMode.ENDPOINT)
-        check(ScanMode.entries.size == 3) { "the WARP mode is gone" }
+        // v4.1: AKAMAI is APPENDED — the 0..2 ordinals keep their meaning so
+        // every persisted p_mode is unaffected; the legacy bridge above is
+        // only consulted on pre-v3.8 installs (before AKAMAI existed).
+        check(ScanMode.AKAMAI.ordinal == 3)
+        check(ScanMode.entries.size == 4) { "CLEAN IP + CUSTOM + ENDPOINT + AKAMAI" }
     }
 
     // ── presets ────────────────────────────────────────────────────

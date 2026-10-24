@@ -123,6 +123,7 @@ fun ResultsScreen(
     val profile by app.settings.networkProfile.collectAsState()
     val savedWarp by app.settings.savedWarpResults.collectAsState()
     val savedEdge by app.settings.savedEdgeResults.collectAsState()
+    val savedAkamai by app.settings.savedAkamaiResults.collectAsState()
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     val accent = LocalAccent.current
@@ -224,14 +225,20 @@ fun ResultsScreen(
         // v3.1 smart pick board — بهترین‌ها برای نت شما، هر دو خانواده
         // v3.8: ENDPOINT results are WARP endpoints — they feed the warp side
         // of the board (the WARP mode itself is gone).
+        // v4.1: AKAMAI results are Akamai edge IPs — their OWN row; a current
+        // AKAMAI board must not also feed the CF edge row (an Akamai address
+        // presented as a Cloudflare edge is exactly the cross-bucket lie the
+        // third bucket exists to prevent).
         val currentMode = (ui as? ScanUi.Done)?.summary?.params?.mode
             ?: results.firstOrNull()?.mode ?: ScanMode.CF_EDGE
         val warpList = if (currentMode == ScanMode.ENDPOINT) results else savedWarp
-        val edgeList = if (currentMode != ScanMode.ENDPOINT) results else savedEdge
+        val edgeList = if (currentMode != ScanMode.ENDPOINT && currentMode != ScanMode.AKAMAI) results else savedEdge
+        val akamaiList = if (currentMode == ScanMode.AKAMAI) results else savedAkamai
         SmartPickBoard(
             profile = profile,
             warpResults = warpList,
             edgeResults = edgeList,
+            akamaiResults = akamaiList,
             onPick = { detail = it },
         )
         Spacer(Modifier.height(12.dp))
@@ -544,7 +551,11 @@ private fun DetailSheet(
             overflow = TextOverflow.Ellipsis,
         )
         Spacer(Modifier.height(4.dp))
-        SectionLabel(if (r.mode == ScanMode.ENDPOINT) s.warpProfile else s.edgeProfile)
+        SectionLabel(when (r.mode) {
+            ScanMode.ENDPOINT -> s.warpProfile
+            ScanMode.AKAMAI -> s.akamaiProfile
+            else -> s.edgeProfile
+        })
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             StatCell(s.latency, r.latencyMs?.let { "%.1f ms".format(java.util.Locale.US, it) } ?: "—", Modifier.weight(1f))

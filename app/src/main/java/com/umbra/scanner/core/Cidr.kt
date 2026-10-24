@@ -49,10 +49,16 @@ class CidrBlock private constructor(
         if (hostBits <= 10) {
             val total = size.min(BigInteger.valueOf(2048)).toLong()
             if (samples >= total) {
-                // small block, full coverage requested (skip v4 net/broadcast style edges)
+                // small block, full coverage requested. The v4 net/broadcast
+                // style edges are skipped ONLY when the host part spans the
+                // whole last octet (hostBits >= 8) — a /25../32 pin INSIDE an
+                // octet has no such convention, and the v4.1 live-akamai run
+                // proved the old unconditional guard silently swallowed every
+                // v4 /32 (a CUSTOM-mode user pasting exact IPs got ZERO
+                // candidates with no hint why).
                 var i = BigInteger.ZERO
                 while (i < BigInteger.valueOf(total)) {
-                    if (family == IpProtocol.IPv4) {
+                    if (family == IpProtocol.IPv4 && hostBits >= 8) {
                         val last = i.and(BigInteger.valueOf(255))
                         if (last == BigInteger.ZERO || last == BigInteger.valueOf(255)) {
                             i = i.add(BigInteger.ONE)
@@ -78,7 +84,7 @@ class CidrBlock private constructor(
                 val r = BigInteger(hostBits, jrnd)
                 val v = base.add(r)
                 if (v.signum() == 0) continue // never emit the unspecified address
-                if (family == IpProtocol.IPv4) {
+                if (family == IpProtocol.IPv4 && hostBits >= 8) {
                     val last = v.and(BigInteger.valueOf(255))
                     if (last == BigInteger.ZERO || last == BigInteger.valueOf(255)) continue
                 }
