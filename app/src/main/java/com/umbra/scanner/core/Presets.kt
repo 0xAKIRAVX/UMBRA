@@ -57,15 +57,20 @@ object Presets {
         "2606:4700:d1::/48",
     )
 
-    /** v4.1: Akamai's edge network (IPv4) — the union of Akamai's own
+    /** v4.2: Akamai's edge network (IPv4) — the union of Akamai's own
      *  published range lists (Origin IP ACL / SIA source-IP binding, both on
-     *  techdocs.akamai.com) and the space announced by AS20940/AS16625,
-     *  deduplicated and non-overlapping. 19 prefixes · ~13.7M addresses.
+     *  techdocs.akamai.com) and the merged big blocks announced by
+     *  AS20940/AS16625 (RIPEstat announced-prefix census, 2026-10-25),
+     *  deduplicated and non-overlapping. 29 prefixes — the v4.1 list of 19
+     *  plus the 10 regional blocks the census verified as live-serving
+     *  (59.151.128/60.254.128/80.67.64/84.53.128/118.214/118.215/122.252.32/
+     *  125.56.192/125.252.192): honest measurement handles distance by
+     *  itself — a far block just measures slow and loses the ranking.
      *  A stale or non-serving address is HARMLESS: the AKAMAI scan only
-     *  reports IPs that complete a real TLS handshake for www.akamai.com
+     *  reports IPs that complete a real TLS handshake for the probe SNI
      *  (the same "never validate, never report" contract as the WARP pool).
-     *  Live-recon 2026-10-23: random addresses inside 23.0.0.0/12 answer and
-     *  serve the valid www.akamai.com certificate; www.akamai.com itself
+     *  Live-census 2026-10-25: random addresses in EVERY block below served
+     *  a valid www.bing.com certificate with HTTP 200; www.akamai.com itself
      *  resolves into 184.50.0.0/15 and 23.192.0.0/11. */
     val AKAMAI_V4: List<String> = listOf(
         "2.16.0.0/13",
@@ -74,20 +79,45 @@ object Presets {
         "23.64.0.0/14",
         "23.72.0.0/13",
         "23.192.0.0/11",
+        "59.151.128.0/18",
+        "60.254.128.0/18",
         "69.192.0.0/16",
         "72.246.0.0/15",
+        "80.67.64.0/19",
+        "84.53.128.0/18",
         "88.221.0.0/16",
         "92.122.0.0/15",
         "95.100.0.0/15",
         "96.6.0.0/15",
         "96.16.0.0/15",
         "104.64.0.0/10",
+        "118.214.0.0/16",
+        "118.215.0.0/17",
+        "118.215.128.0/18",
+        "122.252.32.0/19",
+        "125.56.192.0/18",
+        "125.252.192.0/18",
         "172.224.0.0/12",
         "173.222.0.0/15",
         "184.24.0.0/13",
         "184.50.0.0/15",
         "184.84.0.0/14",
     )
+
+    /** v4.2: the Akamai probe/validation/throughput host — chosen by a LIVE
+     *  5-SNI matrix census against real census edges (2026-10-25): 9/9
+     *  served a valid www.bing.com certificate AND HTTP 200 with ~78 KB
+     *  bodies (www.akamai.com answers everywhere too, but only with a
+     *  1.7 KB 403 stub — useless for a throughput measure; www.microsoft.com /
+     *  www.tesla.com / download.microsoft.com are NOT served from every
+     *  edge: tlsv1 alert internal error). bing.com is also reachable from
+     *  Iran, matching the audience's real radio path. */
+    const val AKAMAI_SNI = "www.bing.com"
+
+    /** v4.2: repeated-fetch path for the Akamai throughput measure — body
+     *  transfer time is summed across fetches so per-fetch TLS setup
+     *  overhead never pollutes the Mbps figure. */
+    const val AKAMAI_SPEED_PATH = "/"
 
     /** v4.1: Akamai's edge network (IPv6) — from Akamai's published
      *  ipv4_ipv6 CIDR list (techdocs.akamai.com, property-manager zip). */

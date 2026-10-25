@@ -450,7 +450,7 @@ class ScanController(private val settings: UmbraSettings? = null) {
         // after a real handshake answered, so the board streams live and every
         // shown endpoint is already usable.
         val scanMode = params?.mode
-        if (currentPhase == ScanPhase.WG ||
+        if (currentPhase == ScanPhase.WG || currentPhase == ScanPhase.CALIBRATE ||
             (scanMode != ScanMode.ENDPOINT &&
                 (currentPhase == ScanPhase.PROBE || currentPhase == ScanPhase.RANKING))
         ) {
@@ -569,4 +569,12 @@ internal fun sessionStartLine(p: ScanParams): String =
                 if (p.udpNoise) " · udp noise ×${p.noiseCount}" else ""
         } else {
             " · ${p.tcpAttempts} attempts × ${p.tcpTimeoutMs} ms"
-        }
+        } +
+        // v4.2: the deep-measure trust line — the reported numbers come from
+        // multi-sample measurements, not one lucky round trip.
+        if (p.deepMeasure && p.mode != ScanMode.ENDPOINT) {
+            " · deep measure ×${p.deepSamples}" +
+                if (p.mode == ScanMode.AKAMAI) " · sni ${p.speedSni} · real-page throughput" else ""
+        } else if (p.deepMeasure) {
+            " · deep measure ×${p.deepSamples} wg rounds"
+        } else ""

@@ -159,6 +159,10 @@ class UmbraSettings(context: Context) {
             .putInt("p_warptries", p.warpAttempts)
             .putBoolean("p_noise", p.udpNoise)
             .putInt("p_noisecnt", p.noiseCount)
+            // v4.2: the deep-measure knobs
+            .putBoolean("p_deep", p.deepMeasure)
+            .putInt("p_deepN", p.deepTopN)
+            .putInt("p_deepS", p.deepSamples)
             .putBoolean("p_mode_mig_v38", true)
             .apply()
     }
@@ -209,6 +213,12 @@ class UmbraSettings(context: Context) {
             warpAttempts = prefs.getInt("p_warptries", 3).coerceIn(1, 7),
             udpNoise = prefs.getBoolean("p_noise", true),
             noiseCount = prefs.getInt("p_noisecnt", 5).coerceIn(1, 50),
+            // v4.2: deep-measure knobs — defaults ON (the honest-measurement
+            // phase is the point of this release); older saves fall back to
+            // enabled with the default top-N / sample counts.
+            deepMeasure = prefs.getBoolean("p_deep", true),
+            deepTopN = prefs.getInt("p_deepN", 30).coerceIn(10, 200),
+            deepSamples = prefs.getInt("p_deepS", 8).coerceIn(3, 20),
         )
     }
 

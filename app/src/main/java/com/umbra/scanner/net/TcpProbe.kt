@@ -29,18 +29,29 @@ object TcpProbe {
         attempts: Int,
         timeoutMs: Int,
         interAttemptDelayMs: Long = 25,
+        ladder: Boolean = false,
     ): TcpStats {
         val addr = InetAddress.getByAddress(ip)
         val lat = ArrayList<Double>(attempts.coerceAtMost(8))
         var failures = 0
         var lastError: String? = null
-        repeat(attempts.coerceAtLeast(1)) {
+        repeat(attempts.coerceAtLeast(1)) { i ->
+            // v3.12: the WG probe budget ladder applied to big TCP storms —
+            // the first attempt gets the full budget (a congested-but-alive
+            // candidate deserves it), every retry runs at half (floor 700 ms,
+            // never above the base). On an Akamai scan the overwhelming
+            // majority of the pool is dark space: retries exist for
+            // flaky-but-alive candidates, which answer within the first
+            // budget anyway. Off by default — existing callers are unchanged.
+            val budget = if (ladder && i > 0) {
+                maxOf(timeoutMs / 2, minOf(timeoutMs, 700))
+            } else timeoutMs
             val socket = Socket()
             try {
                 socket.tcpNoDelay = true
                 val t0 = System.nanoTime()
                 runInterruptible(Dispatchers.IO) {
-                    socket.connect(InetSocketAddress(addr, port), timeoutMs)
+                    socket.connect(InetSocketAddress(addr, port), budget)
                 }
                 val dtMs = (System.nanoTime() - t0) / 1e6
                 lat.add(dtMs)
@@ -53,7 +64,7 @@ object TcpProbe {
             } finally {
                 runCatching { socket.close() }
             }
-            if (interAttemptDelayMs > 0 && it < attempts - 1) delay(interAttemptDelayMs)
+            if (interAttemptDelayMs > 0 && i < attempts - 1) delay(interAttemptDelayMs)
         }
         return TcpStats(lat, failures, lastError)
     }

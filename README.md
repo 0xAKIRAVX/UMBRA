@@ -9,12 +9,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v4.1.1-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
+  <a href="https://github.com/0xAKIRAVX/UMBRA/releases"><img src="https://img.shields.io/badge/release-v4.2.0-ff3b4a?style=flat-square&labelColor=0d1420" alt="release"></a>
   <img src="https://img.shields.io/badge/platform-Android%208.0%2B%20%2F%20iOS%2016%2B-34d399?style=flat-square&labelColor=0d1420" alt="platform">
   <img src="https://img.shields.io/badge/Kotlin%20%2B%20Rust%20%2B%20Go-tri--lingual-7f52ff?style=flat-square&labelColor=0d1420" alt="languages">
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285f4?style=flat-square&labelColor=0d1420" alt="compose">
   <img src="https://img.shields.io/badge/APK-%E2%89%8845%20MB-f15bb5?style=flat-square&labelColor=0d1420" alt="size">
-  <img src="https://img.shields.io/badge/tests-309%2F309%20green%20%C2%B7%20live%20WG--validated%20endpoints-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
+  <img src="https://img.shields.io/badge/tests-319%2F319%20green%20%C2%B7%20live%20WG--validated%20endpoints-00f5d4?style=flat-square&labelColor=0d1420" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-9b5de5?style=flat-square&labelColor=0d1420" alt="license">
 </p>
 
@@ -185,7 +185,7 @@ Grab the latest signed APK from the **[Releases](https://github.com/0xAKIRAVX/UM
 
 | | |
 | --- | --- |
-| Latest version | **v4.1.1** (build 31) |
+| Latest version | **v4.2.0** (build 32) |
 | Requirement | Android 8.0+ (API 26) |
 | Architecture | Universal (arm64 / armv7 / x86_64) |
 | Size | ~45 MB (three toolchains: Go runtime + Rust core, ×3 ABIs) |
@@ -269,6 +269,7 @@ Zero analytics. Zero trackers. Zero data collection. Scans, measurements and the
 
 | Version | Theme | Highlights |
 | --- | --- | --- |
+| **v4.2.0** | AKAMAI: real IPs, real measurement | Probe SNI moved to the census-proven www.bing.com (9/9 edges: valid cert + HTTP 200 + ~78 KB body; www.akamai.com answered 403-only), DEEP MEASURE phase in every mode (8 spaced samples per top endpoint — ping/jitter/loss/ranking from real multi-sample numbers), real throughput via repeated bing page fetches (body-time only, live-verified 35–42 Mbps), +10 census-verified Akamai blocks (29 total), TCP-storm probe-budget ladder |
 | **v4.1.1** | Bug hunt round 3 | Frozen-IDENTITY fix (disk identity primary — 50–80 s silent wait gone on API-blocked networks; unreachable fast-fail), notification content localized EN+FA with `[ip]:port` best endpoint, last two English share choosers localized |
 | **v4.1.0** | AKAMAI scanner | A second CDN: 19+3 published Akamai edge blocks, TCP `:443` storm, strict-TLS validation for `www.akamai.com` (SNI-routed edges only), latency-ranked with the speed phase honestly skipped, third smart-pick bucket, CUSTOM `/32` generation fix |
 | **v4.0.2** | Go-path integrity pass | ACTIVE-lane counter poisoning fixed (Go's absolute busy counts were passed into a delta accumulator), duplicate-draw progress reconciliation on small CIDRs, Persian digits out of the colo log line, Turkish dotless-ı out of the notification, single hex-dump truncation marker, deep-test crash feedback |
@@ -293,6 +294,19 @@ Zero analytics. Zero trackers. Zero data collection. Scans, measurements and the
 
 <details>
 <summary><strong>Full release notes</strong></summary>
+
+### v4.2.0 — AKAMAI: real IPs, real measurement
+
+*«آیپی‌هایی که آکامای می‌دن فیک هستن و اصلاً کار نمی‌کنن… برنامه سریع آیپی‌ها رو پیدا می‌کنه و اصلاً فرصت نمی‌کنه تا آیپی‌ها رو واقعی بسنجه و پینگ و سرعت و پایداریشون رو بسنجه»* — two complaints, one root cause each, both fixed with the app's core principle: **prove everything on the user's device**:
+
+1. **The AKAMAI probe host moved to www.bing.com — chosen by a LIVE 5-SNI MATRIX CENSUS, not assumption.** The v4.1 mode validated against `www.akamai.com`, which every Akamai edge answers… with a **1.7 KB 403 stub** — a technically-valid TLS proof that measures nothing and left users holding IPs they could not use. The census (2026-10-25) probed five Akamai-hosted SNIs across 9 live edges: **9/9** served `www.bing.com` with a valid certificate, **HTTP 200**, and a real **~78 KB body** — while `www.microsoft.com` / `www.tesla.com` / `download.microsoft.com` are *not* served from every edge (tlsv1 alert internal error). One host now serves validation, the deep samples AND the throughput measure; `bing.com` is also reachable from Iran, matching the audience's real radio path. The config-screen hint now also explains the Akamai edge's strict SNI routing: the validated IPs serve **Akamai-hosted** hosts — use such an SNI/host in your config.
+2. **DEEP MEASURE — the end of "too fast to be real".** Discovery (storm → TLS verify / WG handshake) stays fast on purpose, but the numbers you *read* no longer come from one lucky round trip: after validation the top endpoints are re-probed with **8 spaced fresh samples** (full TCP+TLS+cert round trips in EDGE/AKAMAI/CUSTOM; extra WireGuard handshake + in-tunnel-ping rounds in ENDPOINT), and the reported **ping (avg), jitter, loss and the final ranking all come from the multi-sample measurement**. A new `DEEP MEASURE` step sits on the phase bar; the toggle + top-N + sample-count sliders live in the advanced engine section (persisted). Live proof: the endpoint-mode run re-measured 14–19 winners and flagged **8–10 as ≥25% loss** — flaky endpoints a single-sample ranking would have silently recommended; the Akamai run measured jitter from **0.67 to 14 ms** across the winners.
+3. **AKAMAI throughput on real bodies.** v4.1 skipped the speed phase entirely ("akamai has no metered endpoint") — the پرسرعت‌ترین ask was impossible by design. `ExactIpHttps.downloadRepeated` now fetches the real bing page over and over (fresh TLS per fetch) and counts **only body-transfer time** — per-fetch TLS setup never pollutes the Mbps figure. Live-verified: **35–42 Mbps** on near edges, ~78 KB per fetch. Auto-tune keeps the pass ON; the speed sliders/toggle are back in the AKAMAI config; `runsSpeedPhase` is true for every mode.
+4. **10 more census-verified Akamai blocks (19 → 29).** The merged big blocks of AS20940+AS16625 (RIPEstat announced-prefix census, 2026-10-25), every block live-verified by random-IP sampling: random addresses really served the Akamai edge. Honest measurement handles distance by itself — a far regional block (59.151.128 / 60.254.128 / 80.67.64 / 84.53.128 / 118.214 / 118.215 / 122.252.32 / 125.56.192 / 125.252.192) just measures slow and loses the ranking.
+5. **The TCP storm got the WG probe-budget ladder** — first attempt at the full timeout, retries at half (floor 700 ms) — a mostly-dead 29-block pool no longer burns attempts × timeout per dark IP.
+6. **AppStrings hit the JVM 255-arg constructor ceiling** when the new UI strings were added (`ClassFormatError: Too many arguments`) — the deep-measure/Akamai-throughput strings now live in their own `DeepStrings` class, the same pattern `NotificationStrings` / `DebugConsoleStrings` already used for that reason.
+
+> **319/319 unit green (10 new: deep-stats math, merge-replaces-single-sample, CALIBRATE phase ordering, deep defaults, hostile-locale session line, bing-SNI routing, 29/32-block estimates, auto-tune contract, codec round-trip) + all live suites re-verified against production (Kotlin+Rust WG handshakes + in-tunnel pings, the 120-endpoint scan — 46 validated, deep-measured, flaky flagged; Akamai end-to-end: 235 candidates → 72 tcp-alive → **15 cert-validated** → deep-measured → **real throughput 2.4–42 Mbps**) + DEX post-build verification passed. Install v4.2.0 over any v3.2+ / v4.x, same signature.**
 
 ### v4.1.1 — round three of the bug hunt (3 fixes)
 

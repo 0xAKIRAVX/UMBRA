@@ -336,28 +336,34 @@ private fun PhaseBar(current: ScanPhase, mode: ScanMode) {
     val phases = when (mode) {
         // v3.8: endpoint scan — identity registration + WG handshake validation
         // (no TLS phase — the handshake IS the proof).
+        // v4.2: DEEP MEASURE between the WG storm and the ranking — the top
+        // endpoints get their real multi-sample ping/jitter/loss numbers here.
         ScanMode.ENDPOINT -> listOf(
             ScanPhase.GENERATING,
             ScanPhase.REGISTER,
             ScanPhase.WG,
+            ScanPhase.CALIBRATE,
             ScanPhase.RANKING,
             ScanPhase.SPEED,
             ScanPhase.DONE,
         )
-        // v4.1: akamai scan — TCP storm + strict TLS verification, ranked by
-        // latency (no SPEED segment: akamai has no metered throughput
-        // endpoint; a segment that never lights would be a lie).
+        // v4.2: akamai scan — TCP storm + strict TLS verification + DEEP
+        // MEASURE + the repeated-fetch throughput phase (the old
+        // "no SPEED segment" limitation is gone: bing serves a real body).
         ScanMode.AKAMAI -> listOf(
             ScanPhase.GENERATING,
             ScanPhase.TCP,
             ScanPhase.PROBE,
+            ScanPhase.CALIBRATE,
             ScanPhase.RANKING,
+            ScanPhase.SPEED,
             ScanPhase.DONE,
         )
         else -> listOf(
             ScanPhase.GENERATING,
             ScanPhase.TCP,
             ScanPhase.PROBE,
+            ScanPhase.CALIBRATE,
             ScanPhase.RANKING,
             ScanPhase.SPEED,
             ScanPhase.DONE,

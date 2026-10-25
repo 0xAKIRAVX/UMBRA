@@ -144,6 +144,12 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
     // selected while silently running 100 MB downloads.
     var dlMb by rememberSaveable { mutableIntStateOf(clampToSlider(saved.downloadMbLabel, 1..50)) }
     var tlsOn by rememberSaveable { mutableStateOf(saved.tlsVerify) }
+    // v4.2: the deep-measure knobs (all modes) — the phase that re-probes the
+    // top endpoints with many spaced samples so ping / jitter / loss / the
+    // ranking are real measurements, not one lucky round trip.
+    var deepOn by rememberSaveable { mutableStateOf(saved.deepMeasure) }
+    var deepTopN by rememberSaveable { mutableIntStateOf(clampToSlider(saved.deepTopN, 10..200)) }
+    var deepSamples by rememberSaveable { mutableIntStateOf(clampToSlider(saved.deepSamples, 3..20)) }
     var advanced by rememberSaveable { mutableStateOf(false) }
 
     // v3.8.1 fix (the toggle-poisoning bug): entering ENDPOINT mode silently
@@ -559,34 +565,48 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
                         valueText = verifyTopN.toString(),
                     )
                 }
-                // v4.1: AKAMAI has no throughput phase (no Akamai equivalent of
-                // CF's metered /__down endpoint exists) — the speed sliders and
-                // toggle are inert in this mode, so they are not rendered.
-                if (mode != ScanMode.AKAMAI) {
-                    LabeledSlider(s.speedTopN, speedTopN, { speedTopN = it }, 5..300, valueText = speedTopN.toString())
-                    LabeledSlider(s.speedLanes, speedConc, { speedConc = it }, 1..8, valueText = s.retryLabel(speedConc))
-                }
+                // v4.2: AKAMAI runs a REAL throughput phase now (repeated
+                // bing page fetches) — the speed sliders and toggle are back
+                // in this mode; the old "inert in akamai" hiding is gone.
+                LabeledSlider(s.speedTopN, speedTopN, { speedTopN = it }, 5..300, valueText = speedTopN.toString())
+                LabeledSlider(s.speedLanes, speedConc, { speedConc = it }, 1..8, valueText = s.retryLabel(speedConc))
                 ToggleRow(
                     title = s.tlsVerify,
                     subtitle = s.tlsVerifyHint,
                     checked = tlsOn,
                     onChange = { tlsOn = it },
                 )
-                if (mode != ScanMode.AKAMAI) {
-                    ToggleRow(
-                        title = s.speedTest,
-                        subtitle = when (mode) {
-                            ScanMode.ENDPOINT -> s.speedTestHintEndpoint
-                            else -> s.speedTestHintEdge
-                        },
-                        checked = speedOn,
-                        onChange = { speedOn = it },
+                // v4.2: the deep-measure controls — one toggle + two sliders,
+                // shown for EVERY mode (the phase runs in all of them).
+                ToggleRow(
+                    title = s.deep.deepMeasure,
+                    subtitle = s.deep.deepMeasureHint,
+                    checked = deepOn,
+                    onChange = { deepOn = it },
+                )
+                if (deepOn) {
+                    LabeledSlider(
+                        s.deep.deepTopNLabel, deepTopN, { deepTopN = it }, 10..200,
+                        valueText = deepTopN.toString(),
+                    )
+                    LabeledSlider(
+                        s.deep.deepSamplesLabel, deepSamples, { deepSamples = it }, 3..20,
+                        valueText = deepSamples.toString(),
                     )
                 }
-                // v4.1: the download-size chips belong to the (hidden in
-                // AKAMAI) speed pass — a stale speedOn=true from a previous
-                // mode must not render inert controls here.
-                if (speedOn && mode != ScanMode.AKAMAI) {
+                ToggleRow(
+                    title = s.speedTest,
+                    subtitle = when (mode) {
+                        ScanMode.ENDPOINT -> s.speedTestHintEndpoint
+                        ScanMode.AKAMAI -> s.deep.speedTestHintAkamai
+                        else -> s.speedTestHintEdge
+                    },
+                    checked = speedOn,
+                    onChange = { speedOn = it },
+                )
+                // v4.2: the download-size chips now belong to AKAMAI too —
+                // the repeated-fetch throughput target uses the same knob.
+                if (speedOn) {
                     Spacer(Modifier.height(8.dp))
                     SectionLabel(s.downloadSize)
                     Spacer(Modifier.height(7.dp))
@@ -627,6 +647,10 @@ fun ConfigPanel(app: UmbraApp, onStart: (ScanParams) -> Unit) {
                     warpAttempts = attempts,
                     udpNoise = udpNoise,
                     noiseCount = 5,
+                    // v4.2: the deep-measure knobs
+                    deepMeasure = deepOn,
+                    deepTopN = deepTopN,
+                    deepSamples = deepSamples,
                 )
                 onStart(params)
             },

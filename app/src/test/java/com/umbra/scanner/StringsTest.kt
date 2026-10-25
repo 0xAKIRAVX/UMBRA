@@ -53,6 +53,12 @@ class StringsTest {
         Triple("modeAkamai", EnglishStrings.modeAkamai, PersianStrings.modeAkamai),
         Triple("taglineAkamai", EnglishStrings.taglineAkamai, PersianStrings.taglineAkamai),
         Triple("akamaiValidationHint", EnglishStrings.akamaiValidationHint, PersianStrings.akamaiValidationHint),
+        // v4.2: deep-measure + akamai-throughput strings
+        Triple("speedTestHintAkamai", EnglishStrings.deep.speedTestHintAkamai, PersianStrings.deep.speedTestHintAkamai),
+        Triple("deepMeasure", EnglishStrings.deep.deepMeasure, PersianStrings.deep.deepMeasure),
+        Triple("deepMeasureHint", EnglishStrings.deep.deepMeasureHint, PersianStrings.deep.deepMeasureHint),
+        Triple("deepTopNLabel", EnglishStrings.deep.deepTopNLabel, PersianStrings.deep.deepTopNLabel),
+        Triple("deepSamplesLabel", EnglishStrings.deep.deepSamplesLabel, PersianStrings.deep.deepSamplesLabel),
         Triple("akamaiProfile", EnglishStrings.akamaiProfile, PersianStrings.akamaiProfile),
         Triple("endpointsCountLabel", EnglishStrings.endpointsCountLabel, PersianStrings.endpointsCountLabel),
         Triple("randomPortLabel", EnglishStrings.randomPortLabel, PersianStrings.randomPortLabel),

@@ -20,6 +20,27 @@ data class NotificationStrings(
 )
 
 /**
+ * v4.2: the DEEP MEASURE + Akamai-throughput strings, in their own class for
+ * the same reason [NotificationStrings] exists — the AppStrings primary
+ * constructor sits at the JVM method-arg ceiling and cannot grow (the
+ * ClassFormatError lesson, relearned the hard way in the v4.2 round).
+ */
+@Immutable
+data class DeepStrings(
+    /** Akamai speed-test hint — throughput on repeated real-page fetches
+     *  (no CF-style metered endpoint needed on Akamai). */
+    val speedTestHintAkamai: String,
+    /** DEEP MEASURE toggle (advanced engine section, all modes). */
+    val deepMeasure: String,
+    /** Hint under the DEEP MEASURE toggle. */
+    val deepMeasureHint: String,
+    /** How many verified endpoints get the deep measurement. */
+    val deepTopNLabel: String,
+    /** Samples per endpoint in the deep measure phase. */
+    val deepSamplesLabel: String,
+)
+
+/**
  * UMBRA i18n — every user-facing string of the app, English + فارسی.
  *
  * Technical tokens (IP, TLS, WG, WARP, VLESS, UUID, SNI, CSV …) stay Latin in
@@ -200,6 +221,9 @@ data class AppStrings(
     // default — a bare IP identifies nothing usable). Nested class: AppStrings
     // is at the JVM constructor ceiling (see NotificationStrings). ──
     val notif: NotificationStrings,
+    /** v4.2: the deep-measure + akamai-throughput strings live in their own
+     *  class — the constructor is at the ceiling (see [DeepStrings]). */
+    val deep: DeepStrings,
     /** v4.1.1: chooser title for sharing the plain-text results report (the
      *  last hardcoded English chooser — Exporters.shareText's "Share via"). */
     val shareResultsChooser: String,
@@ -401,9 +425,14 @@ val EnglishStrings = AppStrings(
     taglineCfEdge = "Cloudflare edge · speed.cloudflare.com",
     taglineCustom = "Your own CIDR list",
     taglineEndpoint = "WARP ranges · random ip:port · IPv4 + IPv6 · real WireGuard handshake",
-    taglineAkamai = "Akamai CDN · 19 edge ranges · IPv4 + IPv6 · TLS-verified · fastest edges for www.akamai.com",
+    taglineAkamai = "Akamai CDN · 29 live-census edge ranges · IPv4 + IPv6 · cert-verified TLS · deep ping / speed / stability",
     endpointValidationHint = "every endpoint is proven by a real WireGuard handshake — only endpoints that answer are reported, so they work in WireGuard / v2rayNG / Hiddify",
-    akamaiValidationHint = "only edge IPs serving a valid certificate for www.akamai.com are reported — dpi fakes and non-serving IPs are discarded; use with host www.akamai.com or your own akamai-fronted domain (no throughput endpoint exists on akamai — ranking is latency)",
+    // v4.2 (the "fake Akamai IPs" fix): the probe host is www.bing.com —
+    // served by EVERY census edge with a valid cert + HTTP 200 + a real
+    // ~78 KB body (www.akamai.com answers everywhere too but only with a
+    // 403 stub). Akamai's edge routes strictly by SNI — validated IPs work
+    // with Akamai-hosted hosts like bing.com.
+    akamaiValidationHint = "every IP is proven by a full TLS handshake with a valid certificate for www.bing.com (served on every Akamai edge) — dpi fakes and dead IPs can never pass; these IPs serve Akamai-hosted hosts — use such an SNI/host in your config",
     endpointsCountLabel = "ENDPOINTS TO TEST",
     randomPortLabel = "RANDOM",
     endpointPortHint = "random: each endpoint draws its own port from the 55 canonical WARP ports — or pin one",
@@ -494,6 +523,16 @@ val EnglishStrings = AppStrings(
             "alive $alive · tested $tested/$candidates · $seconds"
         },
         best = { endpoint, rtt -> "best $endpoint · $rtt" },
+    ),
+
+    // v4.2: deep-measure + akamai-throughput strings (own class — the
+    // AppStrings constructor is at the JVM ceiling).
+    deep = DeepStrings(
+        speedTestHintAkamai = "throughput on repeated real-page fetches · sni www.bing.com · only body time counts",
+        deepMeasure = "DEEP MEASURE",
+        deepMeasureHint = "after validation, the top endpoints are re-probed with many spaced samples — the reported ping, jitter and loss are real measurements over seconds, not one lucky round trip",
+        deepTopNLabel = "DEEP TOP N",
+        deepSamplesLabel = "SAMPLES / ENDPOINT",
     ),
     shareResultsChooser = "Share results",
     shareJournalChooser = "Share debug journal",
@@ -680,9 +719,12 @@ val PersianStrings = AppStrings(
     taglineCfEdge = "ادج کلادفلر · speed.cloudflare.com",
     taglineCustom = "لیست CIDR خودتان",
     taglineEndpoint = "محدوده‌های WARP · ip:port تصادفی · IPv4 + IPv6 · هندشیک واقعی WireGuard",
-    taglineAkamai = "CDN آکامای · ۱۹ محدوده ادج · IPv4 + IPv6 · تأییدشده با TLS · سریع‌ترین ادج‌های www.akamai.com",
+    taglineAkamai = "CDN آکامای · ۲۹ محدوده ادج با census زنده · IPv4 + IPv6 · TLS با گواهی معتبر · سنجش عمیق پینگ و سرعت و پایداری",
     endpointValidationHint = "هر اندپوینت با هندشیک واقعی WireGuard اثبات می‌شود — فقط اندپوینت‌هایی که جواب می‌دهند گزارش می‌شوند؛ پس در WireGuard / v2rayNG / Hiddify کار می‌کنند",
-    akamaiValidationHint = "فقط IPهایی که گواهی معتبر www.akamai.com را سرو می‌دهند گزارش می‌شوند — IPهای جعلیِ DPI و بدون سرویس حذف می‌شوند؛ با host مقدار www.akamai.com یا دامنه اختصاصی پشت آکامای خودتان استفاده کنید (در آکامای اندپوینتِ سنجش سرعت وجود ندارد — رتبه‌بندی بر پایه تأخیر است)",
+    // v4.2 (رفع باگ «آیپی‌های فیک آکامای»): SNI سنجش www.bing.com است — روی
+    // همه ادج‌های census با گواهی معتبر و HTTP 200 و بدنه واقعی ~۷۸KB سرو
+    // می‌شود (www.akamai.com هم همه‌جا جواب می‌دهد ولی فقط ۴۰۳ می‌دهد).
+    akamaiValidationHint = "هر IP با یک هندشیک TLS کامل و گواهی معتبر برای www.bing.com اثبات می‌شود (روی همه ادج‌های آکامای سرو می‌شود) — DPI جعلی و IPهای مرده هرگز رد نمی‌شوند؛ این IPها فقط هاست‌های پشت آکامای را سرو می‌کنند — در کانفیگ خود از چنین SNI/هاستی استفاده کنید",
     endpointsCountLabel = "تعداد اندپوینت",
     randomPortLabel = "تصادفی",
     endpointPortHint = "تصادفی: هر اندپوینت یک پورت از ۵۵ پورت استاندارد WARP می‌گیرد — یا یک پورت ثابت انتخاب کنید",
@@ -774,6 +816,16 @@ val PersianStrings = AppStrings(
             "فعال $alive · تست‌شده $tested/$candidates · $seconds"
         },
         best = { endpoint, rtt -> "بهترین $endpoint · $rtt" },
+    ),
+
+    // v4.2: رشته‌های سنجش عمیق و توان عبوری آکامای (کلاس جدا — سازنده
+    // AppStrings در سقف JVM است).
+    deep = DeepStrings(
+        speedTestHintAkamai = "توان عبوری با دریافت مکرر صفحه واقعی · sni به www.bing.com · فقط زمان انتقال بدنه حساب می‌شود",
+        deepMeasure = "سنجش عمیق",
+        deepMeasureHint = "بعد از اعتبارسنجی، اندپوینت‌های برتر با نمونه‌های زیاد و فاصله‌دار دوباره سنجیده می‌شوند — پینگ، جیتر و اتلاف گزارش‌شده سنجه‌های واقعی در طول زمان‌اند، نه یک رفت‌وبرگشت شانسی",
+        deepTopNLabel = "سقف سنجش عمیق",
+        deepSamplesLabel = "نمونه به ازای اندپوینت",
     ),
     shareResultsChooser = "اشتراک‌گذاری نتایج",
     shareJournalChooser = "اشتراک ژورنال دیباگ",

@@ -30,17 +30,24 @@ enum class ScanMode(val label: String, val tagline: String) {
      *  nothing (v3.7's fake-endpoint lesson). */
     ENDPOINT("ENDPOINT", "WARP ranges · random ip:port · IPv4 + IPv6 · real WireGuard handshake"),
     /** v4.1: Akamai CDN scanner — samples Akamai's published edge ranges,
-     *  storms TCP :443, then TLS-verifies against SNI=www.akamai.com on the
-     *  KOTLIN core (the Go clean-ip engine is CF-bound: its verify phase
-     *  demands a 200 from /cdn-cgi/trace, which Akamai edges can never
-     *  answer — a trace-hardcoded filter would kill every real Akamai IP).
-     *  Akamai's shared edge routes STRICTLY by SNI (live-verified: an edge
-     *  IP either serves the valid property certificate or resets), so only
-     *  IPs genuinely serving Akamai's own property pass — DPI fake-accepts
-     *  and non-serving IPs die at the TLS filter. Ranked by latency +
-     *  jitter + loss; no Akamai metered throughput endpoint exists, so the
-     *  download phase is skipped and results honestly carry "—" for speed. */
-    AKAMAI("AKAMAI", "Akamai CDN · TLS-verified · latency-ranked");
+     *  storms TCP :443, then TLS-verifies on the KOTLIN core (the Go
+     *  clean-ip engine is CF-bound: its verify phase demands a 200 from
+     *  /cdn-cgi/trace, which Akamai edges can never answer — a
+     *  trace-hardcoded filter would kill every real Akamai IP).
+     *  v4.2 (THE "fake Akamai IPs" fix): the probe SNI is www.bing.com —
+     *  chosen by a LIVE 5-SNI matrix census against real edges (2026-10-25):
+     *  9/9 census edges served a valid www.bing.com certificate AND HTTP 200
+     *  with ~78 KB bodies, while www.akamai.com only answered with a 1.7 KB
+     *  403 stub (no measurable body) and www.microsoft.com /
+     *  www.tesla.com / download.microsoft.com were NOT served from every
+     *  edge (tlsv1 alert internal error). Akamai's shared edge routes
+     *  STRICTLY by SNI, so only IPs genuinely serving the probed property
+     *  pass — DPI fake-accepts and non-serving IPs die at the TLS filter.
+     *  v4.2 also added the DEEP MEASURE phase (multi-sample ping/jitter/loss)
+     *  and a REAL throughput measure: repeated bing page fetches, counting
+     *  only body-transfer time — the mode finally delivers on «پرسرعت‌ترین
+     *  آیپی‌های آکامای». */
+    AKAMAI("AKAMAI", "Akamai CDN · cert-verified TLS · deep measure · real throughput");
 
     companion object {
         /** v3.8 persistence bridge: maps a PRE-v3.8 stored p_mode ordinal
@@ -64,9 +71,15 @@ enum class ScanPhase(val label: String, val order: Int) {
     TCP("TCP STORM", 2),
     WG("WG PROBE", 3),
     PROBE("TLS PROBE", 3),
-    RANKING("RANKING", 4),
-    SPEED("SPEED TEST", 5),
-    DONE("COMPLETE", 6);
+    /** v4.2: the deep-measure phase — the top validated endpoints are
+     *  re-probed with MANY spaced samples so the reported ping / jitter /
+     *  loss are REAL numbers measured over time, not one lucky round trip.
+     *  This is the direct answer to «برنامه سریع آیپی‌ها رو پیدا می‌کنه و
+     *  اصلاً فرصت نمی‌کنه تا واقعی بسنجه‌شون». */
+    CALIBRATE("DEEP MEASURE", 4),
+    RANKING("RANKING", 5),
+    SPEED("SPEED TEST", 6),
+    DONE("COMPLETE", 7);
 }
 
 enum class SortKey(val label: String) {
@@ -104,10 +117,30 @@ data class ScanParams(
     val udpNoise: Boolean = true,
     /** ENDPOINT only: noise packets per burst. */
     val noiseCount: Int = 5,
+    /** v4.2: the deep-measure phase — after aliveness is proven, the top
+     *  [deepTopN] endpoints are re-probed with [deepSamples] spaced samples
+     *  each, and the REPORTED ping / jitter / loss / ranking all come from
+     *  that multi-sample measurement. A single handshake or one TLS round
+     *  trip is a discovery signal, not a measurement (the exact complaint:
+     *  «برنامه سریع آیپی‌ها رو پیدا می‌کنه و اصلاً فرصت نمی‌کنه تا واقعی
+     *  بسنجه‌شون — پینگ و سرعت و پایداری»). */
+    val deepMeasure: Boolean = true,
+    /** v4.2: how many verified endpoints get the deep measurement. */
+    val deepTopN: Int = 30,
+    /** v4.2: spaced samples per deep-measured endpoint (each sample is a
+     *  full fresh TCP + TLS round trip with the mode's SNI — or, in ENDPOINT
+     *  mode, a fresh WireGuard handshake + in-tunnel ping). */
+    val deepSamples: Int = 8,
 ) {
-    val edgeSni: String get() = if (mode == ScanMode.AKAMAI) "www.akamai.com" else "speed.cloudflare.com"
+    /** v4.2: the probe/validation host for AKAMAI is www.bing.com — the
+     *  live-census winner (9/9 edges, valid cert + HTTP 200 + ~78 KB real
+     *  bodies per fetch; www.akamai.com answers everywhere but only with a
+     *  1.7 KB 403 stub, and the microsoft/tesla properties are not served
+     *  from every edge). Same host for validation, deep samples AND the
+     *  repeated-fetch throughput measure — one proven path end-to-end. */
+    val edgeSni: String get() = if (mode == ScanMode.AKAMAI) Presets.AKAMAI_SNI else "speed.cloudflare.com"
     val warpSni: String get() = "engage.cloudflareclient.com"
-    val speedSni: String get() = if (mode == ScanMode.AKAMAI) "www.akamai.com" else "speed.cloudflare.com"
+    val speedSni: String get() = if (mode == ScanMode.AKAMAI) Presets.AKAMAI_SNI else "speed.cloudflare.com"
 
     /** WARP endpoints never serve speed.cloudflare.com on their scan port — the
      *  throughput check always rides 443, where every WARP IP is a normal edge.
@@ -122,19 +155,19 @@ data class ScanParams(
      *  heavily-filtered networks (e.g. Iran) DPI boxes complete the TCP
      *  handshake for any destination, so TCP-alive alone means nothing. Only
      *  an IP serving a valid certificate for a real CDN host (speed.cloudflare.com
-     *  / www.akamai.com) is real.
+     *  / www.bing.com) is real.
      *  v3.8: ENDPOINT needs no TLS phase — its proof is the WireGuard
      *  handshake itself.
-     *  v4.1: AKAMAI has no speed.cloudflare.com-style metered endpoint
-     *  (www.akamai.com serves a normal page, not a byte-metered file), so
-     *  the engine skips the download phase there — ranking is latency +
-     *  jitter + loss + TLS, and speedMbps stays null (rendered "—"). */
+     *  v4.2: AKAMAI runs its throughput measure on REPEATED REAL-PAGE FETCHES
+     *  (bing serves a full body on every census edge) — no CF-style metered
+     *  endpoint is needed, so the speed phase runs in every mode now. */
     val needsTlsPhase: Boolean get() = tlsVerify && mode != ScanMode.ENDPOINT
 
-    /** v4.1: AKAMAI is a latency-ranked mode — the exact-IP HTTPS download
-     *  phase only exists for Cloudflare-backed modes (its URL is CF's
-     *  /__down?bytes= metered endpoint) and the ENDPOINT :443 bonus. */
-    val runsSpeedPhase: Boolean get() = mode != ScanMode.AKAMAI
+    /** v4.2: every mode runs the speed phase — AKAMAI measures throughput on
+     *  repeated real-page fetches (ExactIpHttps.downloadRepeated) instead of
+     *  CF's metered /__down endpoint. The v4.1 "akamai has no metered
+     *  endpoint" limitation is gone. */
+    val runsSpeedPhase: Boolean get() = true
     val downloadMbLabel: Int get() = (downloadBytes / (1024 * 1024)).toInt()
 
     /** Every (ip, port) pair the TCP storm will probe (v3.8: the WARP port

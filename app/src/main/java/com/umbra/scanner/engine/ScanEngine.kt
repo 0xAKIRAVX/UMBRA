@@ -613,14 +613,30 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
                 // connection (live-verified against production edges). When a
                 // whole AKAMAI scan verifies zero, name the contract so zero
                 // reads as evidence, not silence (the zero-result honesty rule).
+                // v4.2 (THE "fake Akamai IPs" fix): the zero-result hint names
+                // the LIVE-CENSUS probe host — www.bing.com is served by every
+                // census edge (9/9, valid cert + HTTP 200); the old text told
+                // users to hunt for www.akamai.com edges that only answer 403.
                 if (verified == 0 && params.mode == ScanMode.AKAMAI) {
                     sink.onLog(
                         "akamai edges route by sni · only ips serving a valid " +
-                            "www.akamai.com certificate pass — raise samples, widen the " +
+                            "www.bing.com certificate pass — raise samples, widen the " +
                             "family, or try another network/isp"
                     )
                 }
             }
+        }
+
+        // ---- v4.2: DEEP MEASURE — real multi-sample ping / stability ----
+        // The complaint this phase answers: «برنامه سریع آیپی‌ها رو پیدا
+        // می‌کنه و اصلاً فرصت نمی‌کنه تا واقعی بسنجه‌شون». Discovery (the
+        // storm + TLS verify / WG handshake) stays fast on purpose — but the
+        // numbers the user READS (latency, jitter, loss, the ranking, the
+        // speed-test ordering) now come from MANY spaced samples per
+        // endpoint, measured over seconds. A single round trip is a
+        // discovery signal, not a measurement.
+        if (params.deepMeasure) {
+            runDeepMeasure(params, sink, isWg, account, probeDispatcher)
         }
 
         // ---- exact-IP HTTPS speed test ----
@@ -628,21 +644,11 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
         // normal CF edge there, while speed.cloudflare.com is never served on
         // the WARP ports. (Opt-in for endpoint mode; it is a bonus edge
         // measurement, not the validation itself.)
-        // v4.1: AKAMAI never runs the download phase — the metered
-        // /__down?bytes= endpoint is a Cloudflare construct and no Akamai
-        // equivalent exists (www.akamai.com serves a normal page). The mode
-        // is latency-ranked; say so instead of silently skipping.
-        if (params.speedTest && !params.runsSpeedPhase) {
-            // the bar still walks through RANKING — the ranking IS the final
-            // board build (SmartRanking in the controller), and a phase the
-            // engine announces keeps the segment order honest.
-            sink.onPhase(ScanPhase.RANKING)
-            sink.onLog(
-                "speed phase skipped · akamai has no metered throughput endpoint · " +
-                    "ranking = latency + jitter + loss + tls"
-            )
-        }
-        if (params.speedTest && params.runsSpeedPhase) {
+        // v4.2: AKAMAI runs the speed phase on REPEATED REAL-PAGE FETCHES —
+        // bing serves a full body on every census edge, so the old v4.1
+        // "no metered throughput endpoint" limitation is gone and the mode
+        // finally ranks by REAL throughput (پرسرعت‌ترین).
+        if (params.speedTest) {
             sink.onPhase(ScanPhase.RANKING)
             val pool = sink.snapshot().filter { it.alive }
                 .sortedBy { it.latencyMs ?: Double.MAX_VALUE }
@@ -650,19 +656,39 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
             sink.onPhase(ScanPhase.SPEED)
             if (pool.isNotEmpty()) {
                 val speedPort = params.speedPort
+                val via = when (params.mode) {
+                    ScanMode.ENDPOINT -> " on :443 (edge bonus)"
+                    // v4.2: Akamai throughput on real page bodies — repeated
+                    // bing fetches, body-transfer time only.
+                    ScanMode.AKAMAI -> " on :443 · repeated real-page fetches"
+                    else -> " on :$speedPort"
+                }
                 sink.onLog(
-                    "speed testing ${pool.size} endpoints · ${params.downloadMbLabel} MB via ${params.speedSni}" +
-                        if (params.mode == ScanMode.ENDPOINT) " on :443 (edge bonus)" else " on :$speedPort"
+                    "speed testing ${pool.size} endpoints · ${params.downloadMbLabel} MB via ${params.speedSni}$via"
                 )
                 mapInParallel(pool, params.speedConcurrency.coerceIn(1, 16)) { r ->
                     val bytes = IpText.literalToBytes(r.ip) ?: return@mapInParallel null
-                    val d = ExactIpHttps.download(
-                        bytes, speedPort, params.speedSni,
-                        bytes = params.downloadBytes,
-                        connectTimeoutMs = params.tcpTimeoutMs.coerceAtLeast(2000),
-                        readTimeoutMs = 8000,
-                        maxDurationMs = 15000,
-                    )
+                    // v4.2: AKAMAI measures throughput on real page bodies
+                    // (bing serves ~78 KB per fetch on every census edge);
+                    // Cloudflare keeps its dedicated /__down endpoint.
+                    val d = if (params.mode == ScanMode.AKAMAI) {
+                        ExactIpHttps.downloadRepeated(
+                            bytes, 443, params.speedSni, Presets.AKAMAI_SPEED_PATH,
+                            targetBytes = params.downloadBytes,
+                            connectTimeoutMs = params.tcpTimeoutMs.coerceAtLeast(2000),
+                            readTimeoutMs = 8000,
+                            maxDurationMs = 15_000,
+                            maxFetches = 64,
+                        )
+                    } else {
+                        ExactIpHttps.download(
+                            bytes, speedPort, params.speedSni,
+                            bytes = params.downloadBytes,
+                            connectTimeoutMs = params.tcpTimeoutMs.coerceAtLeast(2000),
+                            readTimeoutMs = 8000,
+                            maxDurationMs = 15000,
+                        )
+                    }
                     val mbps = if (d.httpStatus == 200 && d.bytes > 0 && d.error == null) {
                         d.bytes * 8.0 / 1000.0 / d.durationMs
                     } else null
@@ -772,8 +798,176 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
         mode = params.mode,
     )
 
+    // --------------------------------------------- v4.2 deep measure --
+
+    /** Multi-sample measurement of one deep-measured TCP/TLS endpoint. */
+    internal data class DeepStats(
+        val avgMs: Double?,
+        val minMs: Double?,
+        val jitterMs: Double?,
+        val loss: Double,
+    )
+
+    /**
+     * v4.2: pure stats over the deep-measure sample set — the numbers the
+     * user reads (avg ping, best ping, jitter, loss) come from HERE, not
+     * from the discovery storm's single round trip. Pure — unit-tested.
+     */
+    internal fun deepTcpStats(samples: List<Double>, failures: Int): DeepStats {
+        val total = samples.size + failures
+        val loss = if (total == 0) 1.0 else failures.toDouble() / total
+        if (samples.isEmpty()) return DeepStats(null, null, null, loss)
+        val avg = samples.average()
+        val jitter = if (samples.size < 2) null else {
+            val mean = avg
+            val variance = samples.sumOf { (it - mean) * (it - mean) } / samples.size
+            kotlin.math.sqrt(variance)
+        }
+        return DeepStats(avg, samples.minOrNull(), jitter, loss)
+    }
+
+    /**
+     * v4.2: the deep-measure phase, shared by every engine path. Takes the
+     * top verified endpoints and re-probes each with [ScanParams.deepSamples]
+     * spaced samples so the reported ping / jitter / loss are REAL
+     * measurements over time. WG mode (ENDPOINT) uses extra WireGuard rounds;
+     * every TCP/TLS mode uses fresh TLS handshakes with the mode's SNI.
+     * Runs for the Go engine path too (post-speed, feeding the final
+     * SmartRanking in the controller) — the sink store is path-independent.
+     */
+    private suspend fun runDeepMeasure(
+        params: ScanParams,
+        sink: ScanSink,
+        isWg: Boolean,
+        account: WarpAccount?,
+        probeDispatcher: kotlinx.coroutines.CoroutineDispatcher?,
+    ) {
+        val deepPool = sink.snapshot().filter { it.alive }
+            .sortedBy { it.latencyMs ?: Double.MAX_VALUE }
+            .take(params.deepTopN.coerceIn(5, 200))
+        if (deepPool.isEmpty()) return
+        sink.onPhase(ScanPhase.CALIBRATE)
+        val lanesDeep = params.speedConcurrency.coerceIn(1, 16)
+        val samplesN = params.deepSamples.coerceIn(3, 20)
+        if (isWg && account != null && probeDispatcher != null) {
+            sink.onLog(
+                "deep measure · ${deepPool.size} endpoints × $samplesN wireguard rounds · " +
+                    "in-tunnel pings · spaced 700 ms"
+            )
+            mapInParallel(deepPool, lanesDeep) { r ->
+                deepProbeWarp(account, r, samplesN, params, probeDispatcher)
+            }
+        } else {
+            sink.onLog(
+                "deep measure · ${deepPool.size} endpoints × $samplesN tls samples · " +
+                    "sni ${params.speedSni} · spaced 250 ms"
+            )
+            mapInParallel(deepPool, lanesDeep) { r ->
+                deepProbeTcp(r, samplesN, params)
+            }
+        }
+        val after = sink.snapshot().filter { it.alive }
+        val flaky = after.count { it.packetLoss >= 0.25 }
+        sink.onLog(
+            "deep measure done · ${deepPool.size} endpoints re-measured · " +
+                "$flaky flaky (loss ≥ 25%) · ranking uses the deep numbers"
+        )
+    }
+
+    /**
+     * v4.2: [samplesN] full TLS round trips with the mode's SNI, spaced
+     * 250 ms — every sample is a FRESH TCP connect + TLS handshake + cert
+     * validation, so a mid-measurement DPI reset or a flaky route shows up
+     * as honest loss instead of being averaged away. The endpoint keeps its
+     * already-proven alive status; these numbers only REFINE it.
+     */
+    private suspend fun deepProbeTcp(
+        r: ScanResult,
+        samplesN: Int,
+        params: ScanParams,
+    ): ScanResult? {
+        val bytes = IpText.literalToBytes(r.ip) ?: return null
+        val samples = ArrayList<Double>(samplesN)
+        var failures = 0
+        repeat(samplesN) { i ->
+            val res = runCatching {
+                ExactIpHttps.tlsProbe(
+                    bytes, r.port, params.speedSni,
+                    connectTimeoutMs = params.tcpTimeoutMs.coerceAtLeast(1500),
+                    readTimeoutMs = 6000,
+                )
+            }.getOrNull()
+            if (res != null && res.ok) {
+                samples.add(res.handshakeMs ?: 0.0)
+            } else {
+                failures++
+            }
+            if (i < samplesN - 1) delay(250)
+        }
+        val stats = deepTcpStats(samples, failures)
+        return r.copy(
+            latencyMs = stats.avgMs ?: r.latencyMs,
+            jitterMs = stats.jitterMs ?: r.jitterMs,
+            packetLoss = stats.loss,
+            tcpAttempts = samples.size + failures,
+            successfulAttempts = samples.size,
+            tlsHandshakeMs = stats.minMs ?: r.tlsHandshakeMs,
+            // a fully-silent deep round on an already-verified endpoint is a
+            // stability warning, not a death sentence — the row stays alive
+            error = if (failures == samplesN) {
+                "deep measure · $failures/$samplesN samples lost"
+            } else null,
+        )
+    }
+
+    /**
+     * v4.2: [samplesN] extra WireGuard rounds (handshake + in-tunnel ping
+     * each, spaced 700 ms) for a top ENDPOINT candidate — the same probe as
+     * the storm, run repeatedly so the reported ping/jitter/loss are real
+     * measurements over time. The stored handshake count is monotonically
+     * merged (never lost), and a silent deep round keeps the endpoint alive
+     * (the storm already proved it) while flagging flakiness.
+     */
+    private suspend fun deepProbeWarp(
+        account: WarpAccount,
+        r: ScanResult,
+        samplesN: Int,
+        params: ScanParams,
+        probeDispatcher: kotlinx.coroutines.CoroutineDispatcher,
+    ): ScanResult? {
+        val bytes = IpText.literalToBytes(r.ip) ?: return null
+        val probe = WarpProbe(
+            account,
+            noise = UdpNoiseConfig(enabled = params.udpNoise, count = params.noiseCount),
+            dispatcher = probeDispatcher,
+        )
+        val t = runCatching {
+            probe.probe(
+                bytes, r.port,
+                attempts = samplesN,
+                timeoutMs = params.tcpTimeoutMs.coerceAtLeast(2000),
+                interAttemptDelayMs = 700,
+            )
+        }.getOrNull() ?: return null
+        return r.copy(
+            latencyMs = t.avgPingMs ?: t.avgHandshakeMs ?: r.latencyMs,
+            jitterMs = t.jitterMs ?: r.jitterMs,
+            packetLoss = t.loss,
+            tcpAttempts = t.attempts,
+            successfulAttempts = t.pings,
+            wgHandshakes = maxOf(r.wgHandshakes, t.handshakes),
+            error = if (t.handshakes == 0 && t.cookieReplies == 0) {
+                "deep measure · ${t.attempts} rounds silent (was validated)"
+            } else null,
+        )
+    }
+
     private suspend fun probeTcp(cand: Candidate, port: Int, params: ScanParams): ScanResult {
-        val t = TcpProbe.probe(cand.bytes, port, params.tcpAttempts, params.tcpTimeoutMs)
+        // v4.2: the TCP storm runs with the probe budget ladder — first
+        // attempt full, retries at half (floor 700 ms). On the Akamai ranges
+        // (and any mostly-dead pool) retries exist only for flaky-but-alive
+        // candidates, which answer inside the first budget anyway.
+        val t = TcpProbe.probe(cand.bytes, port, params.tcpAttempts, params.tcpTimeoutMs, ladder = true)
         val lat = t.latenciesMs
         val total = lat.size + t.failures
         val loss = if (total == 0) 1.0 else t.failures.toDouble() / total
@@ -1174,6 +1368,13 @@ class ScanEngine(private val random: Random = Random(System.nanoTime())) {
         if (!goState.cancelled && goState.seenIds.size < announced) {
             sink.onLog(goDuplicateDrawLine(announced, goState.seenIds.size))
             sink.onGenerated(goState.seenIds.size)
+        }
+        // v4.2: the Go path gets the deep-measure phase too — post-speed
+        // refinement over the store's alive rows, feeding the controller's
+        // final SmartRanking. TLS samples use the mode's SNI, same as the
+        // Kotlin path (the store is path-independent).
+        if (params.deepMeasure && !goState.cancelled) {
+            runDeepMeasure(params, sink, isWg = false, account = null, probeDispatcher = null)
         }
         sink.onPhase(ScanPhase.DONE)
     }

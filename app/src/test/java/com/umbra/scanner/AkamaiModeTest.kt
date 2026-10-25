@@ -23,11 +23,14 @@ import kotlin.random.Random
  * «CDN آکامای رو اسکن کن و پرسرعت‌ترین IPها رو بده»). Pins the mode's
  * CONTRACTS before any network is involved:
  *
- *  - presets: 19 v4 + 3 v6 Akamai edge blocks, all parseable, v4
- *    non-overlapping, family filtering + estimate + the single :443 port
- *  - routing: TLS verification targets SNI=www.akamai.com; the throughput
- *    phase NEVER runs (no Akamai metered endpoint exists — ranking is
- *    latency + jitter + loss + TLS)
+ *  - presets: 29 v4 (v4.2: +10 census-verified regional blocks) + 3 v6
+ *    Akamai edge blocks, all parseable, v4 non-overlapping, family
+ *    filtering + estimate + the single :443 port
+ *  - routing (v4.2): TLS verification targets SNI=www.bing.com — the
+ *    LIVE-CENSUS host (9/9 census edges: valid cert + HTTP 200 + a real
+ *    ~78 KB body; www.akamai.com answers everywhere but only with a 403
+ *    stub); the throughput phase RUNS (repeated real-page fetches — the
+ *    "no metered Akamai endpoint" limitation is gone)
  *  - aliveness: a TLS-cert-verified edge is alive; a bare TCP connect is
  *    NOT (the v3.7 fake-endpoint lesson applied to a second CDN)
  *  - generation: every drawn candidate lands inside the Akamai ranges
@@ -44,11 +47,13 @@ class AkamaiModeTest {
 
     @Test
     fun `akamai pool is parseable and v4 blocks do not overlap`() {
-        check(Presets.AKAMAI_V4.size == 19) { "expected 19 v4 blocks, got ${Presets.AKAMAI_V4.size}" }
+        // v4.2: 29 blocks — the v4.1 list of 19 plus the 10 census-verified
+        // regional blocks (59.151.128.0/18 … 125.252.192.0/18).
+        check(Presets.AKAMAI_V4.size == 29) { "expected 29 v4 blocks, got ${Presets.AKAMAI_V4.size}" }
         check(Presets.AKAMAI_V6.size == 3) { "expected 3 v6 blocks, got ${Presets.AKAMAI_V6.size}" }
         val v4 = Presets.AKAMAI_V4.mapNotNull { CidrBlock.parse(it) }
         val v6 = Presets.AKAMAI_V6.mapNotNull { CidrBlock.parse(it) }
-        check(v4.size == 19 && v6.size == 3) { "every block must parse: ${Presets.AKAMAI_V4 + Presets.AKAMAI_V6}" }
+        check(v4.size == 29 && v6.size == 3) { "every block must parse: ${Presets.AKAMAI_V4 + Presets.AKAMAI_V6}" }
         check(v4.all { it.family == IpProtocol.IPv4 } && v6.all { it.family == IpProtocol.IPv6 })
         // overlap check: sort by base; each block must start at or after the
         // previous block's end (no containment, no intersection — overlapping
@@ -90,26 +95,38 @@ class AkamaiModeTest {
         val both = Presets.cidrsFor(ScanMode.AKAMAI, NetFamily.BOTH)
         // every akamai block is wider than a /22, so each contributes exactly
         // `samples` candidates — the same estimate law as CF_EDGE.
-        check(IpGenerator.estimate(both, NetFamily.BOTH, 96) == 22 * 96)
-        check(IpGenerator.estimate(both, NetFamily.V4, 50) == 19 * 50)
+        // v4.2: 29 v4 + 3 v6 = 32 blocks.
+        check(IpGenerator.estimate(both, NetFamily.BOTH, 96) == 32 * 96)
+        check(IpGenerator.estimate(both, NetFamily.V4, 50) == 29 * 50)
         check(IpGenerator.estimate(both, NetFamily.V6, 50) == 3 * 50)
     }
 
     // ── routing ─────────────────────────────────────────────────────
 
     @Test
-    fun `akamai params route tls to www_akamai_com and never run the speed phase`() {
+    fun `akamai params route tls to the census-proven bing sni and run the real speed phase`() {
         val p = ScanParams(mode = ScanMode.AKAMAI)
-        check(p.edgeSni == "www.akamai.com") { "akamai TLS must verify www.akamai.com, got ${p.edgeSni}" }
-        check(p.speedSni == "www.akamai.com")
+        // v4.2 (the "fake Akamai IPs" fix): the probe SNI moved to
+        // www.bing.com — served by EVERY census edge with HTTP 200 and a real
+        // body (www.akamai.com answers everywhere but only with a 403 stub,
+        // which made throughput unmeasurable and left users with IPs they
+        // could not use).
+        check(p.edgeSni == "www.bing.com") { "akamai TLS must verify www.bing.com, got ${p.edgeSni}" }
+        check(p.speedSni == "www.bing.com")
         check(p.needsTlsPhase) { "TLS verification is the akamai alive filter" }
-        check(!p.runsSpeedPhase) { "akamai has no metered throughput endpoint" }
+        // v4.2: the speed phase RUNS — repeated real-page fetches measure
+        // real throughput (the «پرسرعت‌ترین» ask).
+        check(p.runsSpeedPhase) { "akamai scans now measure real throughput" }
         check(p.speedPort == 443)
         // the other modes keep their own routing — regression pin
         val edge = ScanParams(mode = ScanMode.CF_EDGE)
         check(edge.edgeSni == "speed.cloudflare.com" && edge.runsSpeedPhase)
         val endpoint = ScanParams(mode = ScanMode.ENDPOINT)
         check(endpoint.speedSni == "speed.cloudflare.com" && endpoint.speedPort == 443)
+        // v4.2: the deep-measure defaults ship ON
+        check(p.deepMeasure && p.deepTopN == 30 && p.deepSamples == 8) {
+            "deep measure ships ON with census-calibrated defaults"
+        }
     }
 
     // ── aliveness ───────────────────────────────────────────────────
@@ -125,7 +142,7 @@ class AkamaiModeTest {
         val tcpOnly = ScanResult(
             ip = "23.197.122.85", protocol = IpProtocol.IPv4, port = 443,
             latencyMs = 30.0, successfulAttempts = 3, tlsSuccess = false,
-            error = "TLS: certificate does not match www.akamai.com",
+            error = "TLS: certificate does not match www.bing.com",
             mode = ScanMode.AKAMAI,
         )
         check(!tcpOnly.alive) { "tcp-alive alone proves nothing (dpi fake-accept) — the v3.7 lesson" }
@@ -160,7 +177,7 @@ class AkamaiModeTest {
         val v6Blocks = CidrBlock.parseAll(Presets.AKAMAI_V6)
         val v4 = IpGenerator.generate(Presets.AKAMAI_V4, NetFamily.V4, 7, Random(1))
         val v6 = IpGenerator.generate(Presets.AKAMAI_V6, NetFamily.V6, 7, Random(2))
-        check(v4.size == 19 * 7 && v6.size == 3 * 7)
+        check(v4.size == 29 * 7 && v6.size == 3 * 7)
         check(v4.all { it.protocol == IpProtocol.IPv4 } && v6.all { it.protocol == IpProtocol.IPv6 })
         fun inside(cands: List<com.umbra.scanner.core.Candidate>, blocks: List<CidrBlock>) =
             cands.all { c ->
@@ -179,16 +196,18 @@ class AkamaiModeTest {
     // ── auto-tune / codec / ranking ─────────────────────────────────
 
     @Test
-    fun `auto-tune keeps akamai tls-verified and latency-ranked`() {
+    fun `auto-tune keeps akamai tls-verified with the real throughput pass`() {
         val tune = AutoTune.decide(
             AutoTune.Calibration(rttMs = 60.0, v6Ok = true, linkMbps = 20.0, cores = 8, lowRam = false),
             ScanMode.AKAMAI,
         )
-        check(!tune.speedTest) { "akamai has no throughput pass — auto-tune must not enable one" }
+        // v4.2: akamai now measures real throughput (repeated bing page
+        // fetches) — auto-tune keeps the pass ON.
+        check(tune.speedTest) { "akamai has a real throughput pass since v4.2" }
         check(tune.tlsVerify) { "TLS verification is the akamai alive filter — never auto-off" }
         check(tune.port == 443)
         check(tune.mode == ScanMode.AKAMAI)
-        check(tune.notes.any { it.contains("akamai") }) { "the report names the akamai contract" }
+        check(tune.notes.any { it.contains("www.bing.com") }) { "the report names the census-proven akamai SNI" }
         // the other modes' tuning is untouched
         val edge = AutoTune.decide(
             AutoTune.Calibration(rttMs = 60.0, v6Ok = true, linkMbps = 20.0, cores = 8, lowRam = false),
@@ -222,8 +241,9 @@ class AkamaiModeTest {
         val dead = alive.copy(tlsSuccess = false, successfulAttempts = 0, error = "timeout")
         check(SmartRanking.score(alive, profile) > 0.0)
         check(SmartRanking.score(dead, profile) == 0.0)
-        // speedMbps is null on every akamai row — the neutral speed sub-score
-        // must not turn that into a ranking crash or a zero
+        // v4.2: akamai rows DO carry real throughput now — the neutral speed
+        // sub-score must not turn a null into a crash (rows without a
+        // measurement still rank on the other sub-scores)
         check(SmartRanking.speedScore(alive) > 0.0)
     }
 }
